@@ -438,6 +438,10 @@ poetry run mimolo monitor --dry-run
 
 ## Error Handling
 
+MiMoLo distinguishes between **fatal errors** that should crash the application and **graceful failures** that should be handled without killing the runtime.
+
+### Framework-Level Error Handling
+
 The runtime handles plugin errors gracefully:
 
 - **PluginEmitError**: Exceptions from `emit_event()` are caught and logged
@@ -446,6 +450,254 @@ The runtime handles plugin errors gracefully:
 - **Recovery**: Successful calls reset error count
 
 You don't need explicit try/catch in `emit_event()` unless you want custom error handling.
+
+### Fatal vs. Non-Fatal Errors
+
+**Fatal Errors** - These should crash the application:
+- Invalid plugin configuration that prevents basic functionality
+- Duplicate plugin labels during registration
+- Missing required dependencies
+- Malformed plugin spec (invalid label, negative poll_interval_s)
+
+Use these only in `__init__()` or validation methods when the plugin cannot function at all.
+
+**Non-Fatal Errors** - Handle gracefully with user feedback:
+- Invalid configuration values (bad paths, missing files, etc.)
+- Runtime failures that don't prevent core functionality
+- Transient errors (network issues, temporary file locks)
+- Partial configuration problems
+
+### Graceful Error Handling Pattern
+
+The `FolderWatchMonitor` demonstrates the best practice for graceful error handling:
+
+#### 1. Validate Configuration Without Raising
+
+```python
+def _validate_and_filter(self) -> tuple[list[Path], list[str], list[str]]:
+    """Validate configured watch directories and normalize them without raising.
+    
+    Returns:
+        (valid_dirs, missing, not_dirs)
+    """
+    if self._validated:
+        return self.watch_dirs, [], []
+    
+    resolved_valid: list[Path] = []
+    missing: list[str] = []
+    not_dirs: list[str] = []
+    
+    for d in self.watch_dirs:
+        try:
+            p = d.resolve()
+        except OSError:
+            p = d
+        if not p.exists():
+            missing.append(str(p))
+            continue
+        if not p.is_dir():
+            not_dirs.append(str(p))
+            continue
+        resolved_valid.append(p)
+    
+    # Store only valid paths
+    self.watch_dirs = sorted(set(resolved_valid))
+    self._validated = True
+    return self.watch_dirs, missing, not_dirs
+```
+
+**Key principles:**
+- Don't raise exceptions for bad config values
+- Separate valid from invalid inputs
+- Continue working with valid subset
+- Return diagnostic information for feedback
+
+#### 2. Emit Warning Events for Invalid Configuration
+
+```python
+def emit_event(self) -> Event | None:
+    """Check watched directories for file modifications."""
+    # Validate configuration on first tick without raising
+    if not self._validated:
+        valid_dirs, missing, not_dirs = self._validate_and_filter()
+        
+        # Emit warning event if there are invalid entries
+        if (missing or not_dirs) and not self._warn_emitted:
+            self._warn_emitted = True
+            now = datetime.now(UTC)
+            return Event(
+                timestamp=now,
+                label=self.spec.label,
+                event="watch_warning",
+                data={
+                    "folders": [str(p) for p in valid_dirs],
+                    "invalid": {
+                        "missing": missing,
+                        "not_dirs": not_dirs,
+                    },
+                    "message": (
+                        "Some configured folders are invalid. Please fix your config."
+                    ),
+                    "extensions": sorted(self.extensions) if self.extensions else [],
+                },
+            )
+```
+
+**Key principles:**
+- Emit special event types for warnings (`watch_warning`)
+- Include diagnostic information in event data
+- Provide actionable message for users
+- Use one-time flags to avoid spam (`self._warn_emitted`)
+
+#### 3. Emit Acknowledgment Events for Valid Configuration
+
+```python
+        # If there are valid entries, emit a one-time ack that lists them
+        if valid_dirs and not self._ack_emitted:
+            self._ack_emitted = True
+            now = datetime.now(UTC)
+            return Event(
+                timestamp=now,
+                label=self.spec.label,
+                event="watch_started",
+                data={
+                    "folders": [str(p) for p in valid_dirs],
+                    "extensions": sorted(self.extensions) if self.extensions else [],
+                },
+            )
+```
+
+**Key principles:**
+- Confirm what the plugin is actually monitoring
+- Give users visibility into working configuration
+- Emit once to avoid log spam
+
+#### 4. Handle Edge Cases
+
+```python
+        # If nothing configured, warn once
+        if not valid_dirs and not self._warn_emitted:
+            self._warn_emitted = True
+            now = datetime.now(UTC)
+            return Event(
+                timestamp=now,
+                label=self.spec.label,
+                event="watch_warning",
+                data={
+                    "folders": [],
+                    "invalid": {"missing": [], "not_dirs": []},
+                    "message": (
+                        "No watch_dirs configured for FolderWatchMonitor. "
+                        "Set plugins.folderwatch.watch_dirs."
+                    ),
+                    "extensions": sorted(self.extensions) if self.extensions else [],
+                },
+            )
+```
+
+**Key principles:**
+- Detect and warn about empty/missing configuration
+- Provide specific guidance on what to fix
+- Reference exact config keys the user should set
+
+### Complete Implementation Checklist
+
+When implementing graceful error handling:
+
+1. **Add validation flags to `__init__`:**
+   ```python
+   self._validated: bool = False
+   self._ack_emitted: bool = False
+   self._warn_emitted: bool = False
+   ```
+
+2. **Create validation method that returns diagnostics:**
+   - Returns tuple of (valid_items, error1, error2, ...)
+   - Never raises for config problems
+   - Normalizes/resolves valid inputs
+
+3. **First `emit_event()` call validates and emits feedback:**
+   - Warning events for invalid config
+   - Acknowledgment events for valid config
+   - Specific guidance in messages
+
+4. **Continue working with valid subset:**
+   - Don't block on partial failures
+   - Process what works, report what doesn't
+   - Allow users to fix issues incrementally
+
+### Event Types for Feedback
+
+Recommended event types:
+
+- `<plugin>_started` - Confirmation that plugin is running with valid config
+- `<plugin>_warning` - Non-fatal configuration or runtime warnings
+- `<plugin>_error` - Recoverable errors during operation
+- `<plugin>_info` - Informational messages (use sparingly)
+
+### When to Use Fatal Errors
+
+Raise exceptions in `__init__()` only when:
+
+```python
+def __init__(self, required_param: str):
+    # Fatal: Plugin cannot function without this
+    if not required_param:
+        raise ValueError("required_param is mandatory for MyPlugin")
+    
+    # Non-fatal: Warn via events instead
+    self._optional_paths = self._validate_optional_paths(optional_paths)
+```
+
+Use fatal errors for:
+- Missing required parameters with no sensible default
+- Type mismatches that would cause immediate crashes
+- Fundamental capability checks (e.g., missing required system library)
+
+### Testing Error Handling
+
+Add tests for error scenarios:
+
+```python
+def test_mymonitor_invalid_config():
+    """Test MyMonitor handles invalid config gracefully."""
+    monitor = MyMonitor(invalid_path="/nonexistent")
+    
+    # First emit should be warning event
+    event = monitor.emit_event()
+    assert event is not None
+    assert event.event == "watch_warning"
+    assert "invalid" in event.data
+    assert "message" in event.data
+    
+    # Should not raise, should continue working
+    event2 = monitor.emit_event()
+    # May be None or valid event, but no exception
+
+
+def test_mymonitor_valid_config():
+    """Test MyMonitor emits ack for valid config."""
+    monitor = MyMonitor(valid_path="/tmp")
+    
+    # First emit should be ack event
+    event = monitor.emit_event()
+    assert event is not None
+    assert event.event == "watch_started"
+    assert "folders" in event.data
+```
+
+### Real-World Example Summary
+
+The `FolderWatchMonitor` demonstrates:
+
+✅ **Validates without raising** - Separates good from bad paths
+✅ **Emits warning events** - Lists invalid paths with actionable messages  
+✅ **Emits acknowledgment** - Shows what's actually being monitored
+✅ **Continues working** - Monitors valid paths despite invalid ones
+✅ **One-time feedback** - Uses flags to avoid log spam
+✅ **Specific guidance** - Points users to exact config keys to fix
+
+This pattern ensures users get meaningful feedback they can act on, while keeping the runtime stable.
 
 ## Performance Tips
 
