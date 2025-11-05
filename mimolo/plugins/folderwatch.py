@@ -10,7 +10,6 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-from mimolo.core.errors import ConfigError
 from mimolo.core.event import Event
 from mimolo.core.plugin import BaseMonitor, PluginSpec
 
@@ -52,23 +51,18 @@ class FolderWatchMonitor(BaseMonitor):
         self._last_mtimes: dict[Path, float] = {}
         self._validated: bool = False
         self._ack_emitted: bool = False
+        self._warn_emitted: bool = False
 
-    def _validate_or_raise(self) -> None:
-        """Validate configured watch directories and normalize them.
+    def _validate_and_filter(self) -> tuple[list[Path], list[str], list[str]]:
+        """Validate configured watch directories and normalize them without raising.
 
-        Raises:
-            ConfigError: If no directories are configured, or any do not exist
-                         or are not directories.
+        Returns:
+            (valid_dirs, missing, not_dirs)
         """
         if self._validated:
-            return
+            return self.watch_dirs, [], []
 
-        if not self.watch_dirs:
-            raise ConfigError(
-                "FolderWatchMonitor: no watch_dirs configured. Set plugins.folderwatch.watch_dirs"
-            )
-
-        resolved: list[Path] = []
+        resolved_valid: list[Path] = []
         missing: list[str] = []
         not_dirs: list[str] = []
 
@@ -83,22 +77,12 @@ class FolderWatchMonitor(BaseMonitor):
             if not p.is_dir():
                 not_dirs.append(str(p))
                 continue
-            resolved.append(p)
+            resolved_valid.append(p)
 
-        if missing or not_dirs or not resolved:
-            problems: list[str] = []
-            if missing:
-                problems.append(f"missing={missing}")
-            if not_dirs:
-                problems.append(f"not_dirs={not_dirs}")
-            raise ConfigError(
-                "FolderWatchMonitor: invalid watch_dirs; "
-                + ", ".join(problems)
-            )
-
-        # Deduplicate and store normalized paths
-        self.watch_dirs = sorted(set(resolved))
+        # Deduplicate and store only valid, normalized paths
+        self.watch_dirs = sorted(set(resolved_valid))
         self._validated = True
+        return self.watch_dirs, missing, not_dirs
 
     def emit_event(self) -> Event | None:
         """Check watched directories for file modifications.
@@ -106,20 +90,63 @@ class FolderWatchMonitor(BaseMonitor):
         Returns:
             Event if a modified file is detected, None otherwise.
         """
-        # Validate configuration on first tick
+        # Validate configuration on first tick without raising
         if not self._validated:
-            self._validate_or_raise()
-            # Emit a one-time ack that lists validated folders
-            if not self._ack_emitted:
+            valid_dirs, missing, not_dirs = self._validate_and_filter()
+
+            # If there are invalid entries, emit a one-time warning event
+            if (missing or not_dirs) and not self._warn_emitted:
+                self._warn_emitted = True
+                now = datetime.now(UTC)
+                return Event(
+                    timestamp=now,
+                    label=self.spec.label,
+                    event="watch_warning",
+                    data={
+                        "folders": [str(p) for p in valid_dirs],
+                        "invalid": {
+                            "missing": missing,
+                            "not_dirs": not_dirs,
+                        },
+                        "message": (
+                            "Some configured folders are invalid. Please fix your config."
+                        ),
+                        "extensions": sorted(self.extensions)
+                        if self.extensions
+                        else [],
+                    },
+                )
+
+            # If there are valid entries, emit a one-time ack that lists them
+            if valid_dirs and not self._ack_emitted:
                 self._ack_emitted = True
                 now = datetime.now(UTC)
-                folders = [str(p) for p in self.watch_dirs]
                 return Event(
                     timestamp=now,
                     label=self.spec.label,
                     event="watch_started",
                     data={
-                        "folders": folders,
+                        "folders": [str(p) for p in valid_dirs],
+                        "extensions": sorted(self.extensions)
+                        if self.extensions
+                        else [],
+                    },
+                )
+
+            # If none are valid and no invalid lists (i.e., nothing configured), warn once
+            if not valid_dirs and not self._warn_emitted:
+                self._warn_emitted = True
+                now = datetime.now(UTC)
+                return Event(
+                    timestamp=now,
+                    label=self.spec.label,
+                    event="watch_warning",
+                    data={
+                        "folders": [],
+                        "invalid": {"missing": [], "not_dirs": []},
+                        "message": (
+                            "No watch_dirs configured for FolderWatchMonitor. Set plugins.folderwatch.watch_dirs."
+                        ),
                         "extensions": sorted(self.extensions)
                         if self.extensions
                         else [],
