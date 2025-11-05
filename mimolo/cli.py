@@ -13,6 +13,7 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Annotated, Any, cast
 
 import typer
 from rich.console import Console
@@ -20,7 +21,7 @@ from rich.console import Console
 from mimolo.core.config import Config, load_config_or_default
 from mimolo.core.errors import ConfigError, PluginRegistrationError
 from mimolo.core.event import Event
-from mimolo.core.plugin import PluginSpec
+from mimolo.core.plugin import BaseMonitor, PluginSpec
 from mimolo.core.registry import PluginRegistry
 from mimolo.core.runtime import Runtime
 from mimolo.plugins import ExampleMonitor, FolderWatchMonitor
@@ -32,6 +33,29 @@ app = typer.Typer(
 )
 
 console = Console()
+
+# Typer option metadata constants to avoid function calls in annotations/defaults
+CONFIG_OPTION = typer.Option(
+    "--config",
+    "-c",
+    help="Path to configuration file",
+)
+ONCE_OPTION = typer.Option(
+    "--once",
+    help="Exit after first segment closes",
+)
+DRY_RUN_OPTION = typer.Option(
+    "--dry-run",
+    help="Validate config and exit",
+)
+LOG_FORMAT_OPTION = typer.Option(
+    "--log-format",
+    help="Override log format (jsonl|yaml|md)",
+)
+COOLDOWN_OPTION = typer.Option(
+    "--cooldown",
+    help="Override cooldown seconds",
+)
 
 
 def _discover_and_register_plugins(config: Config, registry: PluginRegistry) -> None:
@@ -45,7 +69,7 @@ def _discover_and_register_plugins(config: Config, registry: PluginRegistry) -> 
         PluginRegistrationError: If plugin registration fails.
     """
     # Explicit plugin list for v0.2 (entry points later)
-    available_plugins = {
+    available_plugins: dict[str, type[BaseMonitor]] = {
         "example": ExampleMonitor,
         "folderwatch": FolderWatchMonitor,
     }
@@ -71,9 +95,16 @@ def _discover_and_register_plugins(config: Config, registry: PluginRegistry) -> 
         if plugin_name == "example":
             instance = plugin_class()
         elif plugin_name == "folderwatch":
-            watch_dirs = plugin_config.model_extra.get("watch_dirs", [])
-            extensions = plugin_config.model_extra.get("extensions", [])
-            instance = plugin_class(watch_dirs=watch_dirs, extensions=extensions)
+            extras: dict[str, Any] = plugin_config.model_extra or {}
+            watch_dirs = extras.get("watch_dirs", [])
+            extensions = extras.get("extensions", [])
+            emit_on_discovery = extras.get("emit_on_discovery", False)
+            fw_class = cast(type[FolderWatchMonitor], plugin_class)
+            instance = fw_class(
+                watch_dirs=watch_dirs,
+                extensions=extensions,
+                emit_on_discovery=emit_on_discovery,
+            )
         else:
             instance = plugin_class()
 
@@ -84,32 +115,11 @@ def _discover_and_register_plugins(config: Config, registry: PluginRegistry) -> 
 
 @app.command()
 def monitor(
-    config_path: Path | None = typer.Option(
-        "mimolo.toml",
-        "--config",
-        "-c",
-        help="Path to configuration file",
-    ),
-    once: bool = typer.Option(
-        False,
-        "--once",
-        help="Exit after first segment closes",
-    ),
-    dry_run: bool = typer.Option(
-        False,
-        "--dry-run",
-        help="Validate config and exit",
-    ),
-    log_format: str | None = typer.Option(
-        None,
-        "--log-format",
-        help="Override log format (jsonl|yaml|md)",
-    ),
-    cooldown: float | None = typer.Option(
-        None,
-        "--cooldown",
-        help="Override cooldown seconds",
-    ),
+    config_path: Annotated[Path | None, CONFIG_OPTION] = Path("mimolo.toml"),
+    once: Annotated[bool, ONCE_OPTION] = False,
+    dry_run: Annotated[bool, DRY_RUN_OPTION] = False,
+    log_format: Annotated[str | None, LOG_FORMAT_OPTION] = None,
+    cooldown: Annotated[float | None, COOLDOWN_OPTION] = None,
 ) -> None:
     """Run the MiMoLo monitor orchestrator.
 
@@ -196,14 +206,14 @@ def register() -> None:
     """
     console.print("[cyan]Available Plugins:[/cyan]\n")
 
-    plugins = [
+    plugins: list[type[BaseMonitor]] = [
         ExampleMonitor,
         FolderWatchMonitor,
     ]
 
     for plugin_class in plugins:
         spec = plugin_class.spec
-        spec_dict = {
+        spec_dict: dict[str, Any] = {
             "label": spec.label,
             "data_header": spec.data_header,
             "resets_cooldown": spec.resets_cooldown,

@@ -89,10 +89,12 @@ class SegmentAggregator:
                 aggregated[data_header] = filtered
             except Exception as e:
                 raise AggregationError(
-                    plugin_label=plugin_spec.label if plugin_spec else "unknown",
+                    plugin_label=plugin_spec.label
+                    if plugin_spec
+                    else "unknown",
                     data_header=data_header,
                     original_error=e,
-                )
+                ) from e
 
         # Calculate duration
         duration_s = (segment_state.last_event_time - segment_state.start_time).total_seconds()

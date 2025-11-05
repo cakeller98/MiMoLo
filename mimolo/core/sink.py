@@ -67,7 +67,9 @@ class JSONLSink(BaseSink):
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         except Exception as e:
-            raise SinkError(f"Failed to create log directory {log_dir}: {e}")
+            raise SinkError(
+                f"Failed to create log directory {log_dir}: {e}"
+            ) from e
 
     def _get_current_file(self, timestamp: datetime) -> Path:
         """Get the log file path for the given timestamp.
@@ -102,7 +104,9 @@ class JSONLSink(BaseSink):
             self._file_handle = open(target_file, "a", encoding="utf-8")
             self._current_file = target_file
         except Exception as e:
-            raise SinkError(f"Failed to open log file {target_file}: {e}")
+            raise SinkError(
+                f"Failed to open log file {target_file}: {e}"
+            ) from e
 
     def write_segment(self, segment: Segment) -> None:
         """Write segment as JSONL record.
@@ -119,7 +123,7 @@ class JSONLSink(BaseSink):
         except Exception as e:
             if isinstance(e, SinkError):
                 raise
-            raise SinkError(f"Failed to write segment: {e}")
+            raise SinkError(f"Failed to write segment: {e}") from e
 
     def write_event(self, event: Event) -> None:
         """Write standalone event as JSONL record.
@@ -136,7 +140,7 @@ class JSONLSink(BaseSink):
         except Exception as e:
             if isinstance(e, SinkError):
                 raise
-            raise SinkError(f"Failed to write event: {e}")
+            raise SinkError(f"Failed to write event: {e}") from e
 
     def flush(self) -> None:
         """Flush buffered data."""
@@ -170,7 +174,9 @@ class YAMLSink(BaseSink):
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         except Exception as e:
-            raise SinkError(f"Failed to create log directory {log_dir}: {e}")
+            raise SinkError(
+                f"Failed to create log directory {log_dir}: {e}"
+            ) from e
 
     def _get_current_file(self, timestamp: datetime) -> Path:
         """Get the log file path for the given timestamp."""
@@ -191,7 +197,9 @@ class YAMLSink(BaseSink):
             self._file_handle = open(target_file, "a", encoding="utf-8")
             self._current_file = target_file
         except Exception as e:
-            raise SinkError(f"Failed to open log file {target_file}: {e}")
+            raise SinkError(
+                f"Failed to open log file {target_file}: {e}"
+            ) from e
 
     def write_segment(self, segment: Segment) -> None:
         """Write segment as YAML document."""
@@ -204,7 +212,7 @@ class YAMLSink(BaseSink):
         except Exception as e:
             if isinstance(e, SinkError):
                 raise
-            raise SinkError(f"Failed to write segment: {e}")
+            raise SinkError(f"Failed to write segment: {e}") from e
 
     def write_event(self, event: Event) -> None:
         """Write standalone event as YAML document."""
@@ -217,7 +225,7 @@ class YAMLSink(BaseSink):
         except Exception as e:
             if isinstance(e, SinkError):
                 raise
-            raise SinkError(f"Failed to write event: {e}")
+            raise SinkError(f"Failed to write event: {e}") from e
 
     def flush(self) -> None:
         """Flush buffered data."""
@@ -252,7 +260,9 @@ class MarkdownSink(BaseSink):
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         except Exception as e:
-            raise SinkError(f"Failed to create log directory {log_dir}: {e}")
+            raise SinkError(
+                f"Failed to create log directory {log_dir}: {e}"
+            ) from e
 
     def write_segment(self, segment: Segment) -> None:
         """Buffer segment for markdown table."""
@@ -315,7 +325,9 @@ class MarkdownSink(BaseSink):
                     f.write("\n")
 
         except Exception as e:
-            raise SinkError(f"Failed to write markdown file {file_path}: {e}")
+            raise SinkError(
+                f"Failed to write markdown file {file_path}: {e}"
+            ) from e
 
     def flush(self) -> None:
         """Flush accumulated data to file."""

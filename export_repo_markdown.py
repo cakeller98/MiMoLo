@@ -28,6 +28,7 @@ poetry run python export_repo_markdown.py --absolute --output repo_export.md
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -99,23 +100,27 @@ def export_repo_markdown(
 
 app = typer.Typer()
 
+# Typer option metadata to avoid function calls in defaults
+ROOT_OPTION = typer.Option(
+    help="Root directory to export.",
+)
+OUTPUT_OPTION = typer.Option(
+    help="Output Markdown file.",
+)
+ABSOLUTE_OPTION = typer.Option(
+    help="Use absolute paths in headings instead of relative.",
+)
+
 
 @app.command()
 def main(
-    root: Path = typer.Option(
-        Path.cwd(),
-        help="Root directory to export.",
-    ),
-    output: Path = typer.Option(
-        Path("repo_export.md"),
-        help="Output Markdown file.",
-    ),
-    absolute: bool = typer.Option(
-        False,
-        help="Use absolute paths in headings instead of relative.",
-    ),
+    root: Annotated[Path | None, ROOT_OPTION] = None,
+    output: Annotated[Path, OUTPUT_OPTION] = Path("repo_export.md"),
+    absolute: Annotated[bool, ABSOLUTE_OPTION] = False,
 ) -> None:
     """Export repository files to a single Markdown document."""
+    if root is None:
+        root = Path.cwd()
     export_repo_markdown(root, output, relative=not absolute)
 
 

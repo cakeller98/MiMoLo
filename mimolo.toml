@@ -26,7 +26,7 @@ infrequent = false
 
 # Folder Watch Plugin Configuration
 [plugins.folderwatch]
-enabled = false
+enabled = true
 poll_interval_s = 5.0
 resets_cooldown = true
 infrequent = false

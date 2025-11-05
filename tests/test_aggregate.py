@@ -65,7 +65,7 @@ def test_aggregator_build_segment():
     start = datetime.now(UTC)
 
     # Add events
-    for i, item in enumerate(["item1", "item2", "item1", "item3"]):
+    for _i, item in enumerate(["item1", "item2", "item1", "item3"]):
         event = Event(
             timestamp=start,
             label="test",

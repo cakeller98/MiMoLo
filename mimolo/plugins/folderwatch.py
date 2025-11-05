@@ -33,15 +33,21 @@ class FolderWatchMonitor(BaseMonitor):
         self,
         watch_dirs: list[str] | None = None,
         extensions: list[str] | None = None,
+        emit_on_discovery: bool = False,
     ) -> None:
         """Initialize folder watch monitor.
 
         Args:
             watch_dirs: List of directory paths to watch.
             extensions: List of file extensions to monitor (without dots).
+            emit_on_discovery: If True, emit an event the first time a file is seen.
         """
         self.watch_dirs = [Path(d) for d in (watch_dirs or [])]
-        self.extensions = set(extensions or [])
+        # Normalize extensions to be case-insensitive and dot-free
+        self.extensions = {
+            ext.lower().lstrip(".") for ext in (extensions or [])
+        }
+        self.emit_on_discovery = emit_on_discovery
         self._last_mtimes: dict[Path, float] = {}
 
     def emit_event(self) -> Event | None:
@@ -59,13 +65,17 @@ class FolderWatchMonitor(BaseMonitor):
 
             # Scan directory for matching files
             try:
-                for root, dirs, files in os.walk(watch_dir):
+                for root, _dirs, files in os.walk(watch_dir):
                     root_path = Path(root)
                     for filename in files:
                         file_path = root_path / filename
 
-                        # Check extension
-                        if self.extensions and file_path.suffix.lstrip(".") not in self.extensions:
+                        # Check extension (case-insensitive)
+                        if (
+                            self.extensions
+                            and file_path.suffix.lower().lstrip(".")
+                            not in self.extensions
+                        ):
                             continue
 
                         # Check modification time
@@ -79,6 +89,20 @@ class FolderWatchMonitor(BaseMonitor):
                         if last_mtime is None:
                             # First time seeing this file
                             self._last_mtimes[file_path] = mtime
+
+                            # Optionally emit on discovery
+                            if self.emit_on_discovery:
+                                now = datetime.now(UTC)
+                                folder = str(file_path.parent.resolve())
+                                return Event(
+                                    timestamp=now,
+                                    label=self.spec.label,
+                                    event="file_mod",
+                                    data={
+                                        "folders": [folder],
+                                        "file": str(file_path),
+                                    },
+                                )
                             continue
 
                         if mtime > last_mtime:

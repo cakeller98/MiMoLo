@@ -348,7 +348,7 @@ infrequent = false
 
 # Folder Watch Plugin Configuration
 [plugins.folderwatch]
-enabled = false
+enabled = true
 poll_interval_s = 5.0
 resets_cooldown = true
 infrequent = false
@@ -3326,7 +3326,7 @@ class FolderWatchMonitor(BaseMonitor):
 
             # Scan directory for matching files
             try:
-                for root, dirs, files in os.walk(watch_dir):
+                for root, _dirs, files in os.walk(watch_dir):
                     root_path = Path(root)
                     for filename in files:
                         file_path = root_path / filename

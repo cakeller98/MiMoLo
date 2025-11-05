@@ -5,7 +5,7 @@ Supports TOML and YAML configuration files with Pydantic validation.
 
 from __future__ import annotations
 
-import sys
+import tomllib
 from pathlib import Path
 from typing import Literal
 
@@ -13,11 +13,6 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 
 from mimolo.core.errors import ConfigError
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 
 class MonitorConfig(BaseModel):
@@ -95,12 +90,14 @@ def load_config(path: Path | str) -> Config:
     except Exception as e:
         if isinstance(e, ConfigError):
             raise
-        raise ConfigError(f"Failed to parse configuration file {path}: {e}")
+        raise ConfigError(
+            f"Failed to parse configuration file {path}: {e}"
+        ) from e
 
     try:
         return Config.model_validate(data)
     except Exception as e:
-        raise ConfigError(f"Configuration validation failed: {e}")
+        raise ConfigError(f"Configuration validation failed: {e}") from e
 
 
 def load_config_or_default(path: Path | str | None = None) -> Config:
@@ -156,7 +153,9 @@ def create_default_config(path: Path | str) -> None:
     except Exception as e:
         if isinstance(e, ConfigError):
             raise
-        raise ConfigError(f"Failed to write configuration file {path}: {e}")
+        raise ConfigError(
+            f"Failed to write configuration file {path}: {e}"
+        ) from e
 
 
 def _config_to_toml(config: Config) -> str:
