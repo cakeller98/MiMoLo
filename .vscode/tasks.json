@@ -1,0 +1,32 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "install",
+      "type": "shell",
+      "command": "poetry install --with dev",
+      "problemMatcher": []
+    },
+    {
+      "label": "lint",
+      "type": "shell",
+      "command": "poetry run ruff check . && poetry run mypy mimolo",
+      "dependsOn": "install",
+      "problemMatcher": []
+    },
+    {
+      "label": "test",
+      "type": "shell",
+      "command": "poetry run pytest -q",
+      "dependsOn": "install",
+      "problemMatcher": []
+    },
+    {
+      "label": "run:monitor",
+      "type": "shell",
+      "command": "poetry run python -m mimolo.cli monitor",
+      "dependsOn": "install",
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+# MiMoLo Configuration
+# See docs for full configuration reference
+
+[monitor]
+# Cooldown duration in seconds - segment closes after this period with no resetting events
+cooldown_seconds = 600
+
+# Polling tick interval in milliseconds
+poll_tick_ms = 200
+
+# Directory for log files (will be created if doesn't exist)
+log_dir = "./logs"
+
+# Log output format: jsonl (default), yaml, or md
+log_format = "jsonl"
+
+# Console verbosity: debug, info, warning, error
+console_verbosity = "info"
+
+# Example Plugin Configuration
+[plugins.example]
+enabled = true
+poll_interval_s = 3.0
+resets_cooldown = true
+infrequent = false
+
+# Folder Watch Plugin Configuration
+[plugins.folderwatch]
+enabled = false
+poll_interval_s = 5.0
+resets_cooldown = true
+infrequent = false
+
+# Plugin-specific settings
+watch_dirs = ["./demo", "./watched_folder"]
+extensions = ["obj", "blend", "fbx", "py"]

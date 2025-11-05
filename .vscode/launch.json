@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "mimolo monitor",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "mimolo.cli",
+      "args": ["monitor"],
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "pytest",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-q"],
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    }
+  ]
+}

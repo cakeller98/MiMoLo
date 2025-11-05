@@ -1,0 +1,21 @@
+{
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": [
+    "-q"
+  ],
+  "editor.formatOnSave": true,
+  "ruff.enable": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.ruff": "explicit"
+  },
+  "python.analysis.typeCheckingMode": "strict",
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.mypy_cache": true,
+    "**/*.pyc": true
+  },
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+  "python-envs.defaultEnvManager": "ms-python.python:poetry",
+  "python-envs.defaultPackageManager": "ms-python.python:poetry",
+  "python-envs.pythonProjects": []
+}
