@@ -10,6 +10,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
+from mimolo.core.errors import ConfigError
 from mimolo.core.event import Event
 from mimolo.core.plugin import BaseMonitor, PluginSpec
 
@@ -49,6 +50,55 @@ class FolderWatchMonitor(BaseMonitor):
         }
         self.emit_on_discovery = emit_on_discovery
         self._last_mtimes: dict[Path, float] = {}
+        self._validated: bool = False
+        self._ack_emitted: bool = False
+
+    def _validate_or_raise(self) -> None:
+        """Validate configured watch directories and normalize them.
+
+        Raises:
+            ConfigError: If no directories are configured, or any do not exist
+                         or are not directories.
+        """
+        if self._validated:
+            return
+
+        if not self.watch_dirs:
+            raise ConfigError(
+                "FolderWatchMonitor: no watch_dirs configured. Set plugins.folderwatch.watch_dirs"
+            )
+
+        resolved: list[Path] = []
+        missing: list[str] = []
+        not_dirs: list[str] = []
+
+        for d in self.watch_dirs:
+            try:
+                p = d.resolve()
+            except OSError:
+                p = d
+            if not p.exists():
+                missing.append(str(p))
+                continue
+            if not p.is_dir():
+                not_dirs.append(str(p))
+                continue
+            resolved.append(p)
+
+        if missing or not_dirs or not resolved:
+            problems: list[str] = []
+            if missing:
+                problems.append(f"missing={missing}")
+            if not_dirs:
+                problems.append(f"not_dirs={not_dirs}")
+            raise ConfigError(
+                "FolderWatchMonitor: invalid watch_dirs; "
+                + ", ".join(problems)
+            )
+
+        # Deduplicate and store normalized paths
+        self.watch_dirs = sorted(set(resolved))
+        self._validated = True
 
     def emit_event(self) -> Event | None:
         """Check watched directories for file modifications.
@@ -56,8 +106,25 @@ class FolderWatchMonitor(BaseMonitor):
         Returns:
             Event if a modified file is detected, None otherwise.
         """
-        if not self.watch_dirs:
-            return None
+        # Validate configuration on first tick
+        if not self._validated:
+            self._validate_or_raise()
+            # Emit a one-time ack that lists validated folders
+            if not self._ack_emitted:
+                self._ack_emitted = True
+                now = datetime.now(UTC)
+                folders = [str(p) for p in self.watch_dirs]
+                return Event(
+                    timestamp=now,
+                    label=self.spec.label,
+                    event="watch_started",
+                    data={
+                        "folders": folders,
+                        "extensions": sorted(self.extensions)
+                        if self.extensions
+                        else [],
+                    },
+                )
 
         for watch_dir in self.watch_dirs:
             if not watch_dir.exists():
