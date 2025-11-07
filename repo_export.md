@@ -31,6 +31,7 @@ poetry run python export_repo_markdown.py --absolute --output repo_export.md
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -102,23 +103,27 @@ def export_repo_markdown(
 
 app = typer.Typer()
 
+# Typer option metadata to avoid function calls in defaults
+ROOT_OPTION = typer.Option(
+    help="Root directory to export.",
+)
+OUTPUT_OPTION = typer.Option(
+    help="Output Markdown file.",
+)
+ABSOLUTE_OPTION = typer.Option(
+    help="Use absolute paths in headings instead of relative.",
+)
+
 
 @app.command()
 def main(
-    root: Path = typer.Option(
-        Path.cwd(),
-        help="Root directory to export.",
-    ),
-    output: Path = typer.Option(
-        Path("repo_export.md"),
-        help="Output Markdown file.",
-    ),
-    absolute: bool = typer.Option(
-        False,
-        help="Use absolute paths in headings instead of relative.",
-    ),
+    root: Annotated[Path | None, ROOT_OPTION] = None,
+    output: Annotated[Path, OUTPUT_OPTION] = Path("repo_export.md"),
+    absolute: Annotated[bool, ABSOLUTE_OPTION] = False,
 ) -> None:
     """Export repository files to a single Markdown document."""
+    if root is None:
+        root = Path.cwd()
     export_repo_markdown(root, output, relative=not absolute)
 
 
@@ -622,6 +627,7 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Annotated, Any, cast
 
 import typer
 from rich.console import Console
@@ -629,7 +635,7 @@ from rich.console import Console
 from mimolo.core.config import Config, load_config_or_default
 from mimolo.core.errors import ConfigError, PluginRegistrationError
 from mimolo.core.event import Event
-from mimolo.core.plugin import PluginSpec
+from mimolo.core.plugin import BaseMonitor, PluginSpec
 from mimolo.core.registry import PluginRegistry
 from mimolo.core.runtime import Runtime
 from mimolo.plugins import ExampleMonitor, FolderWatchMonitor
@@ -641,6 +647,29 @@ app = typer.Typer(
 )
 
 console = Console()
+
+# Typer option metadata constants to avoid function calls in annotations/defaults
+CONFIG_OPTION = typer.Option(
+    "--config",
+    "-c",
+    help="Path to configuration file",
+)
+ONCE_OPTION = typer.Option(
+    "--once",
+    help="Exit after first segment closes",
+)
+DRY_RUN_OPTION = typer.Option(
+    "--dry-run",
+    help="Validate config and exit",
+)
+LOG_FORMAT_OPTION = typer.Option(
+    "--log-format",
+    help="Override log format (jsonl|yaml|md)",
+)
+COOLDOWN_OPTION = typer.Option(
+    "--cooldown",
+    help="Override cooldown seconds",
+)
 
 
 def _discover_and_register_plugins(config: Config, registry: PluginRegistry) -> None:
@@ -654,7 +683,7 @@ def _discover_and_register_plugins(config: Config, registry: PluginRegistry) -> 
         PluginRegistrationError: If plugin registration fails.
     """
     # Explicit plugin list for v0.2 (entry points later)
-    available_plugins = {
+    available_plugins: dict[str, type[BaseMonitor]] = {
         "example": ExampleMonitor,
         "folderwatch": FolderWatchMonitor,
     }
@@ -680,9 +709,16 @@ def _discover_and_register_plugins(config: Config, registry: PluginRegistry) -> 
         if plugin_name == "example":
             instance = plugin_class()
         elif plugin_name == "folderwatch":
-            watch_dirs = plugin_config.model_extra.get("watch_dirs", [])
-            extensions = plugin_config.model_extra.get("extensions", [])
-            instance = plugin_class(watch_dirs=watch_dirs, extensions=extensions)
+            extras: dict[str, Any] = plugin_config.model_extra or {}
+            watch_dirs = extras.get("watch_dirs", [])
+            extensions = extras.get("extensions", [])
+            emit_on_discovery = extras.get("emit_on_discovery", False)
+            fw_class = cast(type[FolderWatchMonitor], plugin_class)
+            instance = fw_class(
+                watch_dirs=watch_dirs,
+                extensions=extensions,
+                emit_on_discovery=emit_on_discovery,
+            )
         else:
             instance = plugin_class()
 
@@ -693,32 +729,11 @@ def _discover_and_register_plugins(config: Config, registry: PluginRegistry) -> 
 
 @app.command()
 def monitor(
-    config_path: Path | None = typer.Option(
-        "mimolo.toml",
-        "--config",
-        "-c",
-        help="Path to configuration file",
-    ),
-    once: bool = typer.Option(
-        False,
-        "--once",
-        help="Exit after first segment closes",
-    ),
-    dry_run: bool = typer.Option(
-        False,
-        "--dry-run",
-        help="Validate config and exit",
-    ),
-    log_format: str | None = typer.Option(
-        None,
-        "--log-format",
-        help="Override log format (jsonl|yaml|md)",
-    ),
-    cooldown: float | None = typer.Option(
-        None,
-        "--cooldown",
-        help="Override cooldown seconds",
-    ),
+    config_path: Annotated[Path | None, CONFIG_OPTION] = Path("mimolo.toml"),
+    once: Annotated[bool, ONCE_OPTION] = False,
+    dry_run: Annotated[bool, DRY_RUN_OPTION] = False,
+    log_format: Annotated[str | None, LOG_FORMAT_OPTION] = None,
+    cooldown: Annotated[float | None, COOLDOWN_OPTION] = None,
 ) -> None:
     """Run the MiMoLo monitor orchestrator.
 
@@ -805,14 +820,14 @@ def register() -> None:
     """
     console.print("[cyan]Available Plugins:[/cyan]\n")
 
-    plugins = [
+    plugins: list[type[BaseMonitor]] = [
         ExampleMonitor,
         FolderWatchMonitor,
     ]
 
     for plugin_class in plugins:
         spec = plugin_class.spec
-        spec_dict = {
+        spec_dict: dict[str, Any] = {
             "label": spec.label,
             "data_header": spec.data_header,
             "resets_cooldown": spec.resets_cooldown,
@@ -988,10 +1003,12 @@ class SegmentAggregator:
                 aggregated[data_header] = filtered
             except Exception as e:
                 raise AggregationError(
-                    plugin_label=plugin_spec.label if plugin_spec else "unknown",
+                    plugin_label=plugin_spec.label
+                    if plugin_spec
+                    else "unknown",
                     data_header=data_header,
                     original_error=e,
-                )
+                ) from e
 
         # Calculate duration
         duration_s = (segment_state.last_event_time - segment_state.start_time).total_seconds()
@@ -1037,7 +1054,7 @@ Supports TOML and YAML configuration files with Pydantic validation.
 
 from __future__ import annotations
 
-import sys
+import tomllib
 from pathlib import Path
 from typing import Literal
 
@@ -1045,11 +1062,6 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 
 from mimolo.core.errors import ConfigError
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 
 class MonitorConfig(BaseModel):
@@ -1127,12 +1139,14 @@ def load_config(path: Path | str) -> Config:
     except Exception as e:
         if isinstance(e, ConfigError):
             raise
-        raise ConfigError(f"Failed to parse configuration file {path}: {e}")
+        raise ConfigError(
+            f"Failed to parse configuration file {path}: {e}"
+        ) from e
 
     try:
         return Config.model_validate(data)
     except Exception as e:
-        raise ConfigError(f"Configuration validation failed: {e}")
+        raise ConfigError(f"Configuration validation failed: {e}") from e
 
 
 def load_config_or_default(path: Path | str | None = None) -> Config:
@@ -1188,7 +1202,9 @@ def create_default_config(path: Path | str) -> None:
     except Exception as e:
         if isinstance(e, ConfigError):
             raise
-        raise ConfigError(f"Failed to write configuration file {path}: {e}")
+        raise ConfigError(
+            f"Failed to write configuration file {path}: {e}"
+        ) from e
 
 
 def _config_to_toml(config: Config) -> str:
@@ -2354,7 +2370,9 @@ class JSONLSink(BaseSink):
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         except Exception as e:
-            raise SinkError(f"Failed to create log directory {log_dir}: {e}")
+            raise SinkError(
+                f"Failed to create log directory {log_dir}: {e}"
+            ) from e
 
     def _get_current_file(self, timestamp: datetime) -> Path:
         """Get the log file path for the given timestamp.
@@ -2389,7 +2407,9 @@ class JSONLSink(BaseSink):
             self._file_handle = open(target_file, "a", encoding="utf-8")
             self._current_file = target_file
         except Exception as e:
-            raise SinkError(f"Failed to open log file {target_file}: {e}")
+            raise SinkError(
+                f"Failed to open log file {target_file}: {e}"
+            ) from e
 
     def write_segment(self, segment: Segment) -> None:
         """Write segment as JSONL record.
@@ -2406,7 +2426,7 @@ class JSONLSink(BaseSink):
         except Exception as e:
             if isinstance(e, SinkError):
                 raise
-            raise SinkError(f"Failed to write segment: {e}")
+            raise SinkError(f"Failed to write segment: {e}") from e
 
     def write_event(self, event: Event) -> None:
         """Write standalone event as JSONL record.
@@ -2423,7 +2443,7 @@ class JSONLSink(BaseSink):
         except Exception as e:
             if isinstance(e, SinkError):
                 raise
-            raise SinkError(f"Failed to write event: {e}")
+            raise SinkError(f"Failed to write event: {e}") from e
 
     def flush(self) -> None:
         """Flush buffered data."""
@@ -2457,7 +2477,9 @@ class YAMLSink(BaseSink):
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         except Exception as e:
-            raise SinkError(f"Failed to create log directory {log_dir}: {e}")
+            raise SinkError(
+                f"Failed to create log directory {log_dir}: {e}"
+            ) from e
 
     def _get_current_file(self, timestamp: datetime) -> Path:
         """Get the log file path for the given timestamp."""
@@ -2478,7 +2500,9 @@ class YAMLSink(BaseSink):
             self._file_handle = open(target_file, "a", encoding="utf-8")
             self._current_file = target_file
         except Exception as e:
-            raise SinkError(f"Failed to open log file {target_file}: {e}")
+            raise SinkError(
+                f"Failed to open log file {target_file}: {e}"
+            ) from e
 
     def write_segment(self, segment: Segment) -> None:
         """Write segment as YAML document."""
@@ -2491,7 +2515,7 @@ class YAMLSink(BaseSink):
         except Exception as e:
             if isinstance(e, SinkError):
                 raise
-            raise SinkError(f"Failed to write segment: {e}")
+            raise SinkError(f"Failed to write segment: {e}") from e
 
     def write_event(self, event: Event) -> None:
         """Write standalone event as YAML document."""
@@ -2504,7 +2528,7 @@ class YAMLSink(BaseSink):
         except Exception as e:
             if isinstance(e, SinkError):
                 raise
-            raise SinkError(f"Failed to write event: {e}")
+            raise SinkError(f"Failed to write event: {e}") from e
 
     def flush(self) -> None:
         """Flush buffered data."""
@@ -2539,7 +2563,9 @@ class MarkdownSink(BaseSink):
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         except Exception as e:
-            raise SinkError(f"Failed to create log directory {log_dir}: {e}")
+            raise SinkError(
+                f"Failed to create log directory {log_dir}: {e}"
+            ) from e
 
     def write_segment(self, segment: Segment) -> None:
         """Buffer segment for markdown table."""
@@ -2602,7 +2628,9 @@ class MarkdownSink(BaseSink):
                     f.write("\n")
 
         except Exception as e:
-            raise SinkError(f"Failed to write markdown file {file_path}: {e}")
+            raise SinkError(
+                f"Failed to write markdown file {file_path}: {e}"
+            ) from e
 
     def flush(self) -> None:
         """Flush accumulated data to file."""
@@ -3131,6 +3159,10 @@ poetry run mimolo monitor --dry-run
 
 ## Error Handling
 
+MiMoLo distinguishes between **fatal errors** that should crash the application and **graceful failures** that should be handled without killing the runtime.
+
+### Framework-Level Error Handling
+
 The runtime handles plugin errors gracefully:
 
 - **PluginEmitError**: Exceptions from `emit_event()` are caught and logged
@@ -3139,6 +3171,254 @@ The runtime handles plugin errors gracefully:
 - **Recovery**: Successful calls reset error count
 
 You don't need explicit try/catch in `emit_event()` unless you want custom error handling.
+
+### Fatal vs. Non-Fatal Errors
+
+**Fatal Errors** - These should crash the application:
+- Invalid plugin configuration that prevents basic functionality
+- Duplicate plugin labels during registration
+- Missing required dependencies
+- Malformed plugin spec (invalid label, negative poll_interval_s)
+
+Use these only in `__init__()` or validation methods when the plugin cannot function at all.
+
+**Non-Fatal Errors** - Handle gracefully with user feedback:
+- Invalid configuration values (bad paths, missing files, etc.)
+- Runtime failures that don't prevent core functionality
+- Transient errors (network issues, temporary file locks)
+- Partial configuration problems
+
+### Graceful Error Handling Pattern
+
+The `FolderWatchMonitor` demonstrates the best practice for graceful error handling:
+
+#### 1. Validate Configuration Without Raising
+
+```python
+def _validate_and_filter(self) -> tuple[list[Path], list[str], list[str]]:
+    """Validate configured watch directories and normalize them without raising.
+    
+    Returns:
+        (valid_dirs, missing, not_dirs)
+    """
+    if self._validated:
+        return self.watch_dirs, [], []
+    
+    resolved_valid: list[Path] = []
+    missing: list[str] = []
+    not_dirs: list[str] = []
+    
+    for d in self.watch_dirs:
+        try:
+            p = d.resolve()
+        except OSError:
+            p = d
+        if not p.exists():
+            missing.append(str(p))
+            continue
+        if not p.is_dir():
+            not_dirs.append(str(p))
+            continue
+        resolved_valid.append(p)
+    
+    # Store only valid paths
+    self.watch_dirs = sorted(set(resolved_valid))
+    self._validated = True
+    return self.watch_dirs, missing, not_dirs
+```
+
+**Key principles:**
+- Don't raise exceptions for bad config values
+- Separate valid from invalid inputs
+- Continue working with valid subset
+- Return diagnostic information for feedback
+
+#### 2. Emit Warning Events for Invalid Configuration
+
+```python
+def emit_event(self) -> Event | None:
+    """Check watched directories for file modifications."""
+    # Validate configuration on first tick without raising
+    if not self._validated:
+        valid_dirs, missing, not_dirs = self._validate_and_filter()
+        
+        # Emit warning event if there are invalid entries
+        if (missing or not_dirs) and not self._warn_emitted:
+            self._warn_emitted = True
+            now = datetime.now(UTC)
+            return Event(
+                timestamp=now,
+                label=self.spec.label,
+                event="watch_warning",
+                data={
+                    "folders": [str(p) for p in valid_dirs],
+                    "invalid": {
+                        "missing": missing,
+                        "not_dirs": not_dirs,
+                    },
+                    "message": (
+                        "Some configured folders are invalid. Please fix your config."
+                    ),
+                    "extensions": sorted(self.extensions) if self.extensions else [],
+                },
+            )
+```
+
+**Key principles:**
+- Emit special event types for warnings (`watch_warning`)
+- Include diagnostic information in event data
+- Provide actionable message for users
+- Use one-time flags to avoid spam (`self._warn_emitted`)
+
+#### 3. Emit Acknowledgment Events for Valid Configuration
+
+```python
+        # If there are valid entries, emit a one-time ack that lists them
+        if valid_dirs and not self._ack_emitted:
+            self._ack_emitted = True
+            now = datetime.now(UTC)
+            return Event(
+                timestamp=now,
+                label=self.spec.label,
+                event="watch_started",
+                data={
+                    "folders": [str(p) for p in valid_dirs],
+                    "extensions": sorted(self.extensions) if self.extensions else [],
+                },
+            )
+```
+
+**Key principles:**
+- Confirm what the plugin is actually monitoring
+- Give users visibility into working configuration
+- Emit once to avoid log spam
+
+#### 4. Handle Edge Cases
+
+```python
+        # If nothing configured, warn once
+        if not valid_dirs and not self._warn_emitted:
+            self._warn_emitted = True
+            now = datetime.now(UTC)
+            return Event(
+                timestamp=now,
+                label=self.spec.label,
+                event="watch_warning",
+                data={
+                    "folders": [],
+                    "invalid": {"missing": [], "not_dirs": []},
+                    "message": (
+                        "No watch_dirs configured for FolderWatchMonitor. "
+                        "Set plugins.folderwatch.watch_dirs."
+                    ),
+                    "extensions": sorted(self.extensions) if self.extensions else [],
+                },
+            )
+```
+
+**Key principles:**
+- Detect and warn about empty/missing configuration
+- Provide specific guidance on what to fix
+- Reference exact config keys the user should set
+
+### Complete Implementation Checklist
+
+When implementing graceful error handling:
+
+1. **Add validation flags to `__init__`:**
+   ```python
+   self._validated: bool = False
+   self._ack_emitted: bool = False
+   self._warn_emitted: bool = False
+   ```
+
+2. **Create validation method that returns diagnostics:**
+   - Returns tuple of (valid_items, error1, error2, ...)
+   - Never raises for config problems
+   - Normalizes/resolves valid inputs
+
+3. **First `emit_event()` call validates and emits feedback:**
+   - Warning events for invalid config
+   - Acknowledgment events for valid config
+   - Specific guidance in messages
+
+4. **Continue working with valid subset:**
+   - Don't block on partial failures
+   - Process what works, report what doesn't
+   - Allow users to fix issues incrementally
+
+### Event Types for Feedback
+
+Recommended event types:
+
+- `<plugin>_started` - Confirmation that plugin is running with valid config
+- `<plugin>_warning` - Non-fatal configuration or runtime warnings
+- `<plugin>_error` - Recoverable errors during operation
+- `<plugin>_info` - Informational messages (use sparingly)
+
+### When to Use Fatal Errors
+
+Raise exceptions in `__init__()` only when:
+
+```python
+def __init__(self, required_param: str):
+    # Fatal: Plugin cannot function without this
+    if not required_param:
+        raise ValueError("required_param is mandatory for MyPlugin")
+    
+    # Non-fatal: Warn via events instead
+    self._optional_paths = self._validate_optional_paths(optional_paths)
+```
+
+Use fatal errors for:
+- Missing required parameters with no sensible default
+- Type mismatches that would cause immediate crashes
+- Fundamental capability checks (e.g., missing required system library)
+
+### Testing Error Handling
+
+Add tests for error scenarios:
+
+```python
+def test_mymonitor_invalid_config():
+    """Test MyMonitor handles invalid config gracefully."""
+    monitor = MyMonitor(invalid_path="/nonexistent")
+    
+    # First emit should be warning event
+    event = monitor.emit_event()
+    assert event is not None
+    assert event.event == "watch_warning"
+    assert "invalid" in event.data
+    assert "message" in event.data
+    
+    # Should not raise, should continue working
+    event2 = monitor.emit_event()
+    # May be None or valid event, but no exception
+
+
+def test_mymonitor_valid_config():
+    """Test MyMonitor emits ack for valid config."""
+    monitor = MyMonitor(valid_path="/tmp")
+    
+    # First emit should be ack event
+    event = monitor.emit_event()
+    assert event is not None
+    assert event.event == "watch_started"
+    assert "folders" in event.data
+```
+
+### Real-World Example Summary
+
+The `FolderWatchMonitor` demonstrates:
+
+✅ **Validates without raising** - Separates good from bad paths
+✅ **Emits warning events** - Lists invalid paths with actionable messages  
+✅ **Emits acknowledgment** - Shows what's actually being monitored
+✅ **Continues working** - Monitors valid paths despite invalid ones
+✅ **One-time feedback** - Uses flags to avoid log spam
+✅ **Specific guidance** - Points users to exact config keys to fix
+
+This pattern ensures users get meaningful feedback they can act on, while keeping the runtime stable.
 
 ## Performance Tips
 
@@ -3300,16 +3580,56 @@ class FolderWatchMonitor(BaseMonitor):
         self,
         watch_dirs: list[str] | None = None,
         extensions: list[str] | None = None,
+        emit_on_discovery: bool = False,
     ) -> None:
         """Initialize folder watch monitor.
 
         Args:
             watch_dirs: List of directory paths to watch.
             extensions: List of file extensions to monitor (without dots).
+            emit_on_discovery: If True, emit an event the first time a file is seen.
         """
         self.watch_dirs = [Path(d) for d in (watch_dirs or [])]
-        self.extensions = set(extensions or [])
+        # Normalize extensions to be case-insensitive and dot-free
+        self.extensions = {
+            ext.lower().lstrip(".") for ext in (extensions or [])
+        }
+        self.emit_on_discovery = emit_on_discovery
         self._last_mtimes: dict[Path, float] = {}
+        self._validated: bool = False
+        self._ack_emitted: bool = False
+        self._warn_emitted: bool = False
+
+    def _validate_and_filter(self) -> tuple[list[Path], list[str], list[str]]:
+        """Validate configured watch directories and normalize them without raising.
+
+        Returns:
+            (valid_dirs, missing, not_dirs)
+        """
+        if self._validated:
+            return self.watch_dirs, [], []
+
+        resolved_valid: list[Path] = []
+        missing: list[str] = []
+        not_dirs: list[str] = []
+
+        for d in self.watch_dirs:
+            try:
+                p = d.resolve()
+            except OSError:
+                p = d
+            if not p.exists():
+                missing.append(str(p))
+                continue
+            if not p.is_dir():
+                not_dirs.append(str(p))
+                continue
+            resolved_valid.append(p)
+
+        # Deduplicate and store only valid, normalized paths
+        self.watch_dirs = sorted(set(resolved_valid))
+        self._validated = True
+        return self.watch_dirs, missing, not_dirs
 
     def emit_event(self) -> Event | None:
         """Check watched directories for file modifications.
@@ -3317,8 +3637,68 @@ class FolderWatchMonitor(BaseMonitor):
         Returns:
             Event if a modified file is detected, None otherwise.
         """
-        if not self.watch_dirs:
-            return None
+        # Validate configuration on first tick without raising
+        if not self._validated:
+            valid_dirs, missing, not_dirs = self._validate_and_filter()
+
+            # If there are invalid entries, emit a one-time warning event
+            if (missing or not_dirs) and not self._warn_emitted:
+                self._warn_emitted = True
+                now = datetime.now(UTC)
+                return Event(
+                    timestamp=now,
+                    label=self.spec.label,
+                    event="watch_warning",
+                    data={
+                        "folders": [str(p) for p in valid_dirs],
+                        "invalid": {
+                            "missing": missing,
+                            "not_dirs": not_dirs,
+                        },
+                        "message": (
+                            "Some configured folders are invalid. Please fix your config."
+                        ),
+                        "extensions": sorted(self.extensions)
+                        if self.extensions
+                        else [],
+                    },
+                )
+
+            # If there are valid entries, emit a one-time ack that lists them
+            if valid_dirs and not self._ack_emitted:
+                self._ack_emitted = True
+                now = datetime.now(UTC)
+                return Event(
+                    timestamp=now,
+                    label=self.spec.label,
+                    event="watch_started",
+                    data={
+                        "folders": [str(p) for p in valid_dirs],
+                        "extensions": sorted(self.extensions)
+                        if self.extensions
+                        else [],
+                    },
+                )
+
+            # If none are valid and no invalid lists (i.e., nothing configured), warn once
+            if not valid_dirs and not self._warn_emitted:
+                self._warn_emitted = True
+                now = datetime.now(UTC)
+                return Event(
+                    timestamp=now,
+                    label=self.spec.label,
+                    event="watch_warning",
+                    data={
+                        "folders": [],
+                        "invalid": {"missing": [], "not_dirs": []},
+                        "message": (
+                            "No watch_dirs configured for FolderWatchMonitor. Set plugins.folderwatch.watch_dirs."
+                        ),
+                        "extensions": sorted(self.extensions)
+                        if self.extensions
+                        else [],
+                    },
+                )
 
         for watch_dir in self.watch_dirs:
             if not watch_dir.exists():
@@ -3331,8 +3711,12 @@ class FolderWatchMonitor(BaseMonitor):
                     for filename in files:
                         file_path = root_path / filename
 
-                        # Check extension
-                        if self.extensions and file_path.suffix.lstrip(".") not in self.extensions:
+                        # Check extension (case-insensitive)
+                        if (
+                            self.extensions
+                            and file_path.suffix.lower().lstrip(".")
+                            not in self.extensions
+                        ):
                             continue
 
                         # Check modification time
@@ -3346,6 +3730,20 @@ class FolderWatchMonitor(BaseMonitor):
                         if last_mtime is None:
                             # First time seeing this file
                             self._last_mtimes[file_path] = mtime
+
+                            # Optionally emit on discovery
+                            if self.emit_on_discovery:
+                                now = datetime.now(UTC)
+                                folder = str(file_path.parent.resolve())
+                                return Event(
+                                    timestamp=now,
+                                    label=self.spec.label,
+                                    event="file_mod",
+                                    data={
+                                        "folders": [folder],
+                                        "file": str(file_path),
+                                    },
+                                )
                             continue
 
                         if mtime > last_mtime:
@@ -3543,7 +3941,7 @@ def test_aggregator_build_segment():
     start = datetime.now(UTC)
 
     # Add events
-    for i, item in enumerate(["item1", "item2", "item1", "item3"]):
+    for _i, item in enumerate(["item1", "item2", "item1", "item3"]):
         event = Event(
             timestamp=start,
             label="test",
