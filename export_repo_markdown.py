@@ -32,21 +32,27 @@ from typing import Annotated
 
 import typer
 
-INCLUDE_EXTS = {
-    ".py",
-    ".toml",
-    ".md",
-    ".json",
-    ".yaml",
-    ".yml",
-    ".txt",
-    ".sh",
-    ".ps1",
-    ".bat",
-    ".ini",
-    ".cfg",
-    ".csv",
-}
+# INCLUDE_EXTS = {
+#     ".py",
+#     ".toml",
+#     ".md",
+#     ".json",
+#     ".yaml",
+#     ".yml",
+#     ".txt",
+#     ".sh",
+#     ".ps1",
+#     ".bat",
+#     ".ini",
+#     ".cfg",
+#     ".csv",
+# }
+
+FILTER = [
+    "pyproject.toml",
+    "*.py",
+]
+
 EXCLUDE_DIRS = {
     ".git",
     ".venv",
@@ -54,6 +60,7 @@ EXCLUDE_DIRS = {
     "logs",
     ".mypy_cache",
     ".ruff_cache",
+    ".obsidian",
 }
 
 
@@ -64,7 +71,8 @@ def should_include(path: Path, output_file: Path) -> bool:
         return False  # ✅ prevent self-inclusion
     if any(part in EXCLUDE_DIRS for part in path.parts):
         return False
-    return path.suffix.lower() in INCLUDE_EXTS
+    # Check against FILTER patterns
+    return any(path.match(pattern) for pattern in FILTER)
 
 
 def export_repo_markdown(
