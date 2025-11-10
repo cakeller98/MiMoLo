@@ -215,3 +215,4 @@ demo/
 watched_folder/
 
 .obsidian
+.vscode/settings.json
