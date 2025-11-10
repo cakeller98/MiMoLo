@@ -14,4 +14,8 @@
 
 ![[8_Future_Roadmap_and_Summary]]
 
-![[MiMoLo Field-Agent Protocol Specification (v0.3)]]
+## Plugin aka Field-Agent Development Guide and Protocol Specification
+
+![[DEVELOPMENT_GUIDE]]
+
+![[PROTOCOL_SPECIFICATION]]

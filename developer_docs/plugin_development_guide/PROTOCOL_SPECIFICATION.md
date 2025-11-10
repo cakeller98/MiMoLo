@@ -1,4 +1,11 @@
-# 🧩 MiMoLo Field-Agent Protocol Specification (v0.3)
+# MiMoLo Field-Agent Protocol Specification
+
+> **Protocol Version:** 0.3  
+> **Status:** Current (since MiMoLo v0.3.0)  
+> **Last Updated:** November 2025  
+> **Schema:** `mimolo-agent-schema.json`
+
+---
 
 ## 1. Overview
 
@@ -18,14 +25,14 @@ Each line is a complete, self-contained JSON object.
 
 ## 2. Transport Rules
 
-| Rule | Description |
-|------|--------------|
-| **Transport** | UTF-8 text, JSON object per line (`\n` delimited). |
-| **Direction** | Bidirectional: Orchestrator ⇄ Agent. |
-| **Initiation** | Collector starts each agent as a subprocess and waits for a `handshake` message. |
-| **Validation** | Collector validates messages against `mimolo-agent-schema.json`. |
-| **Compression / Encoding** | None (raw text). |
-| **Termination** | Agent exits on `{"cmd":"shutdown"}` or end-of-input. |
+| Rule                       | Description                                                                      |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| **Transport**              | UTF-8 text, JSON object per line (`\n` delimited).                               |
+| **Direction**              | Bidirectional: Orchestrator ⇄ Agent.                                             |
+| **Initiation**             | Collector starts each agent as a subprocess and waits for a `handshake` message. |
+| **Validation**             | Collector validates messages against `mimolo-agent-schema.json`.                 |
+| **Compression / Encoding** | None (raw text).                                                                 |
+| **Termination**            | Agent exits on `{"cmd":"shutdown"}` or end-of-input.                             |
 
 ---
 
@@ -35,23 +42,23 @@ All outbound messages share a common envelope.
 
 ### 3.1 Core Required Fields
 
-| Field | Type | Description |
-|--------|------|-------------|
-| `type` | string | Message category (`handshake`, `summary`, `heartbeat`, `status`, `error`). |
-| `timestamp` | string (ISO-8601 UTC) | When this message was emitted. |
-| `agent_id` | string | Unique runtime identifier for this instance. |
-| `agent_label` | string | Logical plugin name (registered label). |
-| `protocol_version` | string | Protocol version used (checked only at handshake). |
-| `agent_version` | string | Agent implementation version. |
-| `data` | object | Plugin-defined payload. Structure varies per agent. |
+| Field              | Type                  | Description                                                                |
+| ------------------ | --------------------- | -------------------------------------------------------------------------- |
+| `type`             | string                | Message category (`handshake`, `summary`, `heartbeat`, `status`, `error`). |
+| `timestamp`        | string (ISO-8601 UTC) | When this message was emitted.                                             |
+| `agent_id`         | string                | Unique runtime identifier for this instance.                               |
+| `agent_label`      | string                | Logical plugin name (registered label).                                    |
+| `protocol_version` | string                | Protocol version used (checked only at handshake).                         |
+| `agent_version`    | string                | Agent implementation version.                                              |
+| `data`             | object                | Plugin-defined payload. Structure varies per agent.                        |
 
 ### 3.2 Optional Common Fields
 
-| Field | Type | Applies To | Description |
-|--------|------|-------------|-------------|
-| `metrics` | object | `heartbeat` | Lightweight runtime metrics (CPU, mem, queue, latency). |
-| `health` | string | `status` | `"ok"`, `"degraded"`, `"overload"`, or `"failed"`. |
-| `message` | string | `status`, `error` | Human-readable diagnostic text. |
+| Field     | Type   | Applies To        | Description                                             |
+| --------- | ------ | ----------------- | ------------------------------------------------------- |
+| `metrics` | object | `heartbeat`       | Lightweight runtime metrics (CPU, mem, queue, latency). |
+| `health`  | string | `status`          | `"ok"`, `"degraded"`, `"overload"`, or `"failed"`.      |
+| `message` | string | `status`, `error` | Human-readable diagnostic text.                         |
 
 ### 3.3 Example Envelopes
 
@@ -147,11 +154,11 @@ After a successful handshake, no further version negotiation occurs during runti
 
 Commands from the collector are simple one-object JSON messages.
 
-| Field | Type | Description |
-|--------|------|-------------|
-| `cmd` | string | Command verb (`flush`, `status`, `shutdown`, `ack`, `reject`). |
-| `args` | object (optional) | Additional command parameters. |
-| `id` | string (optional) | For correlation if acknowledgments are used. |
+| Field  | Type              | Description                                                    |
+| ------ | ----------------- | -------------------------------------------------------------- |
+| `cmd`  | string            | Command verb (`flush`, `status`, `shutdown`, `ack`, `reject`). |
+| `args` | object (optional) | Additional command parameters.                                 |
+| `id`   | string (optional) | For correlation if acknowledgments are used.                   |
 
 ### 5.1 Examples
 
@@ -241,32 +248,32 @@ Agents must respond to `flush` by emitting a `summary` message, and must exit gr
 
 Example version timeline:
 
-| Version | Change | Backward Compatibility |
-|----------|---------|------------------------|
-| `0.3` | Initial asynchronous Field-Agent schema | — |
-| `0.4` | Adds `trace_id` optional field | backward-compatible |
-| `1.0` | Structural change to message envelope | breaking change |
+| Version | Change                                  | Backward Compatibility |
+| ------- | --------------------------------------- | ---------------------- |
+| `0.3`   | Initial asynchronous Field-Agent schema | —                      |
+| `0.4`   | Adds `trace_id` optional field          | backward-compatible    |
+| `1.0`   | Structural change to message envelope   | breaking change        |
 
 ---
 
 ## 8. Minimal Runtime Behavior Summary
 
-| Phase | Agent Action | Collector Expectation |
-|-------|---------------|----------------------|
-| Startup | Send `handshake` | Validate and `ack` |
-| Normal | Emit `summary` and `heartbeat` messages as configured | Log and segment data |
-| Warning / Degradation | Send `status` or `error` messages | Record + optional alert |
-| Shutdown | Clean exit on `{"cmd":"shutdown"}` | Flush logs and remove process |
+| Phase                 | Agent Action                                          | Collector Expectation         |
+| --------------------- | ----------------------------------------------------- | ----------------------------- |
+| Startup               | Send `handshake`                                      | Validate and `ack`            |
+| Normal                | Emit `summary` and `heartbeat` messages as configured | Log and segment data          |
+| Warning / Degradation | Send `status` or `error` messages                     | Record + optional alert       |
+| Shutdown              | Clean exit on `{"cmd":"shutdown"}`                    | Flush logs and remove process |
 
 ---
 
 ## 9. Schema Usage in Toolchains
 
-| Purpose | Integration |
-|----------|--------------|
-| **Runtime validation** | `jsonschema` (Python), `ajv` (Node.js), or `quicktype` (Go/Rust). |
-| **Typed model generation** | Generate Pydantic models for validation and serialization. |
-| **Offline analysis** | Tools can read historical logs, inspect `protocol_version`, and skip unsupported versions. |
+| Purpose                    | Integration                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| **Runtime validation**     | `jsonschema` (Python), `ajv` (Node.js), or `quicktype` (Go/Rust).                          |
+| **Typed model generation** | Generate Pydantic models for validation and serialization.                                 |
+| **Offline analysis**       | Tools can read historical logs, inspect `protocol_version`, and skip unsupported versions. |
 
 ---
 
