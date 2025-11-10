@@ -213,3 +213,5 @@ __marimo__/
 logs/
 demo/
 watched_folder/
+
+.obsidian
