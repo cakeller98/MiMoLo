@@ -9,7 +9,7 @@ From this base, future work will focus on refinement, autonomy, and secure scala
 
 ### Roadmap Highlights
 - **Schema Registration:** Introduce a formal `mimolo-agent-schema.json` for versioned validation, protocol evolution, and cross-language tool generation.
-	- almost completed: [[PROTOCOL_SPECIFICATION]]
+	- almost completed: [[AGENT_PROTOCOL_SPEC]]
 - **Sandboxed Execution:** Implement per-agent CPU and memory namespaces to guarantee isolation and enforce hard resource ceilings.  
 - **Adaptive Intelligence:** Enable Field-Agents to self-tune sampling and reporting intervals using historical performance metrics.  
 - **Distributed Collectors:** Expand orchestrator capabilities to manage remote or networked agents securely across multiple hosts.  

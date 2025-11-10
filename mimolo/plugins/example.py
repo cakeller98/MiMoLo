@@ -2,8 +2,10 @@
 
 This plugin emits synthetic events for testing and demonstration purposes.
 
-For a complete guide on creating custom plugins, see:
-    mimolo/plugins/DEVELOPMENT_GUIDE.md
+    For a full development guide, see:
+    developer_docs/agent_dev/AGENT_DEV_GUIDE.md
+
+    For the full Field-Agent protocol specification, see:
 
 This example demonstrates:
 - Basic event emission

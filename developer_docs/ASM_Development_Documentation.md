@@ -16,6 +16,6 @@
 
 ## Plugin aka Field-Agent Development Guide and Protocol Specification
 
-![[DEVELOPMENT_GUIDE]]
+![[AGENT_DEV_GUIDE]]
 
-![[PROTOCOL_SPECIFICATION]]
+![[AGENT_PROTOCOL_SPEC]]

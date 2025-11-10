@@ -238,7 +238,7 @@ Summary tables in `logs/YYYY-MM-DD.mimolo.md`.
 **Quick Start:**
 1. Copy `mimolo/plugins/template.py` to create your plugin
 2. Fill in the TODOs with your monitoring logic
-3. Follow the complete guide: [mimolo/plugins/DEVELOPMENT_GUIDE.md](mimolo/plugins/DEVELOPMENT_GUIDE.md)
+3. Follow the complete guide: [developer_docs/agent_dev/AGENT_DEV_GUIDE.md](developer_docs/agent_dev/AGENT_DEV_GUIDE.md)
 
 **Example plugins:**
 - [example.py](mimolo/plugins/example.py) - Basic event emission with aggregation
@@ -2716,7 +2716,7 @@ __all__ = [
 ]
 ```
 
-## mimolo\plugins\DEVELOPMENT_GUIDE.md
+## developer_docs\agent_dev\AGENT_DEV_GUIDE.md
 
 ``` md
 # MiMoLo Plugin Development Guide
@@ -3467,7 +3467,7 @@ Planned features:
 This plugin emits synthetic events for testing and demonstration purposes.
 
 For a complete guide on creating custom plugins, see:
-    mimolo/plugins/DEVELOPMENT_GUIDE.md
+    developer_docs/agent_dev/AGENT_DEV_GUIDE.md
 
 This example demonstrates:
 - Basic event emission
@@ -3796,7 +3796,7 @@ class FolderWatchMonitor(BaseMonitor):
 """Template for creating new MiMoLo plugins.
 
 Copy this file, rename it, and fill in your monitoring logic.
-See DEVELOPMENT_GUIDE.md for detailed instructions.
+See developer_docs/agent_dev/AGENT_DEV_GUIDE.md for detailed instructions.
 """
 
 from __future__ import annotations

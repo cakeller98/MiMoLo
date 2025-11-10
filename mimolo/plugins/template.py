@@ -1,7 +1,7 @@
 """Template for creating new MiMoLo plugins.
 
 Copy this file, rename it, and fill in your monitoring logic.
-See DEVELOPMENT_GUIDE.md for detailed instructions.
+See developer_docs/agent_dev/AGENT_DEV_GUIDE.md for detailed instructions.
 """
 
 from __future__ import annotations

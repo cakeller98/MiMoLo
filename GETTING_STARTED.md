@@ -102,7 +102,7 @@ Summary tables in `logs/YYYY-MM-DD.mimolo.md`.
 **Quick Start:**
 1. Copy `mimolo/plugins/template.py` to create your plugin
 2. Fill in the TODOs with your monitoring logic
-3. Follow the complete guide: [mimolo/plugins/DEVELOPMENT_GUIDE.md](mimolo/plugins/DEVELOPMENT_GUIDE.md)
+3. Follow the complete guide: [developer_docs/agent_dev/AGENT_DEV_GUIDE.md](developer_docs/agent_dev/AGENT_DEV_GUIDE.md)
 
 **Example plugins:**
 - [example.py](mimolo/plugins/example.py) - Basic event emission with aggregation

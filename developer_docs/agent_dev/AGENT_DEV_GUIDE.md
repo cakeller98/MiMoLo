@@ -225,7 +225,7 @@ Legacy synchronous monitors may coexist for now, but the path forward is clear:
 
 For implementation details, see:
 
-- **Protocol Reference**: `PROTOCOL_SPECIFICATION.md`  
+- **Protocol Reference**: `AGENT_PROTOCOL_SPEC.md`  
   Complete technical specification for message formats, schemas, and validation.
 
 - **Architectural Deep-Dive**: `developer_docs/1_Core_Overview.md` through `8_Future_Roadmap_and_Summary.md`  
