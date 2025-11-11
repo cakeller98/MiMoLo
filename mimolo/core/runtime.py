@@ -15,7 +15,8 @@ import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Literal, cast
 
 from rich.console import Console
 
@@ -135,12 +136,36 @@ class Runtime:
 
         # Sinks
         log_dir = Path(config.monitor.log_dir)
-        self.file_sink = create_sink(config.monitor.log_format, log_dir)
+        log_format = cast(Literal["jsonl", "yaml", "md"], config.monitor.log_format)
+        self.file_sink = create_sink(log_format, log_dir)
         self.console_sink = ConsoleSink(config.monitor.console_verbosity)
 
         # Runtime state
         self._running = False
         self._tick_count = 0
+        # Field-Agent support (added incrementally; imports are deferred so
+        # runtime can operate without the new modules present)
+        try:
+            from mimolo.core.agent_process import AgentProcessManager
+            from mimolo.core.plugin_adapter import LegacyPluginAdapter
+
+            self.agent_manager: AgentProcessManager | None = AgentProcessManager(config)
+            self.legacy_adapters: dict[str, LegacyPluginAdapter] = {}
+
+            # Wrap legacy plugins so they can be routed through the same
+            # message handling pipeline as Field-Agents.
+            for spec, instance in registry.list_all():
+                try:
+                    adapter = LegacyPluginAdapter(instance, spec.label)
+                    self.legacy_adapters[spec.label] = adapter
+                except Exception:
+                    # If adapter construction fails, skip wrapping but
+                    # keep existing behavior; error will surface when polled.
+                    pass
+        except Exception:
+            # If the new modules don't exist yet, keep runtime working.
+            self.agent_manager = None
+            self.legacy_adapters = {}
 
     def run(self, max_iterations: int | None = None) -> None:
         """Run the main event loop.
@@ -181,8 +206,7 @@ class Runtime:
         # Check for cooldown expiration
         if self.cooldown.check_expiration(now):
             self._close_segment()
-
-        # Poll plugins
+        # Poll plugins (legacy adapters if available)
         for spec, instance in self.registry.list_all():
             # Skip quarantined plugins
             if self.error_tracker.is_quarantined(spec.label):
@@ -192,8 +216,29 @@ class Runtime:
             if not self.scheduler.should_poll(spec.label, spec.poll_interval_s, current_time):
                 continue
 
-            # Emit event
             try:
+                adapter = (
+                    self.legacy_adapters.get(spec.label)
+                    if getattr(self, "legacy_adapters", None) is not None
+                    else None
+                )
+                if adapter is not None:
+                    # Use adapter that exposes a Field-Agent-like interface
+                    event = adapter.emit_event()
+                    if event is not None:
+                        # Convert legacy Event to a summary message and route through
+                        # the agent message handlers so both plugin types share logic.
+                        msg = adapter.to_summary_message(event)
+                        try:
+                            self._handle_agent_message(msg, spec)
+                            self.error_tracker.record_success(spec.label)
+                        except Exception:
+                            # Fall back to original behavior if routing fails
+                            self._handle_event(event, spec)
+                            self.error_tracker.record_success(spec.label)
+                    continue
+
+                # Fallback: direct legacy plugin polling (existing behavior)
                 event = instance.emit_event()
                 if event is not None:
                     self._handle_event(event, spec)
@@ -202,6 +247,34 @@ class Runtime:
                 error = PluginEmitError(spec.label, e)
                 self.console.print(f"[red]Plugin error: {error}[/red]")
                 self.error_tracker.record_error(spec.label)
+
+        # Poll Field-Agent messages (if agent manager is present)
+        agm = getattr(self, "agent_manager", None)
+        if agm is not None:
+            for label, handle in list(agm.agents.items()):
+                msg = handle.read_message(timeout=0.001)
+                if msg is not None:
+                    try:
+                        # Message routing by type (msg.type may be str or Enum)
+                        mtype = getattr(msg, "type", None)
+                        if isinstance(mtype, str):
+                            t = mtype
+                        else:
+                            t = str(mtype).lower()
+
+                        if t == "heartbeat" or t.endswith("heartbeat"):
+                            self._handle_heartbeat(label, msg)
+                        elif t == "summary" or t.endswith("summary"):
+                            self._handle_agent_summary(label, msg)
+                        elif t == "error" or t.endswith("error"):
+                            # Log agent-reported error
+                            try:
+                                message = getattr(msg, "message", None) or getattr(msg, "data", None)
+                                self.console.print(f"[red]Agent {label} error: {message}[/red]")
+                            except Exception:
+                                self.console.print(f"[red]Agent {label} reported an error[/red]")
+                    except Exception as e:
+                        self.console.print(f"[red]Error handling agent message from {label}: {e}[/red]")
 
     def _handle_event(self, event: Event, spec: Any) -> None:
         """Handle an event from a plugin.
@@ -233,6 +306,105 @@ class Runtime:
         # Add to aggregator if segment is active
         if self.cooldown.state in (CooldownState.ACTIVE, CooldownState.CLOSING):
             self.aggregator.add_event(event)
+
+    def _coerce_timestamp(self, ts: object) -> datetime:
+        """Coerce a timestamp value (str or datetime) into timezone-aware datetime."""
+        if isinstance(ts, datetime):
+            timestamp = ts
+        else:
+            # Try parsing ISO format string
+            try:
+                timestamp = datetime.fromisoformat(str(ts))
+            except Exception:
+                timestamp = datetime.now(UTC)
+
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        return timestamp
+
+    def _handle_agent_summary(self, label: str, msg: object) -> None:
+        """Convert a Field-Agent summary message into an Event and handle it.
+
+        Args:
+            label: agent label
+            msg: parsed message object with attributes `timestamp`, `agent_label`, `data`.
+        """
+        try:
+            ts = getattr(msg, "timestamp", None)
+            timestamp = self._coerce_timestamp(ts)
+            agent_label = getattr(msg, "agent_label", label)
+            raw_data: Any = getattr(msg, "data", None)
+            # Ensure data is always a dict
+            if not isinstance(raw_data, dict):
+                data: dict[str, Any] = {}
+            else:
+                data = cast(dict[str, Any], raw_data)
+
+            # Determine event type if provided, else default to 'summary'
+            event_type: str = "summary"
+            evt = data.get("event")
+            typ = data.get("type")
+            if evt:
+                event_type = str(evt)
+            elif typ:
+                event_type = str(typ)
+
+            event = Event(timestamp=timestamp, label=agent_label, event=event_type, data=data)
+
+            # Create a lightweight spec-like object: Field-Agents reset cooldown by default
+            spec_obj = SimpleNamespace(label=agent_label, infrequent=False, resets_cooldown=True)
+            self._handle_event(event, spec_obj)
+        except Exception as e:
+            self.console.print(f"[red]Error handling agent summary {label}: {e}[/red]")
+
+    def _handle_heartbeat(self, label: str, msg: object) -> None:
+        """Handle a heartbeat message from a Field-Agent.
+
+        Update agent state and optionally surface debug output.
+        """
+        try:
+            ts = getattr(msg, "timestamp", None)
+            timestamp = self._coerce_timestamp(ts)
+
+            # Update AgentProcessManager handle state if present
+            agm = getattr(self, "agent_manager", None)
+            if agm is not None:
+                try:
+                    handle = agm.agents.get(label)
+                    if handle is not None:
+                        handle.last_heartbeat = timestamp
+                except Exception:
+                    pass
+
+            if self.config.monitor.console_verbosity == "debug":
+                self.console.print(f"[cyan]Heartbeat from {label} at {timestamp.isoformat()}[/cyan]")
+        except Exception as e:
+            self.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
+
+    def _handle_agent_message(self, msg: object, spec: Any | None = None) -> None:
+        """Generic entry point for handling agent-style messages.
+
+        This will dispatch to the appropriate specific handler based on message type.
+        """
+        mtype = getattr(msg, "type", None)
+        try:
+            if isinstance(mtype, str):
+                t = mtype
+            else:
+                t = str(mtype).lower()
+
+            if t == "heartbeat" or t.endswith("heartbeat"):
+                self._handle_heartbeat(getattr(msg, "agent_label", "unknown"), msg)
+            elif t == "summary" or t.endswith("summary"):
+                self._handle_agent_summary(getattr(msg, "agent_label", "unknown"), msg)
+            elif t == "error" or t.endswith("error"):
+                # Log error
+                self.console.print(f"[red]Agent error: {getattr(msg, 'message', None)}[/red]")
+            else:
+                # Unknown type: try treating as summary
+                self._handle_agent_summary(getattr(msg, "agent_label", "unknown"), msg)
+        except Exception as e:
+            self.console.print(f"[red]Error handling agent message: {e}[/red]")
 
     def _close_segment(self) -> None:
         """Close current segment and write to sinks."""

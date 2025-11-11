@@ -1,7 +1,7 @@
-"""MiMoLo plugin modules."""
+"""MiMoLo user plugin modules."""
 
-from mimolo.plugins.example import ExampleMonitor
 from mimolo.plugins.folderwatch import FolderWatchMonitor
+from mimolo.user_plugins.example import ExampleMonitor
 
 __all__ = [
     "ExampleMonitor",

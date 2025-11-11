@@ -1,368 +1,3 @@
-## export_repo_markdown.py
-
-``` py
-#!/usr/bin/env python
-"""
-Export repository files into a single Markdown document.
-
-Each included file becomes:
-
-## <relative_or_absolute_path>
-
-``` <extension>
-<file contents>
-```
-
-The script excludes certain directories and only includes
-files with specific extensions.
-
-The script will create a single monolithic file to share
-with an AI system for code review or analysis without
-having to explain the repository structure.
-
-for relative paths, run:
-poetry run python export_repo_markdown.py --output repo_export.md
-
-for absolute paths, run:
-poetry run python export_repo_markdown.py --absolute --output repo_export.md
-
-"""
-
-from __future__ import annotations
-
-from pathlib import Path
-from typing import Annotated
-
-import typer
-
-INCLUDE_EXTS = {
-    ".py",
-    ".toml",
-    ".md",
-    ".json",
-    ".yaml",
-    ".yml",
-    ".txt",
-    ".sh",
-    ".ps1",
-    ".bat",
-    ".ini",
-    ".cfg",
-    ".csv",
-}
-EXCLUDE_DIRS = {
-    ".git",
-    ".venv",
-    "__pycache__",
-    "logs",
-    ".mypy_cache",
-    ".ruff_cache",
-}
-
-
-def should_include(path: Path, output_file: Path) -> bool:
-    if path.is_dir():
-        return False
-    if path.resolve() == output_file.resolve():
-        return False  # ✅ prevent self-inclusion
-    if any(part in EXCLUDE_DIRS for part in path.parts):
-        return False
-    return path.suffix.lower() in INCLUDE_EXTS
-
-
-def export_repo_markdown(
-    root: Path, output_file: Path, relative: bool = True
-) -> None:
-    files = sorted(
-        root.rglob("*"),
-        key=lambda p: (str(p.parent).lower(), p.name.lower()),
-    )
-    with output_file.open("w", encoding="utf-8") as out:
-        for file_path in files:
-            if not should_include(file_path, output_file):
-                continue
-            heading = (
-                file_path.relative_to(root)
-                if relative
-                else file_path.resolve()
-            )
-            ext = file_path.suffix.lstrip(".").lower() or "text"
-            if ext == "yml":
-                ext = "yaml"
-            out.write(f"## {heading}\n\n")
-            out.write(f"``` {ext}\n")
-            try:
-                contents = file_path.read_text(
-                    encoding="utf-8", errors="ignore"
-                )
-            except Exception as e:
-                contents = f"[Error reading file: {e}]"
-            out.write(contents.rstrip() + "\n```\n\n")
-    print(f"✅ Export complete → {output_file}")
-
-
-app = typer.Typer()
-
-# Typer option metadata to avoid function calls in defaults
-ROOT_OPTION = typer.Option(
-    help="Root directory to export.",
-)
-OUTPUT_OPTION = typer.Option(
-    help="Output Markdown file.",
-)
-ABSOLUTE_OPTION = typer.Option(
-    help="Use absolute paths in headings instead of relative.",
-)
-
-
-@app.command()
-def main(
-    root: Annotated[Path | None, ROOT_OPTION] = None,
-    output: Annotated[Path, OUTPUT_OPTION] = Path("repo_export.md"),
-    absolute: Annotated[bool, ABSOLUTE_OPTION] = False,
-) -> None:
-    """Export repository files to a single Markdown document."""
-    if root is None:
-        root = Path.cwd()
-    export_repo_markdown(root, output, relative=not absolute)
-
-
-if __name__ == "__main__":
-    app()
-```
-
-## GETTING_STARTED.md
-
-``` md
-# Getting Started with MiMoLo
-
-## Installation
-
-MiMoLo uses Poetry for dependency management:
-
-```bash
-# Install dependencies
-poetry install --with dev
-
-# Run tests
-poetry run pytest -v
-
-# Check types
-poetry run mypy mimolo
-
-# Lint code
-poetry run ruff check .
-```
-
-## Quick Start
-
-### 1. Test Event Generation
-
-Generate synthetic test events:
-
-```bash
-poetry run mimolo test
-```
-
-### 2. View Available Plugins
-
-See registered plugins and their specifications:
-
-```bash
-poetry run mimolo register
-```
-
-### 3. Run the Monitor
-
-Start the orchestrator with the example plugin (configured in [mimolo.toml](mimolo.toml)):
-
-```bash
-poetry run mimolo monitor
-```
-
-Press `Ctrl+C` to stop gracefully.
-
-## Configuration
-
-Edit `mimolo.toml` to configure:
-
-- **Cooldown duration**: How long after the last resetting event before closing a segment
-- **Poll intervals**: How often each plugin is polled
-- **Log format**: JSONL (default), YAML, or Markdown
-- **Plugin settings**: Enable/disable and configure individual plugins
-
-Example configuration:
-
-```toml
-[monitor]
-cooldown_seconds = 600
-poll_tick_ms = 200
-log_dir = "./logs"
-log_format = "jsonl"
-
-[plugins.example]
-enabled = true
-poll_interval_s = 3.0
-resets_cooldown = true
-```
-
-## Understanding Segments
-
-MiMoLo aggregates events into time segments:
-
-1. **Opening**: First resetting event opens a segment
-2. **Active**: Additional events extend and reset the cooldown timer
-3. **Closing**: After cooldown expires with no resetting events, segment closes
-4. **Output**: Aggregated segment written to log files
-
-## Output Formats
-
-### JSONL (Default)
-
-One JSON object per line in `logs/YYYY-MM-DD.mimolo.jsonl`:
-
-```json
-{"type":"segment","start":"2025-11-05T10:00:00Z","end":"2025-11-05T10:10:05Z","duration_s":605.0,"labels":["example"],"aggregated":{"examples":["fake_item_1","fake_item_2"]},"resets_count":3,"events":[...]}
-```
-
-### YAML
-
-Human-readable YAML documents in `logs/YYYY-MM-DD.mimolo.yaml`.
-
-### Markdown
-
-Summary tables in `logs/YYYY-MM-DD.mimolo.md`.
-
-## Writing Custom Plugins
-
-**Quick Start:**
-1. Copy `mimolo/plugins/template.py` to create your plugin
-2. Fill in the TODOs with your monitoring logic
-3. Follow the complete guide: [developer_docs/agent_dev/AGENT_DEV_GUIDE.md](developer_docs/agent_dev/AGENT_DEV_GUIDE.md)
-
-**Example plugins:**
-- [example.py](mimolo/plugins/example.py) - Basic event emission with aggregation
-- [folderwatch.py](mimolo/plugins/folderwatch.py) - Stateful monitoring with custom config
-
-**Minimal structure:**
-```python
-from mimolo.core.plugin import BaseMonitor, PluginSpec
-from mimolo.core.event import Event
-
-class MyMonitor(BaseMonitor):
-    spec = PluginSpec(
-        label="mymonitor",
-        data_header="items",
-        resets_cooldown=True,
-        poll_interval_s=5.0,
-    )
-
-    def emit_event(self) -> Event | None:
-        # Return Event or None
-        pass
-
-    @staticmethod
-    def filter_method(items: list) -> list:
-        # Aggregate collected data
-        return sorted(set(items))
-```
-
-## Testing
-
-Run the full test suite:
-
-```bash
-poetry run pytest -v
-
-# With coverage
-poetry run pytest --cov=mimolo --cov-report=html
-```
-
-All 46 tests should pass.
-
-## Development
-
-VS Code tasks are configured in [.vscode/tasks.json](.vscode/tasks.json):
-
-- **install**: Install dependencies
-- **lint**: Run ruff + mypy
-- **test**: Run pytest
-- **run:monitor**: Start the monitor
-
-## Architecture
-
-```
-mimolo/
-├── core/           # Framework core
-│   ├── event.py    # Event primitives
-│   ├── plugin.py   # Plugin contracts
-│   ├── registry.py # Plugin management
-│   ├── cooldown.py # Segment FSM
-│   ├── aggregate.py # Data aggregation
-│   ├── config.py   # Configuration
-│   ├── sink.py     # Output writers
-│   └── runtime.py  # Orchestrator
-├── plugins/        # Plugin implementations
-│   ├── example.py
-│   └── folderwatch.py
-└── cli.py          # CLI commands
-```
-
-## Next Steps
-
-- Customize `mimolo.toml` for your use case
-- Write custom plugins for your monitoring needs
-- Integrate with your workflow (run as service, cron job, etc.)
-- Explore log output and adjust aggregation filters
-
-## Support
-
-- Report issues on GitHub
-- See the spec in [README.md](README.md) for detailed architecture
-- Check [tests/](tests/) for usage examples
-```
-
-## mimolo.toml
-
-``` toml
-# MiMoLo Configuration
-# See docs for full configuration reference
-
-[monitor]
-# Cooldown duration in seconds - segment closes after this period with no resetting events
-cooldown_seconds = 600
-
-# Polling tick interval in milliseconds
-poll_tick_ms = 200
-
-# Directory for log files (will be created if doesn't exist)
-log_dir = "./logs"
-
-# Log output format: jsonl (default), yaml, or md
-log_format = "jsonl"
-
-# Console verbosity: debug, info, warning, error
-console_verbosity = "info"
-
-# Example Plugin Configuration
-[plugins.example]
-enabled = true
-poll_interval_s = 3.0
-resets_cooldown = true
-infrequent = false
-
-# Folder Watch Plugin Configuration
-[plugins.folderwatch]
-enabled = true
-poll_interval_s = 5.0
-resets_cooldown = true
-infrequent = false
-
-# Plugin-specific settings
-watch_dirs = ["./demo", "./watched_folder"]
-extensions = ["obj", "blend", "fbx", "py"]
-```
-
 ## pyproject.toml
 
 ``` toml
@@ -465,118 +100,7 @@ exclude_lines = [
 ]
 ```
 
-## README.md
-
-``` md
-# MiMoLo
-MiMoLo (Mini Modular Monitor &amp; Logger) is a lightweight, plugin-based event tracker that records and aggregates workflow activity into clear, time-based segments. It’s modular, extensible, and console-friendly: turning raw events into human-readable logs without invasive tracking or complexity.
-```
-
-## .pytest_cache\README.md
-
-``` md
-# pytest cache directory #
-
-This directory contains data from the pytest's cache plugin,
-which provides the `--lf` and `--ff` options, as well as the `cache` fixture.
-
-**Do not** commit this to version control.
-
-See [the docs](https://docs.pytest.org/en/stable/how-to/cache.html) for more information.
-```
-
-## .vscode\launch.json
-
-``` json
-{
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "mimolo monitor",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "mimolo.cli",
-      "args": ["monitor"],
-      "justMyCode": true,
-      "console": "integratedTerminal"
-    },
-    {
-      "name": "pytest",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "pytest",
-      "args": ["-q"],
-      "justMyCode": true,
-      "console": "integratedTerminal"
-    }
-  ]
-}
-```
-
-## .vscode\settings.json
-
-``` json
-{
-  "python.testing.pytestEnabled": true,
-  "python.testing.pytestArgs": [
-    "-q"
-  ],
-  "editor.formatOnSave": true,
-  "ruff.enable": true,
-  "editor.codeActionsOnSave": {
-    "source.fixAll.ruff": "explicit"
-  },
-  "python.analysis.typeCheckingMode": "strict",
-  "files.exclude": {
-    "**/__pycache__": true,
-    "**/.mypy_cache": true,
-    "**/*.pyc": true
-  },
-  "terminal.integrated.defaultProfile.windows": "PowerShell",
-  "python-envs.defaultEnvManager": "ms-python.python:poetry",
-  "python-envs.defaultPackageManager": "ms-python.python:poetry",
-  "python-envs.pythonProjects": []
-}
-```
-
-## .vscode\tasks.json
-
-``` json
-{
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "install",
-      "type": "shell",
-      "command": "poetry install --with dev",
-      "problemMatcher": []
-    },
-    {
-      "label": "lint",
-      "type": "shell",
-      "command": "poetry run ruff check . && poetry run mypy mimolo",
-      "dependsOn": "install",
-      "problemMatcher": []
-    },
-    {
-      "label": "test",
-      "type": "shell",
-      "command": "poetry run pytest -q",
-      "dependsOn": "install",
-      "problemMatcher": []
-    },
-    {
-      "label": "run:monitor",
-      "type": "shell",
-      "command": "poetry run python -m mimolo.cli monitor",
-      "dependsOn": "install",
-      "problemMatcher": []
-    }
-  ]
-}
-```
-
-## mimolo\__init__.py
+## mimolo/__init__.py
 
 ``` py
 """MiMoLo - Modular Monitor & Logger Framework.
@@ -609,7 +133,7 @@ __all__ = [
 ]
 ```
 
-## mimolo\cli.py
+## mimolo/cli.py
 
 ``` py
 """Command-line interface for MiMoLo using Typer.
@@ -848,7 +372,7 @@ if __name__ == "__main__":
     main()
 ```
 
-## mimolo\core\__init__.py
+## mimolo/core/__init__.py
 
 ``` py
 """Core MiMoLo framework modules."""
@@ -909,7 +433,7 @@ __all__ = [
 ]
 ```
 
-## mimolo\core\aggregate.py
+## mimolo/core/aggregate.py
 
 ``` py
 """Segment aggregation builder and filter application.
@@ -1044,7 +568,7 @@ class SegmentAggregator:
         return len(self._event_refs) > 0
 ```
 
-## mimolo\core\config.py
+## mimolo/core/config.py
 
 ``` py
 """Configuration management with validation.
@@ -1239,7 +763,7 @@ def _config_to_toml(config: Config) -> str:
     return "\n".join(lines)
 ```
 
-## mimolo\core\cooldown.py
+## mimolo/core/cooldown.py
 
 ``` py
 """Cooldown timer and segment state machine.
@@ -1429,7 +953,7 @@ class CooldownTimer:
         return max(0.0, remaining)
 ```
 
-## mimolo\core\errors.py
+## mimolo/core/errors.py
 
 ``` py
 """Error taxonomy for MiMoLo framework."""
@@ -1496,7 +1020,7 @@ class AggregationError(MiMoLoError):
         )
 ```
 
-## mimolo\core\event.py
+## mimolo/core/event.py
 
 ``` py
 """Event primitives for MiMoLo framework."""
@@ -1704,7 +1228,7 @@ class Segment:
         }
 ```
 
-## mimolo\core\plugin.py
+## mimolo/core/plugin.py
 
 ``` py
 """Plugin contracts and metadata for MiMoLo framework.
@@ -1829,7 +1353,7 @@ class BaseMonitor(ABC):
             raise TypeError(f"{cls.__name__}.spec must be a PluginSpec instance")
 ```
 
-## mimolo\core\registry.py
+## mimolo/core/registry.py
 
 ``` py
 """Plugin registry for managing monitor lifecycle and metadata."""
@@ -2005,7 +1529,7 @@ class PluginRegistry:
         }
 ```
 
-## mimolo\core\runtime.py
+## mimolo/core/runtime.py
 
 ``` py
 """Runtime orchestrator for MiMoLo.
@@ -2298,7 +1822,7 @@ class Runtime:
         self._running = False
 ```
 
-## mimolo\core\sink.py
+## mimolo/core/sink.py
 
 ``` py
 """Log writers (sinks) for events and segments.
@@ -2702,7 +2226,7 @@ def create_sink(
         raise ValueError(f"Unknown sink format: {format_type}")
 ```
 
-## mimolo\plugins\__init__.py
+## mimolo/plugins/__init__.py
 
 ``` py
 """MiMoLo plugin modules."""
@@ -2716,833 +2240,7 @@ __all__ = [
 ]
 ```
 
-## developer_docs\agent_dev\AGENT_DEV_GUIDE.md
-
-``` md
-# MiMoLo Plugin Development Guide
-
-Complete guide for creating custom monitor plugins for the MiMoLo framework.
-
-## Overview
-
-MiMoLo plugins extend the framework by implementing custom event monitors. Each plugin polls for events, emits them when detected, and optionally aggregates collected data when segments close.
-
-## Quick Start
-
-### Use the Template
-
-The fastest way to get started:
-
-1. **Copy the template:**
-   ```bash
-   cp mimolo/plugins/template.py mimolo/plugins/myplugin.py
-   ```
-
-2. **Fill in the TODOs:**
-   - Change class name from `TemplateMonitor` to `MyMonitor`
-   - Update `spec.label` to unique identifier
-   - Add detection logic in `emit_event()`
-   - Customize `filter_method()` if needed
-
-3. **Follow registration steps** (see below)
-
-### Minimal Working Example
-
-Here's what a complete minimal plugin looks like:
-
-```python
-"""My custom monitor plugin."""
-
-from __future__ import annotations
-
-from datetime import UTC, datetime
-
-from mimolo.core.event import Event
-from mimolo.core.plugin import BaseMonitor, PluginSpec
-
-
-class MyMonitor(BaseMonitor):
-    """Monitor that does something useful."""
-
-    spec = PluginSpec(
-        label="mymonitor",           # Unique identifier
-        data_header="items",          # Key in event.data for aggregation
-        resets_cooldown=True,         # Reset segment timer on events
-        infrequent=False,             # False = participate in aggregation
-        poll_interval_s=5.0,          # Poll every 5 seconds
-    )
-
-    def emit_event(self) -> Event | None:
-        """Check for events and emit if found."""
-        # Your detection logic here
-        if something_detected:
-            return Event(
-                timestamp=datetime.now(UTC),
-                label=self.spec.label,
-                event="event_type",
-                data={"items": ["detected_item"]},
-            )
-        return None
-
-    @staticmethod
-    def filter_method(items: list[list[str]]) -> list[str]:
-        """Aggregate collected items (optional)."""
-        # Flatten and deduplicate
-        flat = [item for sublist in items for item in sublist]
-        return sorted(set(flat))
-```
-
-## Creating a New Plugin
-
-### Step 1: Implement the Plugin Class
-
-**Create a new file:** `mimolo/plugins/myplugin.py`
-
-#### 1.1 Inherit from BaseMonitor
-
-```python
-from mimolo.core.plugin import BaseMonitor, PluginSpec
-from mimolo.core.event import Event
-```
-
-#### 1.2 Define PluginSpec
-
-```python
-spec = PluginSpec(
-    label="mymonitor",              # Required: unique identifier (must be valid Python identifier)
-    data_header="items",             # Optional: key in event.data for aggregation
-    resets_cooldown=True,            # Whether events reset segment timer (default: True)
-    infrequent=False,                # Bypass aggregation, flush immediately (default: False)
-    poll_interval_s=5.0,             # Polling frequency in seconds (default: 5.0)
-)
-```
-
-**PluginSpec Fields:**
-- `label`: Unique identifier across all plugins. Must be a valid Python identifier.
-- `data_header`: If set, events must include this key in their `data` dict. Used for aggregation.
-- `resets_cooldown`: If `True`, events from this plugin reset the segment cooldown timer.
-- `infrequent`: If `True`, events bypass segment aggregation and are written immediately.
-- `poll_interval_s`: How often the runtime calls `emit_event()` in seconds.
-
-#### 1.3 Implement emit_event()
-
-```python
-def emit_event(self) -> Event | None:
-    """Poll for events and return Event if detected, None otherwise.
-    
-    This method is called periodically based on poll_interval_s.
-    Must be non-blocking and time-bounded.
-    
-    Returns:
-        Event instance if something to report, None otherwise.
-    """
-    # Your detection logic
-    if condition_met:
-        return Event(
-            timestamp=datetime.now(UTC),
-            label=self.spec.label,
-            event="event_type",
-            data={self.spec.data_header: [value]} if self.spec.data_header else None,
-        )
-    return None
-```
-
-**Requirements:**
-- Must be non-blocking (no long-running operations)
-- Return `Event` when something detected, `None` otherwise
-- Exceptions are caught by runtime and wrapped in `PluginEmitError`
-- Use `datetime.now(UTC)` for timestamps
-
-#### 1.4 Implement filter_method() (Optional)
-
-Only needed if you want custom aggregation logic:
-
-```python
-@staticmethod
-def filter_method(items: list[Any]) -> Any:
-    """Aggregate collected data when segment closes.
-    
-    Args:
-        items: List of values collected during the segment.
-        
-    Returns:
-        Aggregated result (must be JSON-serializable).
-    """
-    # Default: return items as-is
-    # Custom: deduplicate, sort, transform, etc.
-    return sorted(set(items))
-```
-
-**Notes:**
-- Called when a segment closes (only if `data_header` is set)
-- Receives list of all values collected for your `data_header`
-- Must return JSON-serializable data
-- Default implementation returns items list unchanged
-
-### Step 2: Register the Plugin
-
-#### 2.1 Add to `mimolo/plugins/__init__.py`
-
-```python
-from mimolo.plugins.myplugin import MyMonitor
-
-__all__ = [
-    "ExampleMonitor",
-    "FolderWatchMonitor",
-    "MyMonitor",  # Add your plugin
-]
-```
-
-#### 2.2 Register in `mimolo/cli.py`
-
-Find the `_discover_and_register_plugins()` function and add your plugin:
-
-```python
-def _discover_and_register_plugins(config: Config, registry: PluginRegistry) -> None:
-    # Explicit plugin list for v0.2 (entry points later)
-    available_plugins = {
-        "example": ExampleMonitor,
-        "folderwatch": FolderWatchMonitor,
-        "mymonitor": MyMonitor,  # Add your plugin
-    }
-    
-    for plugin_name, plugin_class in available_plugins.items():
-        plugin_config = config.plugins.get(plugin_name)
-        # ...
-        
-        # Instantiate plugin with config
-        if plugin_name == "example":
-            instance = plugin_class()
-        elif plugin_name == "folderwatch":
-            watch_dirs = plugin_config.model_extra.get("watch_dirs", [])
-            extensions = plugin_config.model_extra.get("extensions", [])
-            instance = plugin_class(watch_dirs=watch_dirs, extensions=extensions)
-        elif plugin_name == "mymonitor":
-            # Add instantiation logic if your plugin needs custom args
-            custom_arg = plugin_config.model_extra.get("custom_arg", default_value)
-            instance = plugin_class(custom_arg=custom_arg)
-        else:
-            instance = plugin_class()
-```
-
-### Step 3: Add Configuration
-
-Add a section to `mimolo.toml`:
-
-```toml
-[plugins.mymonitor]
-enabled = true
-poll_interval_s = 5.0
-resets_cooldown = true
-infrequent = false
-
-# Add plugin-specific settings here
-custom_setting = "value"
-custom_list = ["item1", "item2"]
-```
-
-**Standard Fields:**
-- `enabled`: Whether plugin is active
-- `poll_interval_s`: Override default polling interval
-- `resets_cooldown`: Override default cooldown reset behavior
-- `infrequent`: Override default aggregation behavior
-
-**Custom Fields:**
-- Add any plugin-specific settings
-- Access via `plugin_config.model_extra.get("field_name", default)`
-
-### Step 4: Verify Registration
-
-Run the register command to see your plugin:
-
-```bash
-poetry run mimolo register
-```
-
-Your plugin should appear in the output with its spec details.
-
-## Event Structure
-
-Events must have these fields:
-
-```python
-Event(
-    timestamp=datetime.now(UTC),      # UTC timezone required
-    label="mymonitor",                 # Must match spec.label
-    event="event_type",                # Short event identifier
-    data={"items": [value]},           # Optional dict (include data_header if set)
-)
-```
-
-**Requirements:**
-- `timestamp`: Must be timezone-aware (use `UTC` from `datetime`)
-- `label`: Must match your plugin's `spec.label`
-- `event`: Short string describing event type
-- `data`: Optional dict. If `spec.data_header` is set, must include that key
-
-## Segment Lifecycle
-
-Understanding how segments work helps design better plugins:
-
-1. **IDLE**: No segment open, waiting for first resetting event
-2. **First Event**: Opens segment (if `resets_cooldown=True`)
-3. **ACTIVE**: Segment open, cooldown timer running
-4. **Additional Events**: 
-   - Resetting events reset timer and increment `resets_count`
-   - Non-resetting events are recorded but don't reset timer
-5. **Cooldown Expires**: Segment enters CLOSING state
-6. **Aggregation**: `filter_method()` called for each `data_header`
-7. **Write**: Segment written to logs
-8. **Back to IDLE**: Ready for next segment
-
-## Advanced Features
-
-### Stateful Monitoring
-
-Maintain state between `emit_event()` calls:
-
-```python
-class StatefulMonitor(BaseMonitor):
-    def __init__(self):
-        self._last_check = None
-        self._cache = {}
-    
-    def emit_event(self) -> Event | None:
-        # Use state to detect changes
-        current_state = get_current_state()
-        if current_state != self._cache:
-            self._cache = current_state
-            return Event(...)
-        return None
-```
-
-### Custom Initialization
-
-Pass configuration to your plugin:
-
-```python
-class ConfigurableMonitor(BaseMonitor):
-    def __init__(self, paths: list[str], threshold: int = 10):
-        self.paths = paths
-        self.threshold = threshold
-```
-
-Then in `cli.py`:
-```python
-paths = plugin_config.model_extra.get("paths", [])
-threshold = plugin_config.model_extra.get("threshold", 10)
-instance = ConfigurableMonitor(paths=paths, threshold=threshold)
-```
-
-### Infrequent Events
-
-For rare events that shouldn't wait for segment closing:
-
-```python
-spec = PluginSpec(
-    label="rare_event",
-    infrequent=True,  # Write immediately, bypass aggregation
-    poll_interval_s=60.0,
-)
-```
-
-Use cases:
-- Error/exception monitoring
-- System alerts
-- One-off notifications
-
-### Complex Aggregation
-
-Custom aggregation logic in `filter_method()`:
-
-```python
-@staticmethod
-def filter_method(items: list[dict]) -> dict:
-    """Aggregate with statistics."""
-    return {
-        "count": len(items),
-        "unique": len(set(items)),
-        "first": items[0] if items else None,
-        "last": items[-1] if items else None,
-    }
-```
-
-## Testing
-
-Create tests in `tests/test_plugins_mymonitor.py`:
-
-```python
-"""Tests for mymonitor plugin."""
-
-from mimolo.plugins.mymonitor import MyMonitor
-
-
-def test_mymonitor_spec():
-    """Test MyMonitor spec attributes."""
-    spec = MyMonitor.spec
-    
-    assert spec.label == "mymonitor"
-    assert spec.data_header == "items"
-    assert spec.resets_cooldown is True
-    assert spec.poll_interval_s == 5.0
-
-
-def test_mymonitor_emit_event():
-    """Test MyMonitor event emission."""
-    monitor = MyMonitor()
-    event = monitor.emit_event()
-    
-    # Test based on your logic
-    if event:
-        assert event.label == "mymonitor"
-        assert "items" in event.data
-
-
-def test_mymonitor_filter_method():
-    """Test MyMonitor aggregation."""
-    items = [["item1", "item2"], ["item2", "item3"]]
-    result = MyMonitor.filter_method(items)
-    
-    assert isinstance(result, list)
-    assert len(result) == 3  # Deduplicated
-```
-
-Run tests:
-```bash
-poetry run pytest tests/test_plugins_mymonitor.py -v
-```
-
-## Debugging
-
-### Enable Debug Logging
-
-In `mimolo.toml`:
-```toml
-[monitor]
-console_verbosity = "debug"
-```
-
-### Check Plugin Registration
-
-```bash
-poetry run mimolo register
-```
-
-### Dry Run
-
-Test configuration without running:
-```bash
-poetry run mimolo monitor --dry-run
-```
-
-### Common Issues
-
-**Plugin not registered:**
-- Check `__init__.py` exports
-- Check `cli.py` available_plugins dict
-- Verify plugin enabled in config
-
-**Events not emitting:**
-- Add debug prints in `emit_event()`
-- Check `poll_interval_s` timing
-- Verify `emit_event()` returns Event, not dict
-
-**Aggregation not working:**
-- Verify `data_header` is set in spec
-- Check event.data includes data_header key
-- Ensure `filter_method()` returns JSON-serializable data
-
-**Type errors:**
-- Run `poetry run mypy mimolo`
-- Check Event timestamp has UTC timezone
-- Verify filter_method signature matches
-
-## Error Handling
-
-MiMoLo distinguishes between **fatal errors** that should crash the application and **graceful failures** that should be handled without killing the runtime.
-
-### Framework-Level Error Handling
-
-The runtime handles plugin errors gracefully:
-
-- **PluginEmitError**: Exceptions from `emit_event()` are caught and logged
-- **Exponential Backoff**: Failing plugins are quarantined temporarily
-- **Error Tracking**: Consecutive errors increase backoff duration
-- **Recovery**: Successful calls reset error count
-
-You don't need explicit try/catch in `emit_event()` unless you want custom error handling.
-
-### Fatal vs. Non-Fatal Errors
-
-**Fatal Errors** - These should crash the application:
-- Invalid plugin configuration that prevents basic functionality
-- Duplicate plugin labels during registration
-- Missing required dependencies
-- Malformed plugin spec (invalid label, negative poll_interval_s)
-
-Use these only in `__init__()` or validation methods when the plugin cannot function at all.
-
-**Non-Fatal Errors** - Handle gracefully with user feedback:
-- Invalid configuration values (bad paths, missing files, etc.)
-- Runtime failures that don't prevent core functionality
-- Transient errors (network issues, temporary file locks)
-- Partial configuration problems
-
-### Graceful Error Handling Pattern
-
-The `FolderWatchMonitor` demonstrates the best practice for graceful error handling:
-
-#### 1. Validate Configuration Without Raising
-
-```python
-def _validate_and_filter(self) -> tuple[list[Path], list[str], list[str]]:
-    """Validate configured watch directories and normalize them without raising.
-    
-    Returns:
-        (valid_dirs, missing, not_dirs)
-    """
-    if self._validated:
-        return self.watch_dirs, [], []
-    
-    resolved_valid: list[Path] = []
-    missing: list[str] = []
-    not_dirs: list[str] = []
-    
-    for d in self.watch_dirs:
-        try:
-            p = d.resolve()
-        except OSError:
-            p = d
-        if not p.exists():
-            missing.append(str(p))
-            continue
-        if not p.is_dir():
-            not_dirs.append(str(p))
-            continue
-        resolved_valid.append(p)
-    
-    # Store only valid paths
-    self.watch_dirs = sorted(set(resolved_valid))
-    self._validated = True
-    return self.watch_dirs, missing, not_dirs
-```
-
-**Key principles:**
-- Don't raise exceptions for bad config values
-- Separate valid from invalid inputs
-- Continue working with valid subset
-- Return diagnostic information for feedback
-
-#### 2. Emit Warning Events for Invalid Configuration
-
-```python
-def emit_event(self) -> Event | None:
-    """Check watched directories for file modifications."""
-    # Validate configuration on first tick without raising
-    if not self._validated:
-        valid_dirs, missing, not_dirs = self._validate_and_filter()
-        
-        # Emit warning event if there are invalid entries
-        if (missing or not_dirs) and not self._warn_emitted:
-            self._warn_emitted = True
-            now = datetime.now(UTC)
-            return Event(
-                timestamp=now,
-                label=self.spec.label,
-                event="watch_warning",
-                data={
-                    "folders": [str(p) for p in valid_dirs],
-                    "invalid": {
-                        "missing": missing,
-                        "not_dirs": not_dirs,
-                    },
-                    "message": (
-                        "Some configured folders are invalid. Please fix your config."
-                    ),
-                    "extensions": sorted(self.extensions) if self.extensions else [],
-                },
-            )
-```
-
-**Key principles:**
-- Emit special event types for warnings (`watch_warning`)
-- Include diagnostic information in event data
-- Provide actionable message for users
-- Use one-time flags to avoid spam (`self._warn_emitted`)
-
-#### 3. Emit Acknowledgment Events for Valid Configuration
-
-```python
-        # If there are valid entries, emit a one-time ack that lists them
-        if valid_dirs and not self._ack_emitted:
-            self._ack_emitted = True
-            now = datetime.now(UTC)
-            return Event(
-                timestamp=now,
-                label=self.spec.label,
-                event="watch_started",
-                data={
-                    "folders": [str(p) for p in valid_dirs],
-                    "extensions": sorted(self.extensions) if self.extensions else [],
-                },
-            )
-```
-
-**Key principles:**
-- Confirm what the plugin is actually monitoring
-- Give users visibility into working configuration
-- Emit once to avoid log spam
-
-#### 4. Handle Edge Cases
-
-```python
-        # If nothing configured, warn once
-        if not valid_dirs and not self._warn_emitted:
-            self._warn_emitted = True
-            now = datetime.now(UTC)
-            return Event(
-                timestamp=now,
-                label=self.spec.label,
-                event="watch_warning",
-                data={
-                    "folders": [],
-                    "invalid": {"missing": [], "not_dirs": []},
-                    "message": (
-                        "No watch_dirs configured for FolderWatchMonitor. "
-                        "Set plugins.folderwatch.watch_dirs."
-                    ),
-                    "extensions": sorted(self.extensions) if self.extensions else [],
-                },
-            )
-```
-
-**Key principles:**
-- Detect and warn about empty/missing configuration
-- Provide specific guidance on what to fix
-- Reference exact config keys the user should set
-
-### Complete Implementation Checklist
-
-When implementing graceful error handling:
-
-1. **Add validation flags to `__init__`:**
-   ```python
-   self._validated: bool = False
-   self._ack_emitted: bool = False
-   self._warn_emitted: bool = False
-   ```
-
-2. **Create validation method that returns diagnostics:**
-   - Returns tuple of (valid_items, error1, error2, ...)
-   - Never raises for config problems
-   - Normalizes/resolves valid inputs
-
-3. **First `emit_event()` call validates and emits feedback:**
-   - Warning events for invalid config
-   - Acknowledgment events for valid config
-   - Specific guidance in messages
-
-4. **Continue working with valid subset:**
-   - Don't block on partial failures
-   - Process what works, report what doesn't
-   - Allow users to fix issues incrementally
-
-### Event Types for Feedback
-
-Recommended event types:
-
-- `<plugin>_started` - Confirmation that plugin is running with valid config
-- `<plugin>_warning` - Non-fatal configuration or runtime warnings
-- `<plugin>_error` - Recoverable errors during operation
-- `<plugin>_info` - Informational messages (use sparingly)
-
-### When to Use Fatal Errors
-
-Raise exceptions in `__init__()` only when:
-
-```python
-def __init__(self, required_param: str):
-    # Fatal: Plugin cannot function without this
-    if not required_param:
-        raise ValueError("required_param is mandatory for MyPlugin")
-    
-    # Non-fatal: Warn via events instead
-    self._optional_paths = self._validate_optional_paths(optional_paths)
-```
-
-Use fatal errors for:
-- Missing required parameters with no sensible default
-- Type mismatches that would cause immediate crashes
-- Fundamental capability checks (e.g., missing required system library)
-
-### Testing Error Handling
-
-Add tests for error scenarios:
-
-```python
-def test_mymonitor_invalid_config():
-    """Test MyMonitor handles invalid config gracefully."""
-    monitor = MyMonitor(invalid_path="/nonexistent")
-    
-    # First emit should be warning event
-    event = monitor.emit_event()
-    assert event is not None
-    assert event.event == "watch_warning"
-    assert "invalid" in event.data
-    assert "message" in event.data
-    
-    # Should not raise, should continue working
-    event2 = monitor.emit_event()
-    # May be None or valid event, but no exception
-
-
-def test_mymonitor_valid_config():
-    """Test MyMonitor emits ack for valid config."""
-    monitor = MyMonitor(valid_path="/tmp")
-    
-    # First emit should be ack event
-    event = monitor.emit_event()
-    assert event is not None
-    assert event.event == "watch_started"
-    assert "folders" in event.data
-```
-
-### Real-World Example Summary
-
-The `FolderWatchMonitor` demonstrates:
-
-✅ **Validates without raising** - Separates good from bad paths
-✅ **Emits warning events** - Lists invalid paths with actionable messages  
-✅ **Emits acknowledgment** - Shows what's actually being monitored
-✅ **Continues working** - Monitors valid paths despite invalid ones
-✅ **One-time feedback** - Uses flags to avoid log spam
-✅ **Specific guidance** - Points users to exact config keys to fix
-
-This pattern ensures users get meaningful feedback they can act on, while keeping the runtime stable.
-
-## Performance Tips
-
-1. **Keep emit_event() Fast**: Aim for < 100ms execution time
-2. **Use Caching**: Store computed state between polls
-3. **Lazy Loading**: Initialize expensive resources only when needed
-4. **Adjust poll_interval_s**: Don't poll faster than necessary
-5. **Batch Operations**: Process multiple items per event if possible
-
-## Example Plugins
-
-### ExampleMonitor (`example.py`)
-- Basic event emission
-- Simple aggregation with `filter_method()`
-- Synthetic data generation
-
-### FolderWatchMonitor (`folderwatch.py`)
-- Stateful monitoring (file mtimes)
-- Custom initialization args
-- Real-world detection logic
-
-Study these for patterns and best practices.
-
-## Future Enhancements
-
-Planned features:
-- **Entry Points**: Auto-discovery via setuptools
-- **Plugin Metadata**: Version, author, description
-- **Lifecycle Hooks**: on_start, on_stop, on_segment_close
-- **Async Support**: async def emit_event()
-- **Plugin Dependencies**: Declare dependencies on other plugins
-
-## Getting Help
-
-- Check existing plugins in `mimolo/plugins/`
-- Review tests in `tests/test_plugins_*.py`
-- Read framework docs in `GETTING_STARTED.md`
-- Open GitHub issue for questions
-```
-
-## mimolo\plugins\example.py
-
-``` py
-"""Example monitor plugin demonstrating the plugin API.
-
-This plugin emits synthetic events for testing and demonstration purposes.
-
-For a complete guide on creating custom plugins, see:
-    developer_docs/agent_dev/AGENT_DEV_GUIDE.md
-
-This example demonstrates:
-- Basic event emission
-- data_header usage
-- Custom filter_method for aggregation
-"""
-
-from __future__ import annotations
-
-from datetime import UTC, datetime
-from random import randint
-
-from mimolo.core.event import Event
-from mimolo.core.plugin import BaseMonitor, PluginSpec
-
-
-class ExampleMonitor(BaseMonitor):
-    """Example monitor that emits synthetic demo events.
-
-    Demonstrates:
-    - Basic event emission
-    - data_header usage
-    - Custom filter_method for aggregation
-    """
-
-    spec = PluginSpec(
-        label="example",
-        data_header="examples",
-        resets_cooldown=True,
-        infrequent=False,
-        poll_interval_s=3.0,
-    )
-
-    def __init__(self, item_count: int = 5) -> None:
-        """Initialize example monitor.
-
-        Args:
-            item_count: Number of unique items to generate.
-        """
-        self.item_count = item_count
-
-    def emit_event(self) -> Event | None:
-        """Emit a synthetic demo event.
-
-        Returns:
-            Event with random item from pool.
-        """
-        now = datetime.now(UTC)
-        item = f"fake_item_{randint(1, self.item_count)}"
-        payload = {"examples": [item]}
-
-        return Event(
-            timestamp=now,
-            label=self.spec.label,
-            event="demo",
-            data=payload,
-        )
-
-    @staticmethod
-    def filter_method(items: list[list[str]]) -> list[str]:
-        """Aggregate example items by flattening and deduplicating.
-
-        Args:
-            items: List of lists of example items collected during segment.
-
-        Returns:
-            Sorted list of unique items.
-        """
-        # Flatten nested lists
-        flat_items = [item for sublist in items for item in sublist]
-        # Deduplicate and sort
-        return sorted(set(flat_items))
-```
-
-## mimolo\plugins\folderwatch.py
+## mimolo/plugins/folderwatch.py
 
 ``` py
 """Folder watch monitor plugin.
@@ -3790,7 +2488,106 @@ class FolderWatchMonitor(BaseMonitor):
         return sorted(normalized)
 ```
 
-## mimolo\plugins\template.py
+## mimolo/user_plugins/__init__.py
+
+``` py
+"""MiMoLo user plugin modules."""
+
+from mimolo.plugins.folderwatch import FolderWatchMonitor
+from mimolo.user_plugins.example import ExampleMonitor
+
+__all__ = [
+    "ExampleMonitor",
+    "FolderWatchMonitor",
+]
+```
+
+## mimolo/user_plugins/example.py
+
+``` py
+"""Example monitor plugin demonstrating the plugin API.
+
+This plugin emits synthetic events for testing and demonstration purposes.
+
+    For a full development guide, see:
+    developer_docs/agent_dev/AGENT_DEV_GUIDE.md
+
+    For the full Field-Agent protocol specification, see:
+
+This example demonstrates:
+- Basic event emission
+- data_header usage
+- Custom filter_method for aggregation
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from random import randint
+
+from mimolo.core.event import Event
+from mimolo.core.plugin import BaseMonitor, PluginSpec
+
+
+class ExampleMonitor(BaseMonitor):
+    """Example monitor that emits synthetic demo events.
+
+    Demonstrates:
+    - Basic event emission
+    - data_header usage
+    - Custom filter_method for aggregation
+    """
+
+    spec = PluginSpec(
+        label="example",
+        data_header="examples",
+        resets_cooldown=True,
+        infrequent=False,
+        poll_interval_s=3.0,
+    )
+
+    def __init__(self, item_count: int = 5) -> None:
+        """Initialize example monitor.
+
+        Args:
+            item_count: Number of unique items to generate.
+        """
+        self.item_count = item_count
+
+    def emit_event(self) -> Event | None:
+        """Emit a synthetic demo event.
+
+        Returns:
+            Event with random item from pool.
+        """
+        now = datetime.now(UTC)
+        item = f"fake_item_{randint(1, self.item_count)}"
+        payload = {"examples": [item]}
+
+        return Event(
+            timestamp=now,
+            label=self.spec.label,
+            event="demo",
+            data=payload,
+        )
+
+    @staticmethod
+    def filter_method(items: list[list[str]]) -> list[str]:
+        """Aggregate example items by flattening and deduplicating.
+
+        Args:
+            items: List of lists of example items collected during segment.
+
+        Returns:
+            Sorted list of unique items.
+        """
+        # Flatten nested lists
+        flat_items = [item for sublist in items for item in sublist]
+        # Deduplicate and sort
+        return sorted(set(flat_items))
+```
+
+## mimolo/user_plugins/template.py
 
 ``` py
 """Template for creating new MiMoLo plugins.
@@ -3865,13 +2662,13 @@ class TemplateMonitor(BaseMonitor):
         return list(items)
 ```
 
-## tests\__init__.py
+## tests/__init__.py
 
 ``` py
 """Tests for MiMoLo framework."""
 ```
 
-## tests\test_aggregate.py
+## tests/test_aggregate.py
 
 ``` py
 """Tests for segment aggregation."""
@@ -4012,7 +2809,7 @@ def test_aggregator_filter_error():
         aggregator.build_segment(segment_state)
 ```
 
-## tests\test_cooldown.py
+## tests/test_cooldown.py
 
 ``` py
 """Tests for cooldown timer."""
@@ -4161,7 +2958,7 @@ def test_cooldown_reset():
     assert timer.segment_state is None
 ```
 
-## tests\test_event.py
+## tests/test_event.py
 
 ``` py
 """Tests for event primitives."""
@@ -4344,7 +3141,7 @@ def test_segment_to_dict():
     assert len(d["events"]) == 1
 ```
 
-## tests\test_plugins_example.py
+## tests/test_plugins_example.py
 
 ``` py
 """Tests for example plugin."""
@@ -4391,7 +3188,7 @@ def test_example_monitor_filter_method():
     assert len(result) == 4  # Unique items
 ```
 
-## tests\test_registry.py
+## tests/test_registry.py
 
 ``` py
 """Tests for plugin registry."""

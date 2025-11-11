@@ -61,6 +61,7 @@ EXCLUDE_DIRS = {
     ".mypy_cache",
     ".ruff_cache",
     ".obsidian",
+    "export_repo_markdown.py",
 }
 
 

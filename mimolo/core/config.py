@@ -18,10 +18,16 @@ from mimolo.core.errors import ConfigError
 class MonitorConfig(BaseModel):
     """Monitor runtime configuration."""
 
+    # NEW: Field-Agent support
+    journal_dir: str = "./journals"  # Event stream storage
+    cache_dir: str = "./cache"  # Agent state cache
+    main_system_max_cpu_per_plugin: float = 0.1  # CPU limit per agent
+    agent_heartbeat_timeout_s: float = 30.0  # Miss threshold
+
     cooldown_seconds: float = Field(default=600.0, gt=0)
     poll_tick_ms: float = Field(default=200.0, gt=0)
     log_dir: str = Field(default="./logs")
-    log_format: Literal["jsonl", "yaml", "md"] = Field(default="jsonl")
+    log_format: str = "jsonl"
     console_verbosity: Literal["debug", "info", "warning", "error"] = Field(default="info")
 
     @field_validator("log_dir")
@@ -47,6 +53,12 @@ class PluginConfig(BaseModel):
 
     # Plugin-specific fields (stored as extra)
     model_config = {"extra": "allow"}
+
+    # NEW: Field-Agent specific
+    plugin_type: Literal["legacy", "field_agent"] = "legacy"  # Auto-detect
+    executable: str | None = None  # For field agents: python path or script
+    args: list[str] = Field(default_factory=list)  # CLI args for agent
+    heartbeat_interval_s: float = Field(default=15.0)  # Expected heartbeat frequency
 
 
 class Config(BaseModel):
@@ -90,9 +102,7 @@ def load_config(path: Path | str) -> Config:
     except Exception as e:
         if isinstance(e, ConfigError):
             raise
-        raise ConfigError(
-            f"Failed to parse configuration file {path}: {e}"
-        ) from e
+        raise ConfigError(f"Failed to parse configuration file {path}: {e}") from e
 
     try:
         return Config.model_validate(data)
@@ -153,9 +163,7 @@ def create_default_config(path: Path | str) -> None:
     except Exception as e:
         if isinstance(e, ConfigError):
             raise
-        raise ConfigError(
-            f"Failed to write configuration file {path}: {e}"
-        ) from e
+        raise ConfigError(f"Failed to write configuration file {path}: {e}") from e
 
 
 def _config_to_toml(config: Config) -> str:
@@ -182,7 +190,7 @@ def _config_to_toml(config: Config) -> str:
             if isinstance(value, str):
                 lines.append(f'{key} = "{value}"')
             elif isinstance(value, list):
-                lines.append(f'{key} = {value}')
+                lines.append(f"{key} = {value}")
             else:
                 lines.append(f"{key} = {value}")
         lines.append("")
