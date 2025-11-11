@@ -15,7 +15,7 @@ log_dir = "./logs"
 log_format = "jsonl"
 
 # Console verbosity: debug, info, warning, error
-console_verbosity = "info"
+console_verbosity = "debug"
 
 # Example Plugin Configuration (Legacy)
 [plugins.example]
@@ -23,6 +23,15 @@ enabled = false
 poll_interval_s = 3.0
 resets_cooldown = true
 infrequent = false
+
+# Template Field-Agent Configuration (v0.3)
+[plugins.agent_template]
+enabled = true
+plugin_type = "field_agent"
+executable = "python"
+args = ["agent_example.py"]
+heartbeat_interval_s = 3.0
+agent_flush_interval_s = 60.0
 
 # Example Field-Agent Configuration (v0.3)
 [plugins.agent_example]
