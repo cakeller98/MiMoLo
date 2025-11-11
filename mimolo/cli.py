@@ -131,7 +131,7 @@ def monitor(
 
         # Apply CLI overrides
         if log_format:
-            config.monitor.log_format = log_format  # type: ignore
+            config.monitor.log_format = log_format
         if cooldown is not None:
             config.monitor.cooldown_seconds = cooldown
 

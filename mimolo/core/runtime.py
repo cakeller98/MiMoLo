@@ -447,8 +447,6 @@ class Runtime:
                 self.console.print(f"[cyan]❤️  {label}{metrics_str}[/cyan]")
         except Exception as e:
             self.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
-        except Exception as e:
-            self.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
 
     def _flush_all_agents(self) -> None:
         """Send flush command to all active Field-Agents."""
