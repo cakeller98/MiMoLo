@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
+import tempfile
 import threading
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
-from mimolo.core.protocol import AgentMessage, OrchestratorCommand, parse_agent_message
+from mimolo.core.protocol import (
+    AgentMessage,
+    OrchestratorCommand,
+    parse_agent_message,
+)
 
 
 @dataclass
@@ -32,6 +39,8 @@ class AgentHandle:
 
     # Threads
     _stdout_thread: threading.Thread | None = None
+    stderr_thread: threading.Thread | None = None
+    stderr_log: str | None = None
     _running: bool = True
 
     def start_reader(self) -> None:
@@ -153,7 +162,9 @@ class AgentProcessManager:
         # Build command
         cmd = [plugin_config.executable] + args_with_resolved_path
 
-        # Spawn process
+        # Spawn process. We capture stderr so we can forward it (with a
+        # prefix) into the orchestrator console and optionally mirror it
+        # into a separate terminal window for debugging.
         proc = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
@@ -166,6 +177,101 @@ class AgentProcessManager:
         # Create handle and start reader
         handle = AgentHandle(label=label, process=proc, config=plugin_config)
         handle.start_reader()
+
+        # Start a thread to forward agent stderr to the orchestrator console
+        # (prefixed) and optionally into a temp log file. If the plugin
+        # requests a separate terminal, we will open one that tails the
+        # temp log so the developer can see colorful rich output in its
+        # own window while IPC remains via pipes.
+        launch_sep = bool(
+            getattr(plugin_config, "launch_in_separate_terminal", False)
+        )
+
+        stderr_log_path = None
+        if launch_sep:
+            # Prepare a temp log file for tailing
+            tmp = (
+                Path(tempfile.gettempdir())
+                / f"mimolo_agent_{label}_{uuid.uuid4().hex[:8]}.log"
+            )
+            stderr_log_path = str(tmp)
+
+        def _stderr_forwarder(
+            p: subprocess.Popen[str], lbl: str, log_path: str | None
+        ) -> None:
+            try:
+                if p.stderr is None:
+                    return
+                for raw in p.stderr:
+                    # Ensure we keep the original newlines.
+                    line = raw.rstrip("\n")
+                    print(f"[{lbl}][ERR] {line}")
+                    if log_path:
+                        try:
+                            with open(
+                                log_path,
+                                "a",
+                                encoding="utf-8",
+                                errors="ignore",
+                            ) as f:
+                                f.write(raw)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        stderr_thread = threading.Thread(
+            target=_stderr_forwarder,
+            args=(proc, label, stderr_log_path),
+            daemon=True,
+            name=f"agent-stderr-{label}",
+        )
+        stderr_thread.start()
+        handle.stderr_thread = stderr_thread
+        handle.stderr_log = stderr_log_path
+
+        # If requested, open a separate terminal that tails the log file
+        if launch_sep and stderr_log_path:
+            try:
+                if os.name == "nt":
+                    # Use PowerShell to tail the file and keep the window open
+                    tail_cmd = [
+                        "cmd",
+                        "/c",
+                        "start",
+                        "",
+                        "powershell",
+                        "-NoProfile",
+                        "-NoExit",
+                        "-Command",
+                        f"Get-Content -Path '{stderr_log_path}' -Wait",
+                    ]
+                    subprocess.Popen(tail_cmd)
+                else:
+                    # Try common terminals on *nix
+                    try:
+                        subprocess.Popen(
+                            ["xterm", "-e", f"tail -f {stderr_log_path}"]
+                        )
+                    except Exception:
+                        try:
+                            subprocess.Popen(
+                                [
+                                    "gnome-terminal",
+                                    "--",
+                                    "bash",
+                                    "-c",
+                                    f"tail -f {stderr_log_path}; exec bash",
+                                ]
+                            )
+                        except Exception:
+                            # Last resort: background `tail -f` (no window)
+                            subprocess.Popen(
+                                ["sh", "-c", f"tail -f {stderr_log_path} &"]
+                            )
+            except Exception:
+                # Non-fatal — just don't open the separate window
+                pass
 
         self.agents[label] = handle
         return handle

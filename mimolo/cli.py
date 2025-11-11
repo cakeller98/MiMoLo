@@ -21,18 +21,31 @@ from rich.console import Console
 from mimolo.core.config import Config, load_config_or_default
 from mimolo.core.errors import ConfigError, PluginRegistrationError
 from mimolo.core.event import Event
+from mimolo.core.ipc import check_platform_support
 from mimolo.core.plugin import BaseMonitor, PluginSpec
 from mimolo.core.registry import PluginRegistry
 from mimolo.core.runtime import Runtime
 from mimolo.plugins import ExampleMonitor, FolderWatchMonitor
+
+console = Console()
+# Check platform support on module import
+_supported, _reason = check_platform_support()
+if not _supported:
+    console.print(f"[red]ERROR: {_reason}[/red]")
+    console.print("\n[yellow]MiMoLo requires:[/yellow]")
+    console.print("  - Windows 10 version 1803+ (April 2018 or later)")
+    console.print("  - macOS 10.13 High Sierra or later")
+    console.print("  - Modern Linux (kernel 2.6+)")
+    console.print("\n[dim]Your platform is not supported.[/dim]")
+    sys.exit(1)
+
+console.print(f"[dim]Platform check: {_reason}[/dim]")
 
 app = typer.Typer(
     name="mimolo",
     help="MiMoLo - Modular Monitor & Logger Framework",
     add_completion=False,
 )
-
-console = Console()
 
 # Typer option metadata constants to avoid function calls in annotations/defaults
 CONFIG_OPTION = typer.Option(

@@ -29,13 +29,14 @@ infrequent = false
 enabled = true
 plugin_type = "field_agent"
 executable = "python"
-args = ["agent_example.py"]
+args = ["agent_template.py"]
 heartbeat_interval_s = 3.0
 agent_flush_interval_s = 60.0
+launch_in_separate_terminal = true
 
 # Example Field-Agent Configuration (v0.3)
 [plugins.agent_example]
-enabled = true
+enabled = false
 plugin_type = "field_agent"
 executable = "python"
 args = ["agent_example.py"]
