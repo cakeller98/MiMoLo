@@ -39,7 +39,7 @@ class AgentHandle:
 
     # Threads
     _stdout_thread: threading.Thread | None = None
-    stderr_thread: threading.Thread | None = None
+    _stderr_thread: threading.Thread | None = None
     stderr_log: str | None = None
     _running: bool = True
 
@@ -220,14 +220,14 @@ class AgentProcessManager:
             except Exception:
                 pass
 
-        stderr_thread = threading.Thread(
+        _stderr_thread = threading.Thread(
             target=_stderr_forwarder,
             args=(proc, label, stderr_log_path),
             daemon=True,
             name=f"agent-stderr-{label}",
         )
-        stderr_thread.start()
-        handle.stderr_thread = stderr_thread
+        _stderr_thread.start()
+        handle._stderr_thread = _stderr_thread
         handle.stderr_log = stderr_log_path
 
         # If requested, open a separate terminal that tails the log file
@@ -244,7 +244,8 @@ class AgentProcessManager:
                         "-NoProfile",
                         "-NoExit",
                         "-Command",
-                        f"Get-Content -Path '{stderr_log_path}' -Wait",
+                        "Get-Content -Path @args[0] -Wait",
+                        stderr_log_path,
                     ]
                     subprocess.Popen(tail_cmd)
                 else:

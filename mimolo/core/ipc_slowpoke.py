@@ -41,8 +41,6 @@ from typing import Any
 class SlowpokeWarning(UserWarning):
     """Warning issued when SLOWPOKE module is loaded."""
 
-    pass
-
 
 # Issue warning on import
 warnings.warn(
@@ -75,8 +73,8 @@ class SlowpokeChannel:
     # Performance limits
     MAX_AGENTS_WARNING = 50
     MAX_AGENTS_HARD = 100
-    POLL_INTERVAL = 0.1  # 100ms polling (causes high CPU)
     FILE_CLEANUP_INTERVAL = 60  # Cleanup old files every 60s
+    POLL_INTERVAL = 0.1  # 100ms polling; high CPU usage comes from many agents polling, not the interval itself
 
     def __init__(self, read_dir: str, write_dir: str, create: bool = False):
         """Initialize SLOWPOKE channel.

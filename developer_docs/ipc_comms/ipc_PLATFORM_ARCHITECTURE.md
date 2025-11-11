@@ -69,4 +69,4 @@ Platform Requirements:
   ❌ NO TCP fallback
   ❌ NO support for old platforms*
 
-* If you need to support legacy platforms (e.g., Windows 7/8, old macOS), see the SLOWPOKE module as a last-resort fallback option. it will function but with significant performance degradation and limitations.
+* If you need to support legacy platforms (e.g., Windows 7/8, old macOS), see the SLOWPOKE module as a last-resort fallback option. It will function but with significant performance degradation and limitations.
