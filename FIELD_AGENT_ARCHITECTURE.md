@@ -1,0 +1,211 @@
+# MiMoLo Field-Agent Architecture Summary
+
+> **Status:** Implemented in v0.3  
+> **Last Updated:** November 10, 2025
+
+## Overview
+
+Field-Agents are **self-contained, standalone executables** that monitor system activity and report to the MiMoLo orchestrator via JSON Lines over stdin/stdout.
+
+## Key Architectural Principles
+
+### 1. **Agents Aggregate Their Own Data**
+
+- Field-Agents maintain internal accumulators in their Worker Loop
+- When flushed, they create a snapshot, start fresh accumulation, and summarize the snapshot
+- The orchestrator **never re-aggregates** Field-Agent data
+
+### 2. **Heartbeats Are Logged, Not Aggregated**
+
+- Heartbeats contain health metrics (CPU, memory, queue size, flush latency)
+- Orchestrator writes heartbeats **directly to file sink** as individual events
+- Used for monitoring agent health, not for data collection
+
+### 3. **Summaries Are Pre-Aggregated**
+
+- When an agent receives `flush` command, it:
+  1. Takes a snapshot of accumulated data
+  2. Starts a fresh accumulator
+  3. Hands snapshot to Summarizer thread
+  4. Summarizer packages data with start/end timestamps
+  5. Emits `summary` message to stdout
+- Orchestrator writes summaries **directly to file sink** without modification
+
+### 4. **Flush Scheduling**
+
+The orchestrator sends `flush` commands based on:
+- `agent_flush_interval_s` config (default: 60s)
+- Tracked per-agent (each agent has independent flush timing)
+- Checked every tick, sent when interval elapsed
+
+## Three-Thread Agent Architecture
+
+Each Field-Agent runs three cooperative threads:
+
+```
+┌─────────────────────────────────────────────┐
+│  Field-Agent Process                        │
+│                                             │
+│  ┌─────────────┐  ┌──────────────┐         │
+│  │  Command    │  │  Worker Loop │         │
+│  │  Listener   │  │              │         │
+│  │  (stdin)    │  │  Accumulates │         │
+│  └──────┬──────┘  │  data        │         │
+│         │         └──────┬───────┘         │
+│         │ flush          │                 │
+│         └────────────────┤                 │
+│                          │                 │
+│                  ┌───────▼────────┐        │
+│                  │  Summarizer    │        │
+│                  │  Thread        │        │
+│                  │  (stdout)      │        │
+│                  └────────────────┘        │
+└─────────────────────────────────────────────┘
+```
+
+## Message Flow
+
+### Heartbeat Flow (Every ~15s)
+```
+Agent → {"type":"heartbeat","timestamp":"...","metrics":{...}}
+Orchestrator → Writes to file immediately
+```
+
+### Flush/Summary Flow (Every ~60s)
+```
+Orchestrator → {"cmd":"flush"}
+Agent → [Takes snapshot, starts fresh accumulator]
+Agent → [Summarizer packages snapshot]
+Agent → {"type":"summary","data":{start:"...",end:"...",items:[...]}}
+Orchestrator → Writes to file immediately
+```
+
+### Error Flow (As Needed)
+```
+Agent → {"type":"error","message":"..."}
+Orchestrator → Logs error to console
+```
+
+## Configuration
+
+### Field-Agent Plugin Config
+
+```toml
+[plugins.my_field_agent]
+enabled = true
+plugin_type = "field_agent"           # Required: distinguishes from legacy
+executable = "python"                 # Command to execute
+args = ["agents/my_agent.py"]         # Arguments passed to executable
+heartbeat_interval_s = 15.0           # How often agent sends heartbeat
+agent_flush_interval_s = 60.0         # How often orchestrator sends flush
+```
+
+### Legacy Plugin Config (Backward Compatible)
+
+```toml
+[plugins.folderwatch]
+enabled = true
+plugin_type = "legacy"                # Default if omitted
+poll_interval_s = 5.0
+resets_cooldown = true
+```
+
+## Runtime Behavior
+
+### Orchestrator Startup
+1. Load config
+2. For each plugin:
+   - If `plugin_type == "field_agent"` → spawn subprocess via `agent_manager.spawn_agent()`
+   - If `plugin_type == "legacy"` → wrap with `LegacyPluginAdapter`
+3. Start main event loop
+
+### During Operation
+Every tick (~100ms):
+1. Poll legacy plugins (synchronous `emit_event()`)
+2. Check Field-Agent flush intervals
+   - Send `flush` commands when interval elapsed
+3. Drain Field-Agent message queues
+   - Route by message type (heartbeat/summary/error)
+   - Write heartbeats and summaries directly to file
+4. Check cooldown for legacy segment closure
+
+### Shutdown
+1. Close any open legacy segments
+2. Send `shutdown` commands to all Field-Agents
+3. Wait for agent processes to exit
+4. Flush and close file sinks
+
+## File Output Format
+
+### Heartbeat Event (JSONL)
+```json
+{
+  "timestamp": "2025-11-10T14:23:45.123Z",
+  "label": "my_agent",
+  "event": "heartbeat",
+  "data": {
+    "heartbeat": true,
+    "metrics": {
+      "cpu": 0.03,
+      "mem": 42.1,
+      "queue": 2,
+      "latency_ms": 8.5
+    }
+  }
+}
+```
+
+### Summary Event (JSONL)
+```json
+{
+  "timestamp": "2025-11-10T14:24:00.456Z",
+  "label": "my_agent",
+  "event": "summary",
+  "data": {
+    "start_time": "2025-11-10T14:23:00Z",
+    "end_time": "2025-11-10T14:24:00Z",
+    "duration_s": 60,
+    "items": [...],
+    "count": 42
+  }
+}
+```
+
+## Key Differences from Legacy Plugins
+
+| Aspect                  | Legacy Plugins                        | Field-Agents                        |
+| ----------------------- | ------------------------------------- | ----------------------------------- |
+| **Execution**           | In-process (threads)                  | Sub-processes                       |
+| **Communication**       | Direct method calls                   | JSON Lines (stdin/stdout)           |
+| **Data Aggregation**    | Orchestrator aggregates into segments | Agent pre-aggregates before sending |
+| **Heartbeats**          | None                                  | Required every ~15s                 |
+| **Resource Monitoring** | None                                  | Self-reported metrics               |
+| **Language**            | Python only                           | Any language                        |
+| **Lifecycle**           | Synchronous poll                      | Asynchronous message passing        |
+
+## Implementation Status
+
+### ✅ Completed
+- Agent spawning on startup
+- Message polling and routing
+- Heartbeat logging to file
+- Summary logging to file (without re-aggregation)
+- Periodic flush command sending
+- Agent shutdown on orchestrator exit
+- Configuration schema with flush intervals
+
+### 🚧 Next Steps
+1. Create reference Field-Agent implementations
+   - Migrate `folderwatch` to standalone Field-Agent
+   - Create template Field-Agent with 3-thread architecture
+2. Add agent health monitoring dashboard
+3. Implement agent restart on failure
+4. Add flush timeout handling
+
+## References
+
+- **Full Development Guide:** `developer_docs/agent_dev/AGENT_DEV_GUIDE.md`
+- **Protocol Specification:** `developer_docs/agent_dev/AGENT_PROTOCOL_SPEC.md`
+- **Configuration:** `mimolo/core/config.py` (PluginConfig)
+- **Agent Management:** `mimolo/core/agent_process.py` (AgentProcessManager)
+- **Orchestrator:** `mimolo/core/runtime.py` (MonitorRuntime)

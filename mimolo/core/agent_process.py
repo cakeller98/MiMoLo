@@ -6,6 +6,7 @@ import subprocess
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
@@ -17,11 +18,11 @@ class AgentHandle:
     """Runtime handle for a Field-Agent subprocess."""
 
     label: str
-    process: subprocess.Popen
+    process: subprocess.Popen[str]
     config: Any  # PluginConfig
 
     # Communication queues
-    outbound_queue: Queue[AgentMessage] = field(default_factory=Queue)
+    outbound_queue: Queue[AgentMessage] = field(default_factory=lambda: Queue())
 
     # State tracking
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -42,6 +43,9 @@ class AgentHandle:
 
     def _read_stdout_loop(self) -> None:
         """Read JSON lines from agent stdout."""
+        if self.process.stdout is None:
+            return
+
         while self._running and self.process.poll() is None:
             try:
                 line = self.process.stdout.readline()
@@ -69,6 +73,9 @@ class AgentHandle:
         if self.process.poll() is not None:
             return  # Process dead
 
+        if self.process.stdin is None:
+            return
+
         try:
             json_line = cmd.model_dump_json() + "\n"
             self.process.stdin.write(json_line)
@@ -89,8 +96,10 @@ class AgentHandle:
 
     def shutdown(self) -> None:
         """Send shutdown command and wait."""
+        from mimolo.core.protocol import CommandType
+
         self._running = False
-        self.send_command(OrchestratorCommand(cmd="shutdown"))
+        self.send_command(OrchestratorCommand(cmd=CommandType.SHUTDOWN))
 
         # Wait up to 3 seconds for clean exit
         try:
@@ -122,8 +131,27 @@ class AgentProcessManager:
         Returns:
             AgentHandle for managing the subprocess
         """
+        # Resolve agent script path - only allow from user_plugins or plugins directories
+        args_with_resolved_path: list[str] = []
+        for arg in plugin_config.args:
+            if arg.endswith(".py"):
+                # Try user_plugins first, then plugins
+                user_path = Path(__file__).parent.parent / "user_plugins" / arg
+                plugins_path = Path(__file__).parent.parent / "plugins" / arg
+
+                if user_path.exists():
+                    args_with_resolved_path.append(str(user_path.resolve()))
+                elif plugins_path.exists():
+                    args_with_resolved_path.append(str(plugins_path.resolve()))
+                else:
+                    raise FileNotFoundError(
+                        f"Field-Agent script not found: {arg} (searched user_plugins and plugins)"
+                    )
+            else:
+                args_with_resolved_path.append(arg)
+
         # Build command
-        cmd = [plugin_config.executable] + plugin_config.args
+        cmd = [plugin_config.executable] + args_with_resolved_path
 
         # Spawn process
         proc = subprocess.Popen(

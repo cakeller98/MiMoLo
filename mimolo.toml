@@ -17,16 +17,25 @@ log_format = "jsonl"
 # Console verbosity: debug, info, warning, error
 console_verbosity = "info"
 
-# Example Plugin Configuration
+# Example Plugin Configuration (Legacy)
 [plugins.example]
-enabled = true
+enabled = false
 poll_interval_s = 3.0
 resets_cooldown = true
 infrequent = false
 
+# Example Field-Agent Configuration (v0.3)
+[plugins.agent_example]
+enabled = true
+plugin_type = "field_agent"
+executable = "python"
+args = ["agent_example.py"]
+heartbeat_interval_s = 15.0
+agent_flush_interval_s = 60.0
+
 # Folder Watch Plugin Configuration
 [plugins.folderwatch]
-enabled = true
+enabled = false
 poll_interval_s = 5.0
 resets_cooldown = true
 infrequent = false

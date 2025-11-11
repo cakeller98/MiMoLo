@@ -146,7 +146,10 @@ def monitor(
         registry = PluginRegistry()
         _discover_and_register_plugins(config, registry)
 
-        if len(registry) == 0:
+        # Check for Field-Agent plugins in config (they don't need registry)
+        field_agent_count = sum(1 for pc in config.plugins.values() if pc.enabled and pc.plugin_type == "field_agent")
+
+        if len(registry) == 0 and field_agent_count == 0:
             console.print("[red]No plugins registered. Nothing to monitor.[/red]")
             sys.exit(1)
 

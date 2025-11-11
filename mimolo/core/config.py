@@ -59,6 +59,7 @@ class PluginConfig(BaseModel):
     executable: str | None = None  # For field agents: python path or script
     args: list[str] = Field(default_factory=list)  # CLI args for agent
     heartbeat_interval_s: float = Field(default=15.0)  # Expected heartbeat frequency
+    agent_flush_interval_s: float = Field(default=60.0)  # How often to send flush command
 
 
 class Config(BaseModel):

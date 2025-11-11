@@ -15,7 +15,6 @@ import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, Literal, cast
 
 from rich.console import Console
@@ -151,19 +150,39 @@ class Runtime:
 
             self.agent_manager: AgentProcessManager | None = AgentProcessManager(config)
             self.legacy_adapters: dict[str, LegacyPluginAdapter] = {}
+            self.agent_last_flush: dict[str, datetime] = {}  # Track last flush time per agent
 
-            # Wrap legacy plugins so they can be routed through the same
-            # message handling pipeline as Field-Agents.
+            # First, spawn Field-Agent plugins directly from config
+            for label, plugin_config in config.plugins.items():
+                if not plugin_config.enabled:
+                    continue
+
+                if plugin_config.plugin_type == "field_agent":
+                    if plugin_config.executable:
+                        try:
+                            self.agent_manager.spawn_agent(label, plugin_config)
+                            self.console.print(f"[green]Spawned Field-Agent: {label}[/green]")
+                        except Exception as e:
+                            self.console.print(f"[red]Failed to spawn agent {label}: {e}[/red]")
+                            import traceback
+
+                            self.console.print(f"[red]{traceback.format_exc()}[/red]")
+
+            # Then, wrap legacy plugins from registry
             for spec, instance in registry.list_all():
-                try:
-                    adapter = LegacyPluginAdapter(instance, spec.label)
-                    self.legacy_adapters[spec.label] = adapter
-                except Exception:
-                    # If adapter construction fails, skip wrapping but
-                    # keep existing behavior; error will surface when polled.
-                    pass
-        except Exception:
+                # Only wrap if not configured as field_agent
+                legacy_config = config.plugins.get(spec.label)
+                if not legacy_config or legacy_config.plugin_type != "field_agent":
+                    try:
+                        adapter = LegacyPluginAdapter(instance, spec.label)
+                        self.legacy_adapters[spec.label] = adapter
+                    except Exception:
+                        # If adapter construction fails, skip wrapping but
+                        # keep existing behavior; error will surface when polled.
+                        pass
+        except Exception as e:
             # If the new modules don't exist yet, keep runtime working.
+            self.console.print(f"[yellow]Field-Agent support unavailable: {e}[/yellow]")
             self.agent_manager = None
             self.legacy_adapters = {}
 
@@ -177,8 +196,21 @@ class Runtime:
         self.console.print("[bold green]MiMoLo starting...[/bold green]")
         self.console.print(f"Cooldown: {self.config.monitor.cooldown_seconds}s")
         self.console.print(f"Poll tick: {self.config.monitor.poll_tick_ms}ms")
+
+        # Count both legacy plugins and Field-Agents
+        agent_count = 0
+        if self.agent_manager:
+            agent_count = len(self.agent_manager.agents)
+        total_plugins = len(self.registry) + agent_count
+
         self.console.print(f"Registered plugins: {len(self.registry)}")
+        if agent_count > 0:
+            self.console.print(f"Field-Agents: {agent_count}")
         self.console.print()
+
+        if total_plugins == 0:
+            self.console.print("[yellow]No plugins registered. Nothing to monitor.[/yellow]")
+            return
 
         try:
             while self._running:
@@ -251,9 +283,30 @@ class Runtime:
         # Poll Field-Agent messages (if agent manager is present)
         agm = getattr(self, "agent_manager", None)
         if agm is not None:
+            from mimolo.core.protocol import CommandType, OrchestratorCommand
+
+            now = datetime.now(UTC)
+
             for label, handle in list(agm.agents.items()):
-                msg = handle.read_message(timeout=0.001)
-                if msg is not None:
+                # Check if it's time to send flush command
+                plugin_config = self.config.plugins.get(label)
+                if plugin_config and plugin_config.plugin_type == "field_agent":
+                    last_flush = self.agent_last_flush.get(label)
+                    flush_interval = plugin_config.agent_flush_interval_s
+
+                    # Send flush if interval elapsed or never flushed
+                    if last_flush is None or (now - last_flush).total_seconds() >= flush_interval:
+                        try:
+                            flush_cmd = OrchestratorCommand(cmd=CommandType.FLUSH)
+                            handle.send_command(flush_cmd)
+                            self.agent_last_flush[label] = now
+                            if self.config.monitor.console_verbosity == "debug":
+                                self.console.print(f"[cyan]Sent flush to {label}[/cyan]")
+                        except Exception as e:
+                            self.console.print(f"[red]Error sending flush to {label}: {e}[/red]")
+
+                # Drain all available messages from this agent
+                while (msg := handle.read_message(timeout=0.001)) is not None:
                     try:
                         # Message routing by type (msg.type may be str or Enum)
                         mtype = getattr(msg, "type", None)
@@ -323,7 +376,10 @@ class Runtime:
         return timestamp
 
     def _handle_agent_summary(self, label: str, msg: object) -> None:
-        """Convert a Field-Agent summary message into an Event and handle it.
+        """Write Field-Agent summary directly to file.
+
+        Field-Agents pre-aggregate their own data, so we don't re-aggregate.
+        Just log the summary event directly.
 
         Args:
             label: agent label
@@ -351,16 +407,24 @@ class Runtime:
 
             event = Event(timestamp=timestamp, label=agent_label, event=event_type, data=data)
 
-            # Create a lightweight spec-like object: Field-Agents reset cooldown by default
-            spec_obj = SimpleNamespace(label=agent_label, infrequent=False, resets_cooldown=True)
-            self._handle_event(event, spec_obj)
+            # Write summary directly to file (agent already aggregated the data)
+            try:
+                self.file_sink.write_event(event)
+            except SinkError as e:
+                self.console.print(f"[red]Sink error writing agent summary: {e}[/red]")
+
+            # Also log to console if verbose
+            if self.config.monitor.console_verbosity in ("debug", "info"):
+                self.console_sink.write_event(event)
+
         except Exception as e:
             self.console.print(f"[red]Error handling agent summary {label}: {e}[/red]")
 
     def _handle_heartbeat(self, label: str, msg: object) -> None:
         """Handle a heartbeat message from a Field-Agent.
 
-        Update agent state and optionally surface debug output.
+        Updates agent health state and optionally logs to console.
+        Heartbeats are NOT written to file - they're for health monitoring only.
         """
         try:
             ts = getattr(msg, "timestamp", None)
@@ -376,10 +440,30 @@ class Runtime:
                 except Exception:
                     pass
 
+            # Log to console in debug mode
             if self.config.monitor.console_verbosity == "debug":
-                self.console.print(f"[cyan]Heartbeat from {label} at {timestamp.isoformat()}[/cyan]")
+                metrics = getattr(msg, "metrics", {})
+                metrics_str = f" | {metrics}" if metrics else ""
+                self.console.print(f"[cyan]❤️  {label}{metrics_str}[/cyan]")
         except Exception as e:
             self.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
+        except Exception as e:
+            self.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
+
+    def _flush_all_agents(self) -> None:
+        """Send flush command to all active Field-Agents."""
+        agm = getattr(self, "agent_manager", None)
+        if agm is not None:
+            from mimolo.core.protocol import CommandType, OrchestratorCommand
+
+            flush_cmd = OrchestratorCommand(cmd=CommandType.FLUSH)
+            for label, handle in agm.agents.items():
+                try:
+                    handle.send_command(flush_cmd)
+                    if self.config.monitor.console_verbosity == "debug":
+                        self.console.print(f"[cyan]Sent flush to {label}[/cyan]")
+                except Exception as e:
+                    self.console.print(f"[red]Error sending flush to {label}: {e}[/red]")
 
     def _handle_agent_message(self, msg: object, spec: Any | None = None) -> None:
         """Generic entry point for handling agent-style messages.
@@ -408,6 +492,9 @@ class Runtime:
 
     def _close_segment(self) -> None:
         """Close current segment and write to sinks."""
+        # Send flush command to all Field-Agents before closing segment
+        self._flush_all_agents()
+
         if not self.aggregator.has_events:
             # Empty segment, just close cooldown
             try:
@@ -438,7 +525,7 @@ class Runtime:
 
     def _shutdown(self) -> None:
         """Clean shutdown: close any open segment and flush sinks."""
-        self.console.print("[yellow]Closing open segments...[/yellow]")
+        self.console.print("[yellow]Shutting down...[/yellow]")
 
         # Close any open segment
         if self.cooldown.state in (CooldownState.ACTIVE, CooldownState.CLOSING):
@@ -446,6 +533,15 @@ class Runtime:
                 self._close_segment()
             except Exception as e:
                 self.console.print(f"[red]Error during shutdown: {e}[/red]")
+
+        # Shutdown all Field-Agents
+        agm = getattr(self, "agent_manager", None)
+        if agm is not None:
+            try:
+                self.console.print("[yellow]Shutting down Field-Agents...[/yellow]")
+                agm.shutdown_all()
+            except Exception as e:
+                self.console.print(f"[red]Error shutting down agents: {e}[/red]")
 
         # Flush and close sinks
         try:
