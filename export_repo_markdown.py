@@ -49,7 +49,8 @@ import typer
 # }
 
 FILTER = [
-    "pyproject.toml",
+    "*.sh",
+    "*.toml",
     "*.py",
 ]
 

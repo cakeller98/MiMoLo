@@ -1,3 +1,62 @@
+## mimolo.toml
+
+``` toml
+# MiMoLo Configuration
+# See docs for full configuration reference
+
+[monitor]
+# Cooldown duration in seconds - segment closes after this period with no resetting events
+cooldown_seconds = 600
+
+# Polling tick interval in milliseconds
+poll_tick_ms = 200
+
+# Directory for log files (will be created if doesn't exist)
+log_dir = "./logs"
+
+# Log output format: jsonl (default), yaml, or md
+log_format = "jsonl"
+
+# Console verbosity: debug, info, warning, error
+console_verbosity = "debug"
+
+# Example Plugin Configuration (Legacy)
+[plugins.example]
+enabled = false
+poll_interval_s = 3.0
+resets_cooldown = true
+infrequent = false
+
+# Template Field-Agent Configuration (v0.3)
+[plugins.agent_template]
+enabled = true
+plugin_type = "field_agent"
+executable = "python"
+args = ["agent_example.py"]
+heartbeat_interval_s = 3.0
+agent_flush_interval_s = 60.0
+
+# Example Field-Agent Configuration (v0.3)
+[plugins.agent_example]
+enabled = true
+plugin_type = "field_agent"
+executable = "python"
+args = ["agent_example.py"]
+heartbeat_interval_s = 15.0
+agent_flush_interval_s = 60.0
+
+# Folder Watch Plugin Configuration
+[plugins.folderwatch]
+enabled = false
+poll_interval_s = 5.0
+resets_cooldown = true
+infrequent = false
+
+# Plugin-specific settings
+watch_dirs = ["./demo", "./watched_folder"]
+extensions = ["obj", "blend", "fbx", "py"]
+```
+
 ## pyproject.toml
 
 ``` toml
@@ -98,6 +157,23 @@ exclude_lines = [
     "raise NotImplementedError",
     "@abstractmethod",
 ]
+```
+
+## start_monitor.sh
+
+``` sh
+#!/usr/bin/env bash
+# Launch MiMoLo monitor with Poetry environment
+# Usage: ./start_monitor.sh [options]
+
+set -e
+
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
+
+# Activate poetry environment and run monitor
+poetry run python -m mimolo.cli monitor "$@"
 ```
 
 ## mimolo/__init__.py
@@ -269,7 +345,7 @@ def monitor(
 
         # Apply CLI overrides
         if log_format:
-            config.monitor.log_format = log_format  # type: ignore
+            config.monitor.log_format = log_format
         if cooldown is not None:
             config.monitor.cooldown_seconds = cooldown
 
@@ -284,7 +360,10 @@ def monitor(
         registry = PluginRegistry()
         _discover_and_register_plugins(config, registry)
 
-        if len(registry) == 0:
+        # Check for Field-Agent plugins in config (they don't need registry)
+        field_agent_count = sum(1 for pc in config.plugins.values() if pc.enabled and pc.plugin_type == "field_agent")
+
+        if len(registry) == 0 and field_agent_count == 0:
             console.print("[red]No plugins registered. Nothing to monitor.[/red]")
             sys.exit(1)
 
@@ -372,6 +451,12 @@ if __name__ == "__main__":
     main()
 ```
 
+## mimolo/agents/__init__.py
+
+``` py
+"""Field-Agent executables for MiMoLo v0.3."""
+```
+
 ## mimolo/core/__init__.py
 
 ``` py
@@ -431,6 +516,188 @@ __all__ = [
     # Runtime
     "Runtime",
 ]
+```
+
+## mimolo/core/agent_process.py
+
+``` py
+"""Field-Agent subprocess management and communication."""
+
+from __future__ import annotations
+
+import subprocess
+import threading
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
+from queue import Empty, Queue
+from typing import Any
+
+from mimolo.core.protocol import AgentMessage, OrchestratorCommand, parse_agent_message
+
+
+@dataclass
+class AgentHandle:
+    """Runtime handle for a Field-Agent subprocess."""
+
+    label: str
+    process: subprocess.Popen[str]
+    config: Any  # PluginConfig
+
+    # Communication queues
+    outbound_queue: Queue[AgentMessage] = field(default_factory=lambda: Queue())
+
+    # State tracking
+    started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_heartbeat: datetime | None = None
+    agent_id: str | None = None
+    health: str = "starting"
+
+    # Threads
+    _stdout_thread: threading.Thread | None = None
+    _running: bool = True
+
+    def start_reader(self) -> None:
+        """Start stdout reader thread."""
+        self._stdout_thread = threading.Thread(
+            target=self._read_stdout_loop, daemon=True, name=f"agent-reader-{self.label}"
+        )
+        self._stdout_thread.start()
+
+    def _read_stdout_loop(self) -> None:
+        """Read JSON lines from agent stdout."""
+        if self.process.stdout is None:
+            return
+
+        while self._running and self.process.poll() is None:
+            try:
+                line = self.process.stdout.readline()
+                if not line:
+                    break
+
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Parse and enqueue message
+                msg = parse_agent_message(line)
+                self.outbound_queue.put(msg)
+
+                # Update heartbeat tracker
+                if msg.type == "heartbeat":
+                    self.last_heartbeat = msg.timestamp
+
+            except Exception as e:
+                # Log error but keep reading
+                print(f"[{self.label}] Parse error: {e}")
+
+    def send_command(self, cmd: OrchestratorCommand) -> None:
+        """Write command to agent stdin."""
+        if self.process.poll() is not None:
+            return  # Process dead
+
+        if self.process.stdin is None:
+            return
+
+        try:
+            json_line = cmd.model_dump_json() + "\n"
+            self.process.stdin.write(json_line)
+            self.process.stdin.flush()
+        except Exception as e:
+            print(f"[{self.label}] Command send error: {e}")
+
+    def read_message(self, timeout: float = 0.001) -> AgentMessage | None:
+        """Non-blocking read from message queue."""
+        try:
+            return self.outbound_queue.get(timeout=timeout)
+        except Empty:
+            return None
+
+    def is_alive(self) -> bool:
+        """Check if process is running."""
+        return self.process.poll() is None
+
+    def shutdown(self) -> None:
+        """Send shutdown command and wait."""
+        from mimolo.core.protocol import CommandType
+
+        self._running = False
+        self.send_command(OrchestratorCommand(cmd=CommandType.SHUTDOWN))
+
+        # Wait up to 3 seconds for clean exit
+        try:
+            self.process.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait()
+
+
+class AgentProcessManager:
+    """Spawns and manages Field-Agent subprocesses."""
+
+    def __init__(self, config: Any):  # Config type
+        """Initialize manager.
+
+        Args:
+            config: Main configuration object
+        """
+        self.config = config
+        self.agents: dict[str, AgentHandle] = {}
+
+    def spawn_agent(self, label: str, plugin_config: Any) -> AgentHandle:
+        """Spawn a Field-Agent subprocess.
+
+        Args:
+            label: Plugin label
+            plugin_config: PluginConfig for this agent
+
+        Returns:
+            AgentHandle for managing the subprocess
+        """
+        # Resolve agent script path - only allow from user_plugins or plugins directories
+        args_with_resolved_path: list[str] = []
+        for arg in plugin_config.args:
+            if arg.endswith(".py"):
+                # Try user_plugins first, then plugins
+                user_path = Path(__file__).parent.parent / "user_plugins" / arg
+                plugins_path = Path(__file__).parent.parent / "plugins" / arg
+
+                if user_path.exists():
+                    args_with_resolved_path.append(str(user_path.resolve()))
+                elif plugins_path.exists():
+                    args_with_resolved_path.append(str(plugins_path.resolve()))
+                else:
+                    raise FileNotFoundError(
+                        f"Field-Agent script not found: {arg} (searched user_plugins and plugins)"
+                    )
+            else:
+                args_with_resolved_path.append(arg)
+
+        # Build command
+        cmd = [plugin_config.executable] + args_with_resolved_path
+
+        # Spawn process
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,  # Line buffered
+        )
+
+        # Create handle and start reader
+        handle = AgentHandle(label=label, process=proc, config=plugin_config)
+        handle.start_reader()
+
+        self.agents[label] = handle
+        return handle
+
+    def shutdown_all(self) -> None:
+        """Shutdown all managed agents."""
+        for handle in self.agents.values():
+            handle.shutdown()
+        self.agents.clear()
 ```
 
 ## mimolo/core/aggregate.py
@@ -591,10 +858,16 @@ from mimolo.core.errors import ConfigError
 class MonitorConfig(BaseModel):
     """Monitor runtime configuration."""
 
+    # NEW: Field-Agent support
+    journal_dir: str = "./journals"  # Event stream storage
+    cache_dir: str = "./cache"  # Agent state cache
+    main_system_max_cpu_per_plugin: float = 0.1  # CPU limit per agent
+    agent_heartbeat_timeout_s: float = 30.0  # Miss threshold
+
     cooldown_seconds: float = Field(default=600.0, gt=0)
     poll_tick_ms: float = Field(default=200.0, gt=0)
     log_dir: str = Field(default="./logs")
-    log_format: Literal["jsonl", "yaml", "md"] = Field(default="jsonl")
+    log_format: str = "jsonl"
     console_verbosity: Literal["debug", "info", "warning", "error"] = Field(default="info")
 
     @field_validator("log_dir")
@@ -620,6 +893,13 @@ class PluginConfig(BaseModel):
 
     # Plugin-specific fields (stored as extra)
     model_config = {"extra": "allow"}
+
+    # NEW: Field-Agent specific
+    plugin_type: Literal["legacy", "field_agent"] = "legacy"  # Auto-detect
+    executable: str | None = None  # For field agents: python path or script
+    args: list[str] = Field(default_factory=list)  # CLI args for agent
+    heartbeat_interval_s: float = Field(default=15.0)  # Expected heartbeat frequency
+    agent_flush_interval_s: float = Field(default=60.0)  # How often to send flush command
 
 
 class Config(BaseModel):
@@ -663,9 +943,7 @@ def load_config(path: Path | str) -> Config:
     except Exception as e:
         if isinstance(e, ConfigError):
             raise
-        raise ConfigError(
-            f"Failed to parse configuration file {path}: {e}"
-        ) from e
+        raise ConfigError(f"Failed to parse configuration file {path}: {e}") from e
 
     try:
         return Config.model_validate(data)
@@ -726,9 +1004,7 @@ def create_default_config(path: Path | str) -> None:
     except Exception as e:
         if isinstance(e, ConfigError):
             raise
-        raise ConfigError(
-            f"Failed to write configuration file {path}: {e}"
-        ) from e
+        raise ConfigError(f"Failed to write configuration file {path}: {e}") from e
 
 
 def _config_to_toml(config: Config) -> str:
@@ -755,7 +1031,7 @@ def _config_to_toml(config: Config) -> str:
             if isinstance(value, str):
                 lines.append(f'{key} = "{value}"')
             elif isinstance(value, list):
-                lines.append(f'{key} = {value}')
+                lines.append(f"{key} = {value}")
             else:
                 lines.append(f"{key} = {value}")
         lines.append("")
@@ -1353,6 +1629,181 @@ class BaseMonitor(ABC):
             raise TypeError(f"{cls.__name__}.spec must be a PluginSpec instance")
 ```
 
+## mimolo/core/plugin_adapter.py
+
+``` py
+"""Adapter to make legacy plugins look like Field-Agents."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from mimolo.core.event import Event
+from mimolo.core.plugin import BaseMonitor
+from mimolo.core.protocol import HeartbeatMessage, SummaryMessage
+
+
+class LegacyPluginAdapter:
+    """Makes a legacy BaseMonitor plugin behave like a Field-Agent.
+
+    This adapter:
+    - Wraps emit_event() and converts to SummaryMessage
+    - Generates synthetic heartbeats
+    - Provides consistent interface for orchestrator
+    """
+
+    def __init__(self, plugin: BaseMonitor, label: str):
+        """Initialize adapter.
+
+        Args:
+            plugin: Legacy plugin instance
+            label: Plugin label
+        """
+        self.plugin = plugin
+        self.label = label
+        self.agent_id = f"legacy-{label}"
+        self.last_heartbeat = datetime.now(UTC)
+
+    def emit_event(self) -> Event | None:
+        """Call wrapped plugin's emit_event."""
+        return self.plugin.emit_event()
+
+    def to_summary_message(self, event: Event) -> SummaryMessage:
+        """Convert Event to SummaryMessage format.
+
+        Args:
+            event: Event from legacy plugin
+
+        Returns:
+            SummaryMessage compatible with Field-Agent protocol
+        """
+        return SummaryMessage(
+            timestamp=event.timestamp,
+            agent_id=self.agent_id,
+            agent_label=self.label,
+            agent_version="legacy",
+            data=event.data or {},
+        )
+
+    def generate_heartbeat(self) -> HeartbeatMessage:
+        """Generate synthetic heartbeat for legacy plugin."""
+        self.last_heartbeat = datetime.now(UTC)
+        return HeartbeatMessage(
+            timestamp=self.last_heartbeat,
+            agent_id=self.agent_id,
+            agent_label=self.label,
+            agent_version="legacy",
+            metrics={"mode": "legacy", "synthetic": True},
+        )
+```
+
+## mimolo/core/protocol.py
+
+``` py
+"""Field-Agent protocol message types and validation."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field
+
+
+class MessageType(str, Enum):
+    """Agent → Orchestrator message types."""
+
+    HANDSHAKE = "handshake"
+    SUMMARY = "summary"
+    HEARTBEAT = "heartbeat"
+    STATUS = "status"
+    ERROR = "error"
+
+
+class CommandType(str, Enum):
+    """Orchestrator → Agent command types."""
+
+    ACK = "ack"
+    REJECT = "reject"
+    FLUSH = "flush"
+    STATUS = "status"
+    SHUTDOWN = "shutdown"
+
+
+class AgentMessage(BaseModel):
+    """Base message envelope for all agent → orchestrator messages."""
+
+    type: MessageType
+    timestamp: datetime
+    agent_id: str
+    agent_label: str
+    protocol_version: str = "0.3"
+    agent_version: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+    # Optional fields
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    health: Literal["ok", "degraded", "overload", "failed"] | None = None
+    message: str | None = None
+
+
+class HandshakeMessage(AgentMessage):
+    """Initial agent registration message."""
+
+    type: MessageType = MessageType.HANDSHAKE
+    min_app_version: str
+    capabilities: list[str]
+
+
+class SummaryMessage(AgentMessage):
+    """Data flush from agent."""
+
+    type: MessageType = MessageType.SUMMARY
+
+
+class HeartbeatMessage(AgentMessage):
+    """Health ping from agent."""
+
+    type: MessageType = MessageType.HEARTBEAT
+    metrics: dict[str, Any] = Field(default_factory=dict, description="Required for heartbeats")
+
+
+class OrchestratorCommand(BaseModel):
+    """Base command envelope for orchestrator → agent commands."""
+
+    cmd: CommandType
+    args: dict[str, Any] = Field(default_factory=dict)
+    id: str | None = None
+
+
+def parse_agent_message(line: str) -> AgentMessage:
+    """Parse JSON line into appropriate message type.
+
+    Args:
+        line: JSON string from agent stdout
+
+    Returns:
+        Parsed message object
+
+    Raises:
+        ValueError: If JSON invalid or type unknown
+    """
+    import json
+
+    data = json.loads(line)
+    msg_type = data.get("type")
+
+    if msg_type == MessageType.HANDSHAKE:
+        return HandshakeMessage(**data)
+    elif msg_type == MessageType.SUMMARY:
+        return SummaryMessage(**data)
+    elif msg_type == MessageType.HEARTBEAT:
+        return HeartbeatMessage(**data)
+    else:
+        return AgentMessage(**data)
+```
+
 ## mimolo/core/registry.py
 
 ``` py
@@ -1549,7 +2000,7 @@ import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from rich.console import Console
 
@@ -1669,12 +2120,56 @@ class Runtime:
 
         # Sinks
         log_dir = Path(config.monitor.log_dir)
-        self.file_sink = create_sink(config.monitor.log_format, log_dir)
+        log_format = cast(Literal["jsonl", "yaml", "md"], config.monitor.log_format)
+        self.file_sink = create_sink(log_format, log_dir)
         self.console_sink = ConsoleSink(config.monitor.console_verbosity)
 
         # Runtime state
         self._running = False
         self._tick_count = 0
+        # Field-Agent support (added incrementally; imports are deferred so
+        # runtime can operate without the new modules present)
+        try:
+            from mimolo.core.agent_process import AgentProcessManager
+            from mimolo.core.plugin_adapter import LegacyPluginAdapter
+
+            self.agent_manager: AgentProcessManager | None = AgentProcessManager(config)
+            self.legacy_adapters: dict[str, LegacyPluginAdapter] = {}
+            self.agent_last_flush: dict[str, datetime] = {}  # Track last flush time per agent
+
+            # First, spawn Field-Agent plugins directly from config
+            for label, plugin_config in config.plugins.items():
+                if not plugin_config.enabled:
+                    continue
+
+                if plugin_config.plugin_type == "field_agent":
+                    if plugin_config.executable:
+                        try:
+                            self.agent_manager.spawn_agent(label, plugin_config)
+                            self.console.print(f"[green]Spawned Field-Agent: {label}[/green]")
+                        except Exception as e:
+                            self.console.print(f"[red]Failed to spawn agent {label}: {e}[/red]")
+                            import traceback
+
+                            self.console.print(f"[red]{traceback.format_exc()}[/red]")
+
+            # Then, wrap legacy plugins from registry
+            for spec, instance in registry.list_all():
+                # Only wrap if not configured as field_agent
+                legacy_config = config.plugins.get(spec.label)
+                if not legacy_config or legacy_config.plugin_type != "field_agent":
+                    try:
+                        adapter = LegacyPluginAdapter(instance, spec.label)
+                        self.legacy_adapters[spec.label] = adapter
+                    except Exception:
+                        # If adapter construction fails, skip wrapping but
+                        # keep existing behavior; error will surface when polled.
+                        pass
+        except Exception as e:
+            # If the new modules don't exist yet, keep runtime working.
+            self.console.print(f"[yellow]Field-Agent support unavailable: {e}[/yellow]")
+            self.agent_manager = None
+            self.legacy_adapters = {}
 
     def run(self, max_iterations: int | None = None) -> None:
         """Run the main event loop.
@@ -1686,8 +2181,21 @@ class Runtime:
         self.console.print("[bold green]MiMoLo starting...[/bold green]")
         self.console.print(f"Cooldown: {self.config.monitor.cooldown_seconds}s")
         self.console.print(f"Poll tick: {self.config.monitor.poll_tick_ms}ms")
+
+        # Count both legacy plugins and Field-Agents
+        agent_count = 0
+        if self.agent_manager:
+            agent_count = len(self.agent_manager.agents)
+        total_plugins = len(self.registry) + agent_count
+
         self.console.print(f"Registered plugins: {len(self.registry)}")
+        if agent_count > 0:
+            self.console.print(f"Field-Agents: {agent_count}")
         self.console.print()
+
+        if total_plugins == 0:
+            self.console.print("[yellow]No plugins registered. Nothing to monitor.[/yellow]")
+            return
 
         try:
             while self._running:
@@ -1715,8 +2223,7 @@ class Runtime:
         # Check for cooldown expiration
         if self.cooldown.check_expiration(now):
             self._close_segment()
-
-        # Poll plugins
+        # Poll plugins (legacy adapters if available)
         for spec, instance in self.registry.list_all():
             # Skip quarantined plugins
             if self.error_tracker.is_quarantined(spec.label):
@@ -1726,8 +2233,29 @@ class Runtime:
             if not self.scheduler.should_poll(spec.label, spec.poll_interval_s, current_time):
                 continue
 
-            # Emit event
             try:
+                adapter = (
+                    self.legacy_adapters.get(spec.label)
+                    if getattr(self, "legacy_adapters", None) is not None
+                    else None
+                )
+                if adapter is not None:
+                    # Use adapter that exposes a Field-Agent-like interface
+                    event = adapter.emit_event()
+                    if event is not None:
+                        # Convert legacy Event to a summary message and route through
+                        # the agent message handlers so both plugin types share logic.
+                        msg = adapter.to_summary_message(event)
+                        try:
+                            self._handle_agent_message(msg, spec)
+                            self.error_tracker.record_success(spec.label)
+                        except Exception:
+                            # Fall back to original behavior if routing fails
+                            self._handle_event(event, spec)
+                            self.error_tracker.record_success(spec.label)
+                    continue
+
+                # Fallback: direct legacy plugin polling (existing behavior)
                 event = instance.emit_event()
                 if event is not None:
                     self._handle_event(event, spec)
@@ -1736,6 +2264,55 @@ class Runtime:
                 error = PluginEmitError(spec.label, e)
                 self.console.print(f"[red]Plugin error: {error}[/red]")
                 self.error_tracker.record_error(spec.label)
+
+        # Poll Field-Agent messages (if agent manager is present)
+        agm = getattr(self, "agent_manager", None)
+        if agm is not None:
+            from mimolo.core.protocol import CommandType, OrchestratorCommand
+
+            now = datetime.now(UTC)
+
+            for label, handle in list(agm.agents.items()):
+                # Check if it's time to send flush command
+                plugin_config = self.config.plugins.get(label)
+                if plugin_config and plugin_config.plugin_type == "field_agent":
+                    last_flush = self.agent_last_flush.get(label)
+                    flush_interval = plugin_config.agent_flush_interval_s
+
+                    # Send flush if interval elapsed or never flushed
+                    if last_flush is None or (now - last_flush).total_seconds() >= flush_interval:
+                        try:
+                            flush_cmd = OrchestratorCommand(cmd=CommandType.FLUSH)
+                            handle.send_command(flush_cmd)
+                            self.agent_last_flush[label] = now
+                            if self.config.monitor.console_verbosity == "debug":
+                                self.console.print(f"[cyan]Sent flush to {label}[/cyan]")
+                        except Exception as e:
+                            self.console.print(f"[red]Error sending flush to {label}: {e}[/red]")
+
+                # Drain all available messages from this agent
+                while (msg := handle.read_message(timeout=0.001)) is not None:
+                    try:
+                        # Message routing by type (msg.type may be str or Enum)
+                        mtype = getattr(msg, "type", None)
+                        if isinstance(mtype, str):
+                            t = mtype
+                        else:
+                            t = str(mtype).lower()
+
+                        if t == "heartbeat" or t.endswith("heartbeat"):
+                            self._handle_heartbeat(label, msg)
+                        elif t == "summary" or t.endswith("summary"):
+                            self._handle_agent_summary(label, msg)
+                        elif t == "error" or t.endswith("error"):
+                            # Log agent-reported error
+                            try:
+                                message = getattr(msg, "message", None) or getattr(msg, "data", None)
+                                self.console.print(f"[red]Agent {label} error: {message}[/red]")
+                            except Exception:
+                                self.console.print(f"[red]Agent {label} reported an error[/red]")
+                    except Exception as e:
+                        self.console.print(f"[red]Error handling agent message from {label}: {e}[/red]")
 
     def _handle_event(self, event: Event, spec: Any) -> None:
         """Handle an event from a plugin.
@@ -1768,8 +2345,139 @@ class Runtime:
         if self.cooldown.state in (CooldownState.ACTIVE, CooldownState.CLOSING):
             self.aggregator.add_event(event)
 
+    def _coerce_timestamp(self, ts: object) -> datetime:
+        """Coerce a timestamp value (str or datetime) into timezone-aware datetime."""
+        if isinstance(ts, datetime):
+            timestamp = ts
+        else:
+            # Try parsing ISO format string
+            try:
+                timestamp = datetime.fromisoformat(str(ts))
+            except Exception:
+                timestamp = datetime.now(UTC)
+
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        return timestamp
+
+    def _handle_agent_summary(self, label: str, msg: object) -> None:
+        """Write Field-Agent summary directly to file.
+
+        Field-Agents pre-aggregate their own data, so we don't re-aggregate.
+        Just log the summary event directly.
+
+        Args:
+            label: agent label
+            msg: parsed message object with attributes `timestamp`, `agent_label`, `data`.
+        """
+        try:
+            ts = getattr(msg, "timestamp", None)
+            timestamp = self._coerce_timestamp(ts)
+            agent_label = getattr(msg, "agent_label", label)
+            raw_data: Any = getattr(msg, "data", None)
+            # Ensure data is always a dict
+            if not isinstance(raw_data, dict):
+                data: dict[str, Any] = {}
+            else:
+                data = cast(dict[str, Any], raw_data)
+
+            # Determine event type if provided, else default to 'summary'
+            event_type: str = "summary"
+            evt = data.get("event")
+            typ = data.get("type")
+            if evt:
+                event_type = str(evt)
+            elif typ:
+                event_type = str(typ)
+
+            event = Event(timestamp=timestamp, label=agent_label, event=event_type, data=data)
+
+            # Write summary directly to file (agent already aggregated the data)
+            try:
+                self.file_sink.write_event(event)
+            except SinkError as e:
+                self.console.print(f"[red]Sink error writing agent summary: {e}[/red]")
+
+            # Also log to console if verbose
+            if self.config.monitor.console_verbosity in ("debug", "info"):
+                self.console_sink.write_event(event)
+
+        except Exception as e:
+            self.console.print(f"[red]Error handling agent summary {label}: {e}[/red]")
+
+    def _handle_heartbeat(self, label: str, msg: object) -> None:
+        """Handle a heartbeat message from a Field-Agent.
+
+        Updates agent health state and optionally logs to console.
+        Heartbeats are NOT written to file - they're for health monitoring only.
+        """
+        try:
+            ts = getattr(msg, "timestamp", None)
+            timestamp = self._coerce_timestamp(ts)
+
+            # Update AgentProcessManager handle state if present
+            agm = getattr(self, "agent_manager", None)
+            if agm is not None:
+                try:
+                    handle = agm.agents.get(label)
+                    if handle is not None:
+                        handle.last_heartbeat = timestamp
+                except Exception:
+                    pass
+
+            # Log to console in debug mode
+            if self.config.monitor.console_verbosity == "debug":
+                metrics = getattr(msg, "metrics", {})
+                metrics_str = f" | {metrics}" if metrics else ""
+                self.console.print(f"[cyan]❤️  {label}{metrics_str}[/cyan]")
+        except Exception as e:
+            self.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
+
+    def _flush_all_agents(self) -> None:
+        """Send flush command to all active Field-Agents."""
+        agm = getattr(self, "agent_manager", None)
+        if agm is not None:
+            from mimolo.core.protocol import CommandType, OrchestratorCommand
+
+            flush_cmd = OrchestratorCommand(cmd=CommandType.FLUSH)
+            for label, handle in agm.agents.items():
+                try:
+                    handle.send_command(flush_cmd)
+                    if self.config.monitor.console_verbosity == "debug":
+                        self.console.print(f"[cyan]Sent flush to {label}[/cyan]")
+                except Exception as e:
+                    self.console.print(f"[red]Error sending flush to {label}: {e}[/red]")
+
+    def _handle_agent_message(self, msg: object, spec: Any | None = None) -> None:
+        """Generic entry point for handling agent-style messages.
+
+        This will dispatch to the appropriate specific handler based on message type.
+        """
+        mtype = getattr(msg, "type", None)
+        try:
+            if isinstance(mtype, str):
+                t = mtype
+            else:
+                t = str(mtype).lower()
+
+            if t == "heartbeat" or t.endswith("heartbeat"):
+                self._handle_heartbeat(getattr(msg, "agent_label", "unknown"), msg)
+            elif t == "summary" or t.endswith("summary"):
+                self._handle_agent_summary(getattr(msg, "agent_label", "unknown"), msg)
+            elif t == "error" or t.endswith("error"):
+                # Log error
+                self.console.print(f"[red]Agent error: {getattr(msg, 'message', None)}[/red]")
+            else:
+                # Unknown type: try treating as summary
+                self._handle_agent_summary(getattr(msg, "agent_label", "unknown"), msg)
+        except Exception as e:
+            self.console.print(f"[red]Error handling agent message: {e}[/red]")
+
     def _close_segment(self) -> None:
         """Close current segment and write to sinks."""
+        # Send flush command to all Field-Agents before closing segment
+        self._flush_all_agents()
+
         if not self.aggregator.has_events:
             # Empty segment, just close cooldown
             try:
@@ -1800,7 +2508,7 @@ class Runtime:
 
     def _shutdown(self) -> None:
         """Clean shutdown: close any open segment and flush sinks."""
-        self.console.print("[yellow]Closing open segments...[/yellow]")
+        self.console.print("[yellow]Shutting down...[/yellow]")
 
         # Close any open segment
         if self.cooldown.state in (CooldownState.ACTIVE, CooldownState.CLOSING):
@@ -1808,6 +2516,15 @@ class Runtime:
                 self._close_segment()
             except Exception as e:
                 self.console.print(f"[red]Error during shutdown: {e}[/red]")
+
+        # Shutdown all Field-Agents
+        agm = getattr(self, "agent_manager", None)
+        if agm is not None:
+            try:
+                self.console.print("[yellow]Shutting down Field-Agents...[/yellow]")
+                agm.shutdown_all()
+            except Exception as e:
+                self.console.print(f"[red]Error shutting down agents: {e}[/red]")
 
         # Flush and close sinks
         try:
@@ -2231,8 +2948,8 @@ def create_sink(
 ``` py
 """MiMoLo plugin modules."""
 
-from mimolo.plugins.example import ExampleMonitor
 from mimolo.plugins.folderwatch import FolderWatchMonitor
+from mimolo.user_plugins.example import ExampleMonitor
 
 __all__ = [
     "ExampleMonitor",
@@ -2500,6 +3217,725 @@ __all__ = [
     "ExampleMonitor",
     "FolderWatchMonitor",
 ]
+```
+
+## mimolo/user_plugins/agent_example.py
+
+``` py
+#!/usr/bin/env python3
+"""Example Field-Agent demonstrating the v0.3 protocol.
+
+This agent generates synthetic events with fake items and aggregates them internally.
+When flushed, it returns a summary with item counts.
+
+Three-thread architecture:
+- Command Listener: reads flush/shutdown commands from stdin
+- Worker Loop: generates fake items continuously
+- Summarizer: packages accumulated data on flush
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import threading
+import time
+from collections import Counter
+from datetime import UTC, datetime
+from queue import Empty, Queue
+from random import randint
+from typing import Any
+
+
+class AgentExample:
+    """Field-Agent that generates synthetic monitoring events."""
+
+    def __init__(
+        self,
+        agent_id: str = "agent_example-001",
+        agent_label: str = "agent_example",
+        item_count: int = 5,
+        sample_interval: float = 3.0,
+        heartbeat_interval: float = 15.0,
+    ) -> None:
+        """Initialize the agent.
+
+        Args:
+            agent_id: Unique runtime identifier
+            agent_label: Logical plugin name
+            item_count: Number of unique fake items to generate
+            sample_interval: Seconds between generating fake items
+            heartbeat_interval: Seconds between heartbeat emissions
+        """
+        self.agent_id = agent_id
+        self.agent_label = agent_label
+        self.item_count = item_count
+        self.sample_interval = sample_interval
+        self.heartbeat_interval = heartbeat_interval
+
+        # Accumulator for current segment
+        self.item_counts: Counter[str] = Counter()
+        self.segment_start: datetime | None = None
+        self.data_lock = threading.Lock()
+
+        # Command queue for flush/shutdown
+        self.command_queue: Queue[dict[str, Any]] = Queue()
+
+        # Flush queue for summarizer
+        self.flush_queue: Queue[tuple[datetime, datetime, Counter[str]]] = Queue()
+
+        # Control flags
+        self.running = True
+        self.shutdown_event = threading.Event()
+
+    def send_message(self, msg: dict[str, Any]) -> None:
+        """Write a JSON message to stdout.
+
+        Args:
+            msg: Message dictionary to serialize
+        """
+        try:
+            print(json.dumps(msg), flush=True)
+        except Exception as e:
+            print(json.dumps({"type": "error", "message": f"Failed to send message: {e}"}), file=sys.stderr, flush=True)
+
+    def command_listener(self) -> None:
+        """Read commands from stdin (blocking thread)."""
+        try:
+            while not self.shutdown_event.is_set():
+                try:
+                    line = sys.stdin.readline()
+                    if not line:  # EOF
+                        break
+
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    cmd = json.loads(line)
+                    self.command_queue.put(cmd)
+                except json.JSONDecodeError as e:
+                    self.send_message({
+                        "type": "error",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "agent_id": self.agent_id,
+                        "agent_label": self.agent_label,
+                        "protocol_version": "0.3",
+                        "agent_version": "1.0.0",
+                        "data": {},
+                        "message": f"Invalid JSON command: {e}",
+                    })
+                except EOFError:
+                    break
+        except Exception:
+            # stdin closed or other error
+            pass
+        finally:
+            # Trigger shutdown when stdin closes
+            self.shutdown_event.set()
+            self.running = False
+
+    def worker_loop(self) -> None:
+        """Generate fake items continuously and accumulate them."""
+        last_heartbeat = time.time()
+
+        while self.running and not self.shutdown_event.is_set():
+            now = datetime.now(UTC)
+
+            # Initialize segment start if needed
+            with self.data_lock:
+                if self.segment_start is None:
+                    self.segment_start = now
+
+                # Generate a fake item
+                item = f"fake_item_{randint(1, self.item_count)}"
+                self.item_counts[item] += 1
+
+            # Send heartbeat if interval elapsed
+            if time.time() - last_heartbeat >= self.heartbeat_interval:
+                self.send_message({
+                    "type": "heartbeat",
+                    "timestamp": now.isoformat(),
+                    "agent_id": self.agent_id,
+                    "agent_label": self.agent_label,
+                    "protocol_version": "0.3",
+                    "agent_version": "1.0.0",
+                    "data": {},
+                    "metrics": {
+                        "queue": self.flush_queue.qsize(),
+                        "items_accumulated": sum(self.item_counts.values()),
+                    },
+                })
+                last_heartbeat = time.time()
+
+            # Check for commands (non-blocking)
+            try:
+                cmd = self.command_queue.get_nowait()
+                cmd_type = cmd.get("cmd", "").lower()
+
+                if cmd_type == "flush":
+                    # Take snapshot and reset accumulator
+                    with self.data_lock:
+                        snapshot_counts = self.item_counts.copy()
+                        snapshot_start = self.segment_start or now
+                        snapshot_end = now
+
+                        # Reset for next segment
+                        self.item_counts.clear()
+                        self.segment_start = now
+
+                    # Queue for summarizer
+                    self.flush_queue.put((snapshot_start, snapshot_end, snapshot_counts))
+
+                elif cmd_type == "shutdown":
+                    self.running = False
+                    self.shutdown_event.set()
+
+            except Empty:
+                pass
+
+            # Sleep to avoid busy-wait
+            time.sleep(self.sample_interval)
+
+    def summarizer(self) -> None:
+        """Package snapshots and emit summaries."""
+        while self.running or not self.flush_queue.empty():
+            try:
+                # Wait for flush data (blocking with timeout)
+                start, end, counts = self.flush_queue.get(timeout=1.0)
+
+                # Calculate duration
+                duration = (end - start).total_seconds()
+
+                # Format data as list of {item, count}
+                items_list: list[dict[str, Any]] = [
+                    {"item": item, "count": count}
+                    for item, count in sorted(counts.items())
+                ]
+
+                # Emit summary
+                self.send_message({
+                    "type": "summary",
+                    "timestamp": end.isoformat(),
+                    "agent_id": self.agent_id,
+                    "agent_label": self.agent_label,
+                    "protocol_version": "0.3",
+                    "agent_version": "1.0.0",
+                    "data": {
+                        "start": start.isoformat(),
+                        "end": end.isoformat(),
+                        "length": duration,
+                        "items": items_list,
+                        "total_events": sum(counts.values()),
+                        "unique_items": len(counts),
+                    },
+                })
+
+            except Empty:
+                if not self.running:
+                    break
+
+    def run(self) -> None:
+        """Main entry point - starts all threads and sends handshake."""
+        # Send handshake
+        self.send_message({
+            "type": "handshake",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "agent_id": self.agent_id,
+            "agent_label": self.agent_label,
+            "protocol_version": "0.3",
+            "agent_version": "1.0.0",
+            "min_app_version": "0.3.0",
+            "capabilities": ["summary", "heartbeat", "status", "error"],
+            "data": {},
+        })
+
+        # Start threads
+        listener_thread = threading.Thread(target=self.command_listener, daemon=True)
+        worker_thread = threading.Thread(target=self.worker_loop, daemon=False)
+        summarizer_thread = threading.Thread(target=self.summarizer, daemon=False)
+
+        listener_thread.start()
+        worker_thread.start()
+        summarizer_thread.start()
+
+        # Wait for shutdown (with timeout to allow Ctrl+C)
+        try:
+            while worker_thread.is_alive():
+                worker_thread.join(timeout=0.5)
+            while summarizer_thread.is_alive():
+                summarizer_thread.join(timeout=0.5)
+        except KeyboardInterrupt:
+            self.running = False
+            self.shutdown_event.set()
+
+
+def main() -> None:
+    """Entry point."""
+    agent = AgentExample(
+        agent_id="agent_example-001",
+        agent_label="agent_example",
+        item_count=5,
+        sample_interval=3.0,
+        heartbeat_interval=15.0,
+    )
+    agent.run()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+## mimolo/user_plugins/agent_template.py
+
+``` py
+#!/usr/bin/env python3
+"""Field-Agent Template for MiMoLo v0.3+
+
+This template demonstrates the complete 3-thread Field-Agent architecture.
+Copy this file, rename it, and customize the worker logic for your use case.
+
+Key sections to modify:
+1. Agent metadata (agent_id, agent_label, version)
+2. __init__ parameters for your specific monitoring needs
+3. worker_loop() - your actual monitoring/sampling logic
+4. _format_summary_data() - how you package accumulated data
+
+The template includes rich console debugging to help you understand:
+- Message flow (handshake, heartbeat, summary, errors)
+- Command reception (flush, shutdown, status)
+- Thread coordination and data flow
+- Internal state and accumulation
+
+To use:
+1. Copy to a new file: cp agent_template.py my_agent.py
+2. Update AGENT_LABEL and AGENT_ID
+3. Implement your monitoring logic in worker_loop()
+4. Configure in mimolo.toml:
+   [plugins.my_agent]
+   enabled = true
+   plugin_type = "field_agent"
+   executable = "python"
+   args = ["my_agent.py"]
+   heartbeat_interval_s = 15.0
+   agent_flush_interval_s = 60.0
+
+Architecture:
+- Command Listener: Reads stdin for flush/shutdown/status commands
+- Worker Loop: Samples/monitors continuously, accumulates data
+- Summarizer: Packages snapshots and emits summaries on flush
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import threading
+import time
+
+# Note: Counter imported for use in template examples (see _format_summary_data)
+from collections import Counter  # noqa: F401
+from datetime import UTC, datetime
+from queue import Empty, Queue
+from typing import Any
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.syntax import Syntax
+
+# =============================================================================
+# CUSTOMIZE THESE VALUES FOR YOUR AGENT
+# =============================================================================
+
+AGENT_LABEL = "template_agent"  # TODO: Change to your agent name
+AGENT_ID = "template_agent-001"  # TODO: Change to unique ID
+AGENT_VERSION = "1.0.0"  # TODO: Update as you develop
+PROTOCOL_VERSION = "0.3"
+MIN_APP_VERSION = "0.3.0"
+
+# Debug output (set to False in production)
+DEBUG_MODE = True  # Shows rich debugging output to stderr
+
+# =============================================================================
+# Field-Agent Implementation
+# =============================================================================
+
+
+class FieldAgentTemplate:
+    """Template Field-Agent with full 3-thread architecture and debugging."""
+
+    def __init__(
+        self,
+        agent_id: str = AGENT_ID,
+        agent_label: str = AGENT_LABEL,
+        sample_interval: float = 5.0,
+        heartbeat_interval: float = 15.0,
+        # TODO: Add your custom parameters here
+        # example_param: str = "default_value",
+    ) -> None:
+        """Initialize the agent.
+
+        Args:
+            agent_id: Unique runtime identifier
+            agent_label: Logical plugin name
+            sample_interval: Seconds between samples in worker loop
+            heartbeat_interval: Seconds between heartbeat emissions
+            # TODO: Document your custom parameters
+        """
+        self.agent_id = agent_id
+        self.agent_label = agent_label
+        self.sample_interval = sample_interval
+        self.heartbeat_interval = heartbeat_interval
+
+        # TODO: Store your custom parameters
+        # self.example_param = example_param
+
+        # Accumulator for current segment
+        self.data_accumulator: list[Any] = []  # TODO: Use appropriate data structure
+        self.segment_start: datetime | None = None
+        self.data_lock = threading.Lock()
+
+        # Command queue for flush/shutdown/status
+        self.command_queue: Queue[dict[str, Any]] = Queue()
+
+        # Flush queue for summarizer
+        self.flush_queue: Queue[tuple[datetime, datetime, list[Any]]] = Queue()
+
+        # Control flags
+        self.running = True
+        self.shutdown_event = threading.Event()
+
+        # Debug console (writes to stderr)
+        self.debug = Console(stderr=True, force_terminal=True) if DEBUG_MODE else None
+
+    def _debug_log(self, message: str, style: str = "cyan") -> None:
+        """Log debug message to stderr if debugging enabled."""
+        if self.debug:
+            self.debug.print(f"[{style}][DEBUG {self.agent_label}][/{style}] {message}")
+
+    def _debug_panel(self, content: Any, title: str, style: str = "blue") -> None:
+        """Display debug panel to stderr if debugging enabled."""
+        if self.debug:
+            self.debug.print(Panel(content, title=f"[{style}]{title}[/{style}]", border_style=style))
+
+    def send_message(self, msg: dict[str, Any]) -> None:
+        """Write a JSON message to stdout.
+
+        Args:
+            msg: Message dictionary to serialize
+        """
+        try:
+            json_str = json.dumps(msg)
+            print(json_str, flush=True)
+
+            # Debug output
+            if self.debug:
+                msg_type = msg.get("type", "unknown")
+                syntax = Syntax(json_str, "json", theme="monokai", line_numbers=False)
+                self._debug_panel(syntax, f"📤 Sent: {msg_type}", "green")
+
+        except Exception as e:
+            error_msg = {"type": "error", "message": f"Failed to send message: {e}"}
+            print(json.dumps(error_msg), file=sys.stderr, flush=True)
+
+    def command_listener(self) -> None:
+        """Read commands from stdin (blocking thread)."""
+        self._debug_log("🎧 Command listener thread started", "magenta")
+
+        try:
+            while not self.shutdown_event.is_set():
+                try:
+                    line = sys.stdin.readline()
+                    if not line:  # EOF
+                        self._debug_log("📭 stdin closed (EOF)", "yellow")
+                        break
+
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    cmd = json.loads(line)
+                    cmd_type = cmd.get("cmd", "unknown")
+
+                    # Debug: show received command
+                    if self.debug:
+                        syntax = Syntax(json.dumps(cmd, indent=2), "json", theme="monokai")
+                        self._debug_panel(syntax, f"📥 Received command: {cmd_type}", "yellow")
+
+                    self.command_queue.put(cmd)
+
+                except json.JSONDecodeError as e:
+                    self._debug_log(f"❌ Invalid JSON: {e}", "red")
+                    self.send_message({
+                        "type": "error",
+                        "timestamp": datetime.now(UTC).isoformat(),
+                        "agent_id": self.agent_id,
+                        "agent_label": self.agent_label,
+                        "protocol_version": PROTOCOL_VERSION,
+                        "agent_version": AGENT_VERSION,
+                        "data": {},
+                        "message": f"Invalid JSON command: {e}",
+                    })
+                except EOFError:
+                    self._debug_log("📭 stdin EOF", "yellow")
+                    break
+        except Exception as e:
+            self._debug_log(f"❌ Command listener error: {e}", "red")
+        finally:
+            self._debug_log("🛑 Command listener shutting down", "magenta")
+            self.shutdown_event.set()
+            self.running = False
+
+    def worker_loop(self) -> None:
+        """Main work loop: sample/monitor continuously and accumulate data."""
+        self._debug_log("⚙️  Worker thread started", "blue")
+
+        last_heartbeat = time.time()
+        sample_count = 0
+
+        while self.running and not self.shutdown_event.is_set():
+            now = datetime.now(UTC)
+
+            # Initialize segment start if needed
+            with self.data_lock:
+                if self.segment_start is None:
+                    self.segment_start = now
+                    self._debug_log(f"📅 Segment started at {now.isoformat()}", "cyan")
+
+                # =============================================================
+                # TODO: IMPLEMENT YOUR MONITORING LOGIC HERE
+                # =============================================================
+                # Example: Sample something and accumulate
+                sample_count += 1
+                sample_data: dict[str, Any] = {
+                    "timestamp": now.isoformat(),
+                    "sample_id": sample_count,
+                    "value": f"sample_{sample_count}",
+                    # TODO: Add your actual sampled data
+                }
+                self.data_accumulator.append(sample_data)
+
+                self._debug_log(
+                    f"📊 Sample #{sample_count} accumulated (total: {len(self.data_accumulator)})",
+                    "cyan"
+                )
+                # =============================================================
+
+            # Send heartbeat if interval elapsed
+            if time.time() - last_heartbeat >= self.heartbeat_interval:
+                with self.data_lock:
+                    accumulated_count = len(self.data_accumulator)
+
+                self.send_message({
+                    "type": "heartbeat",
+                    "timestamp": now.isoformat(),
+                    "agent_id": self.agent_id,
+                    "agent_label": self.agent_label,
+                    "protocol_version": PROTOCOL_VERSION,
+                    "agent_version": AGENT_VERSION,
+                    "data": {},
+                    "metrics": {
+                        "queue": self.flush_queue.qsize(),
+                        "accumulated_count": accumulated_count,
+                        "sample_count": sample_count,
+                    },
+                })
+                last_heartbeat = time.time()
+
+            # Check for commands (non-blocking)
+            try:
+                cmd = self.command_queue.get_nowait()
+                cmd_type = cmd.get("cmd", "").lower()
+
+                if cmd_type == "flush":
+                    self._debug_log("💾 FLUSH command received - taking snapshot", "yellow")
+
+                    # Take snapshot and reset accumulator
+                    with self.data_lock:
+                        snapshot = self.data_accumulator.copy()
+                        snapshot_start = self.segment_start or now
+                        snapshot_end = now
+
+                        # Reset for next segment
+                        self.data_accumulator.clear()
+                        self.segment_start = now
+
+                    self._debug_log(
+                        f"📸 Snapshot taken: {len(snapshot)} items from {snapshot_start.isoformat()} "
+                        f"to {snapshot_end.isoformat()}",
+                        "green"
+                    )
+
+                    # Queue for summarizer
+                    self.flush_queue.put((snapshot_start, snapshot_end, snapshot))
+
+                elif cmd_type == "shutdown":
+                    self._debug_log("🛑 SHUTDOWN command received", "red")
+                    self.running = False
+                    self.shutdown_event.set()
+
+                elif cmd_type == "status":
+                    self._debug_log("📊 STATUS command received", "yellow")
+                    # TODO: Send status message if needed
+
+            except Empty:
+                pass
+
+            # Sleep to avoid busy-wait
+            time.sleep(self.sample_interval)
+
+        self._debug_log("🛑 Worker thread shutting down", "blue")
+
+    def _format_summary_data(
+        self,
+        snapshot: list[Any],
+        start: datetime,
+        end: datetime
+    ) -> dict[str, Any]:
+        """Format accumulated data into summary payload.
+
+        TODO: Customize this to aggregate/summarize your data appropriately.
+
+        Args:
+            snapshot: Copy of accumulated data from segment
+            start: Segment start time
+            end: Segment end time
+
+        Returns:
+            Dictionary to include in summary message data field
+        """
+        duration = (end - start).total_seconds()
+
+        # =================================================================
+        # TODO: IMPLEMENT YOUR SUMMARIZATION LOGIC HERE
+        # =================================================================
+        # Example: Just pass through the raw samples
+        summary_data: dict[str, Any] = {
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "duration_s": duration,
+            "sample_count": len(snapshot),
+            "samples": snapshot,  # TODO: Aggregate/summarize instead of raw dump
+        }
+
+        # Example: Count occurrences
+        # if snapshot:
+        #     counter = Counter(item["value"] for item in snapshot)
+        #     summary_data["value_counts"] = dict(counter)
+
+        return summary_data
+        # =================================================================
+
+    def summarizer(self) -> None:
+        """Package snapshots and emit summaries."""
+        self._debug_log("📦 Summarizer thread started", "green")
+
+        while self.running or not self.flush_queue.empty():
+            try:
+                # Wait for flush data (blocking with timeout)
+                start, end, snapshot = self.flush_queue.get(timeout=1.0)
+
+                self._debug_log(
+                    f"🔄 Summarizing {len(snapshot)} items...",
+                    "yellow"
+                )
+
+                # Format summary data
+                summary_data = self._format_summary_data(snapshot, start, end)
+
+                # Emit summary
+                self.send_message({
+                    "type": "summary",
+                    "timestamp": end.isoformat(),
+                    "agent_id": self.agent_id,
+                    "agent_label": self.agent_label,
+                    "protocol_version": PROTOCOL_VERSION,
+                    "agent_version": AGENT_VERSION,
+                    "data": summary_data,
+                })
+
+            except Empty:
+                if not self.running:
+                    break
+
+        self._debug_log("🛑 Summarizer thread shutting down", "green")
+
+    def run(self) -> None:
+        """Main entry point - starts all threads and sends handshake."""
+        if self.debug:
+            self.debug.print(Panel.fit(
+                f"[bold cyan]{self.agent_label}[/bold cyan]\n"
+                f"ID: {self.agent_id}\n"
+                f"Version: {AGENT_VERSION}\n"
+                f"Protocol: {PROTOCOL_VERSION}\n"
+                f"Sample Interval: {self.sample_interval}s\n"
+                f"Heartbeat Interval: {self.heartbeat_interval}s",
+                title="[bold green]🚀 Field-Agent Starting[/bold green]",
+                border_style="green"
+            ))
+
+        # Send handshake
+        self.send_message({
+            "type": "handshake",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "agent_id": self.agent_id,
+            "agent_label": self.agent_label,
+            "protocol_version": PROTOCOL_VERSION,
+            "agent_version": AGENT_VERSION,
+            "min_app_version": MIN_APP_VERSION,
+            "capabilities": ["summary", "heartbeat", "status", "error"],
+            "data": {},
+        })
+
+        # Start threads
+        listener_thread = threading.Thread(target=self.command_listener, daemon=True, name="CommandListener")
+        worker_thread = threading.Thread(target=self.worker_loop, daemon=False, name="Worker")
+        summarizer_thread = threading.Thread(target=self.summarizer, daemon=False, name="Summarizer")
+
+        listener_thread.start()
+        worker_thread.start()
+        summarizer_thread.start()
+
+        self._debug_log("🎯 All threads started", "green")
+
+        # Wait for shutdown (with timeout to allow Ctrl+C)
+        try:
+            while worker_thread.is_alive():
+                worker_thread.join(timeout=0.5)
+            while summarizer_thread.is_alive():
+                summarizer_thread.join(timeout=0.5)
+        except KeyboardInterrupt:
+            self._debug_log("⚠️  KeyboardInterrupt - shutting down", "yellow")
+            self.running = False
+            self.shutdown_event.set()
+
+        if self.debug:
+            self.debug.print(Panel.fit(
+                "[bold yellow]Agent stopped cleanly[/bold yellow]",
+                border_style="yellow"
+            ))
+
+
+def main() -> None:
+    """Entry point."""
+    # TODO: Parse command-line arguments if needed
+    # import argparse
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("--sample-interval", type=float, default=5.0)
+    # args = parser.parse_args()
+
+    agent = FieldAgentTemplate(
+        agent_id=AGENT_ID,
+        agent_label=AGENT_LABEL,
+        sample_interval=5.0,
+        heartbeat_interval=15.0,
+        # TODO: Pass your custom parameters
+    )
+    agent.run()
+
+
+if __name__ == "__main__":
+    main()
 ```
 
 ## mimolo/user_plugins/example.py
