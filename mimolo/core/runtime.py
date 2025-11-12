@@ -19,7 +19,7 @@ from typing import Any, Literal, cast
 from rich.console import Console
 
 from mimolo.core.config import Config
-from mimolo.core.cooldown import CooldownState, CooldownTimer
+from mimolo.core.cooldown import CooldownTimer
 from mimolo.core.errors import SinkError
 from mimolo.core.event import Event
 from mimolo.core.sink import ConsoleSink, create_sink
@@ -269,7 +269,6 @@ class Runtime:
             msg: LogMessage instance with level, message, and markup fields
         """
         try:
-            from mimolo.core.protocol import LogLevel
 
             # Extract log level (may be string or enum)
             level_raw = getattr(msg, "level", "info")
@@ -361,18 +360,288 @@ class Runtime:
         """Clean shutdown: flush agents and close sinks."""
         self.console.print("[yellow]Shutting down...[/yellow]")
 
-        # Shutdown all Field-Agents
+        # Graceful stop sequence:
+        # Emit an orchestrator-level event so the file log shows shutdown boundaries.
         try:
-            self.console.print("[yellow]Shutting down Field-Agents...[/yellow]")
-            self.agent_manager.shutdown_all()
+            now = datetime.now(UTC)
+            agent_count = len(self.agent_manager.agents)
+            expected_msgs = max(1, agent_count * 2)
+            shutdown_event = Event(
+                timestamp=now,
+                label="orchestrator",
+                event="shutdown_initiated",
+                data={
+                    "agent_count": agent_count,
+                    "expected_shutdown_messages": expected_msgs,
+                    "note": "Following entries are agent shutdown/flush messages",
+                },
+            )
+            try:
+                self.file_sink.write_event(shutdown_event)
+            except Exception:
+                # Non-fatal - continue shutdown even if logging fails
+                pass
+            if self.config.monitor.console_verbosity in ("debug", "info"):
+                self.console_sink.write_event(shutdown_event)
+        except Exception:
+            # Non-fatal; continue with shutdown
+            pass
+
+        # Graceful stop sequence using chained SEQUENCE command:
+        # Send SEQUENCE([STOP, FLUSH, SHUTDOWN]) to all agents
+        # Agent responds: ACK(stop) → ACK(flush) + summary → final heartbeat → exit
+        # Orchestrator drains all messages and waits for responses
+
+        # Initialize counters outside try block so they're available in except/finally
+        summaries_count = 0
+        logs_count = 0
+        acks_count = 0
+
+        try:
+            from mimolo.core.protocol import CommandType, OrchestratorCommand
+
+            # Send SEQUENCE command to all agents
+            self.console.print(
+                "[yellow]Sending shutdown sequence to Field-Agents...[/yellow]"
+            )
+
+            sequence_cmd = OrchestratorCommand(
+                cmd=CommandType.SEQUENCE,
+                sequence=[
+                    CommandType.STOP,
+                    CommandType.FLUSH,
+                    CommandType.SHUTDOWN,
+                ],
+            )
+
+            agents_in_shutdown = set(self.agent_manager.agents.keys())
+            for label in list(agents_in_shutdown):
+                handle = self.agent_manager.agents.get(label)
+                if not handle:
+                    continue
+                try:
+                    ok = handle.send_command(sequence_cmd)
+                    if not ok:
+                        self.console.print(
+                            f"[red]Failed to send SEQUENCE to {label}[/red]"
+                        )
+                        agents_in_shutdown.discard(label)
+                    elif self.config.monitor.console_verbosity == "debug":
+                        self.console.print(
+                            f"[cyan]Sent shutdown SEQUENCE to {label}[/cyan]"
+                        )
+                except Exception as e:
+                    self.console.print(
+                        f"[red]Exception sending SEQUENCE to {label}: {e}[/red]"
+                    )
+                    agents_in_shutdown.discard(label)
+
+            # Track expected responses: stop ACK, flush ACK + summary
+            pending_stop_ack = agents_in_shutdown.copy()
+            pending_flush_response = agents_in_shutdown.copy()
+
+            # Drain messages for up to 4 seconds total
+            # Agents should respond: ACK(stop) → ACK(flush) + summary → final heartbeat → exit
+            deadline = time.time() + 4.0
+            while time.time() < deadline and (
+                pending_stop_ack or pending_flush_response
+            ):
+                for label in list(agents_in_shutdown):
+                    handle = self.agent_manager.agents.get(label)
+                    if not handle:
+                        continue
+
+                    while (
+                        msg := handle.read_message(timeout=0.01)
+                    ) is not None:
+                        try:
+                            mtype = getattr(msg, "type", None)
+                            if isinstance(mtype, str):
+                                t = mtype
+                            else:
+                                t = str(mtype).lower()
+
+                            if t == "ack" or t.endswith("ack"):
+                                ack_cmd = getattr(msg, "ack_command", None)
+                                acks_count += 1
+
+                                if ack_cmd == "stop":
+                                    pending_stop_ack.discard(label)
+                                    if (
+                                        self.config.monitor.console_verbosity
+                                        == "debug"
+                                    ):
+                                        self.console.print(
+                                            f"[cyan]Agent {label} ACK(stop)[/cyan]"
+                                        )
+                                elif ack_cmd == "flush":
+                                    # Flush ACK received, but still wait for summary
+                                    if (
+                                        self.config.monitor.console_verbosity
+                                        == "debug"
+                                    ):
+                                        self.console.print(
+                                            f"[cyan]Agent {label} ACK(flush)[/cyan]"
+                                        )
+
+                            elif t == "summary" or t.endswith("summary"):
+                                try:
+                                    self._handle_agent_summary(label, msg)
+                                    summaries_count += 1
+                                    pending_flush_response.discard(label)
+                                    if (
+                                        self.config.monitor.console_verbosity
+                                        == "debug"
+                                    ):
+                                        self.console.print(
+                                            f"[cyan]Agent {label} sent summary[/cyan]"
+                                        )
+                                except Exception:
+                                    pass
+
+                            elif t == "log" or t.endswith("log"):
+                                try:
+                                    self._handle_agent_log(label, msg)
+                                    logs_count += 1
+                                except Exception:
+                                    pass
+
+                            elif t == "heartbeat" or t.endswith("heartbeat"):
+                                self._handle_heartbeat(label, msg)
+
+                        except Exception:
+                            pass
+
+                time.sleep(0.01)
+
+            # Log agents that didn't respond
+            for label in pending_stop_ack:
+                self.console.print(
+                    f"[red]Agent {label} did not ACK STOP (timeout)[/red]"
+                )
+                try:
+                    stop_exception = Event(
+                        timestamp=datetime.now(UTC),
+                        label="orchestrator",
+                        event="shutdown_exception",
+                        data={
+                            "agent": label,
+                            "phase": "stop",
+                            "error": "No stop ACK received",
+                        },
+                    )
+                    self.file_sink.write_event(stop_exception)
+                except Exception:
+                    pass
+
+            for label in pending_flush_response:
+                self.console.print(
+                    f"[red]Agent {label} did not send summary after FLUSH (timeout)[/red]"
+                )
+                try:
+                    flush_exception = Event(
+                        timestamp=datetime.now(UTC),
+                        label="orchestrator",
+                        event="shutdown_exception",
+                        data={
+                            "agent": label,
+                            "phase": "flush",
+                            "error": "No summary received",
+                        },
+                    )
+                    self.file_sink.write_event(flush_exception)
+                except Exception:
+                    pass
+
+            # Agents should have shut down by now; wait for processes to exit
+            self.console.print(
+                "[yellow]Waiting for Field-Agent processes to exit...[/yellow]"
+            )
+            handles = self.agent_manager.shutdown_all()
+
+            # Drain any remaining messages produced during shutdown (short period)
+            deadline = time.time() + 1.0
+            while time.time() < deadline:
+                got_any = False
+                for handle in handles:
+                    while (
+                        msg := handle.read_message(timeout=0.01)
+                    ) is not None:
+                        got_any = True
+                        try:
+                            mtype = getattr(msg, "type", None)
+                            if isinstance(mtype, str):
+                                t = mtype
+                            else:
+                                t = str(mtype).lower()
+
+                            if t == "summary" or t.endswith("summary"):
+                                try:
+                                    self._handle_agent_summary(
+                                        handle.label, msg
+                                    )
+                                    summaries_count += 1
+                                except Exception:
+                                    pass
+                            elif t == "log" or t.endswith("log"):
+                                try:
+                                    self._handle_agent_log(handle.label, msg)
+                                    logs_count += 1
+                                except Exception:
+                                    pass
+                            elif t == "heartbeat" or t.endswith("heartbeat"):
+                                self._handle_heartbeat(handle.label, msg)
+                        except Exception:
+                            pass
+
+                if not got_any:
+                    break
+
+            # Finally, remove references to the handles now we've drained them
+            try:
+                for h in handles:
+                    if h.label in self.agent_manager.agents:
+                        del self.agent_manager.agents[h.label]
+            except Exception:
+                pass
+
         except Exception as e:
             self.console.print(f"[red]Error shutting down agents: {e}[/red]")
 
         # Flush and close sinks
         try:
+            # Emit a final orchestrator event indicating shutdown complete
+            try:
+                now = datetime.now(UTC)
+                complete_event = Event(
+                    timestamp=now,
+                    label="orchestrator",
+                    event="shutdown_complete",
+                    data={
+                        "agent_count_final": len(self.agent_manager.agents),
+                        "timestamp": now.isoformat(),
+                        "note": "All agents shutdown and sinks closed",
+                        "summaries_written_during_shutdown": summaries_count,
+                        "logs_written_during_shutdown": logs_count,
+                        "acks_received_during_shutdown": acks_count,
+                    },
+                )
+                try:
+                    self.file_sink.write_event(complete_event)
+                except Exception:
+                    # If writing the final event fails, continue to close sinks
+                    pass
+                if self.config.monitor.console_verbosity in ("debug", "info"):
+                    self.console_sink.write_event(complete_event)
+            except Exception:
+                # Non-fatal - continue to closing sinks
+                pass
+
             self.file_sink.flush()
             self.file_sink.close()
             self.console.print("[green]MiMoLo stopped.[/green]")
+            # Final console-only confirmation after sinks are closed
+            self.console.print("[green]Shutdown complete.[/green]")
         except Exception as e:
             self.console.print(f"[red]Error closing sinks: {e}[/red]")
 

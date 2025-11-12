@@ -67,12 +67,15 @@ import sys
 import threading
 import time
 
-# Note: Counter imported for use in template examples (see _format_summary_data)
-from collections import Counter  # noqa: F401
+# Standard library imports (alphabetical within group)
+from collections import Counter
 from datetime import UTC, datetime
 from queue import Empty, Queue
 from typing import Any
 
+import typer
+
+# Third-party imports (alphabetical within group)
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -127,8 +130,8 @@ class FieldAgentTemplate:
         # TODO: Store your custom parameters
         # self.example_param = example_param
 
-        # Accumulator for current segment
-        self.data_accumulator: list[Any] = []  # TODO: Use appropriate data structure
+        # Accumulator for current segment (structured samples)
+        self.data_accumulator: list[dict[str, Any]] = []
         self.segment_start: datetime | None = None
         self.data_lock = threading.Lock()
 
@@ -141,6 +144,8 @@ class FieldAgentTemplate:
         # Control flags
         self.running = True
         self.shutdown_event = threading.Event()
+        # Sampling enable/disable (controlled by START/STOP commands)
+        self.sampling_enabled = True
 
         # IPC-based logger (sends log packets to orchestrator)
         self.logger = AgentLogger(
@@ -269,35 +274,51 @@ class FieldAgentTemplate:
         self._debug_log("⚙️  Worker thread started", "blue")
 
         last_heartbeat = time.time()
+        last_sample = time.time()
         sample_count = 0
 
         while self.running and not self.shutdown_event.is_set():
             now = datetime.now(UTC)
 
-            # Initialize segment start if needed
-            with self.data_lock:
-                if self.segment_start is None:
-                    self.segment_start = now
-                    self._debug_log(f"📅 Segment started at {now.isoformat()}", "cyan")
+            # Only sample when enabled AND interval elapsed
+            if (
+                self.sampling_enabled
+                and (time.time() - last_sample) >= self.sample_interval
+            ):
+                # Initialize segment start if needed and perform sampling
+                with self.data_lock:
+                    if self.segment_start is None:
+                        self.segment_start = now
+                        self._debug_log(
+                            f"📅 Segment started at {now.isoformat()}", "cyan"
+                        )
 
-                # =============================================================
-                # TODO: IMPLEMENT YOUR MONITORING LOGIC HERE
-                # =============================================================
-                # Example: Sample something and accumulate
-                sample_count += 1
-                sample_data: dict[str, Any] = {
-                    "timestamp": now.isoformat(),
-                    "sample_id": sample_count,
-                    "value": f"sample_{sample_count}",
-                    # TODO: Add your actual sampled data
-                }
-                self.data_accumulator.append(sample_data)
+                    # =========================================================
+                    # TODO: IMPLEMENT YOUR MONITORING LOGIC HERE
+                    # =========================================================
+                    # Example: Sample something and accumulate
+                    sample_count += 1
+                    sample_data: dict[str, Any] = {
+                        "timestamp": now.isoformat(),
+                        "sample_id": sample_count,
+                        "value": f"sample_{sample_count}",
+                        # TODO: Add your actual sampled data
+                    }
+                    self.data_accumulator.append(sample_data)
 
-                self._debug_log(
-                    f"📊 Sample #{sample_count} accumulated (total: {len(self.data_accumulator)})",
-                    "cyan"
-                )
-                # =============================================================
+                    self._debug_log(
+                        f"📊 Sample #{sample_count} accumulated (total: {len(self.data_accumulator)})",
+                        "cyan",
+                    )
+                    # =========================================================
+
+                last_sample = time.time()
+            else:
+                # Optional: minimal debug signal while paused
+                if not self.sampling_enabled:
+                    self._debug_log(
+                        "⏸️  Sampling paused (STOP active)", "yellow"
+                    )
 
             # Send heartbeat if interval elapsed
             if time.time() - last_heartbeat >= self.heartbeat_interval:
@@ -320,55 +341,237 @@ class FieldAgentTemplate:
                 })
                 last_heartbeat = time.time()
 
-            # Check for commands (non-blocking)
-            try:
-                cmd = self.command_queue.get_nowait()
+            # Drain and handle all pending commands (non-blocking)
+            while True:
+                try:
+                    cmd = self.command_queue.get_nowait()
+                except Empty:
+                    break
+
                 cmd_type = cmd.get("cmd", "").lower()
 
-                if cmd_type == "flush":
-                    self._debug_log("💾 FLUSH command received - taking snapshot", "yellow")
-
-                    # Take snapshot and reset accumulator
-                    with self.data_lock:
-                        snapshot = self.data_accumulator.copy()
-                        snapshot_start = self.segment_start or now
-                        snapshot_end = now
-
-                        # Reset for next segment
-                        self.data_accumulator.clear()
-                        self.segment_start = now
-
+                if cmd_type == "sequence":
+                    sequence_raw = cmd.get("sequence", [])
+                    sequence: list[str] = [
+                        s.lower() if isinstance(s, str) else str(s).lower()
+                        for s in sequence_raw
+                    ]
                     self._debug_log(
-                        f"📸 Snapshot taken: {len(snapshot)} items from {snapshot_start.isoformat()} "
-                        f"to {snapshot_end.isoformat()}",
-                        "green"
+                        f"🔗 SEQUENCE command received: {sequence}", "magenta"
                     )
 
-                    # Queue for summarizer
-                    self.flush_queue.put((snapshot_start, snapshot_end, snapshot))
+                    # Expected order: stop -> flush -> shutdown (others ignored)
+                    # 1. STOP (pause sampling, send ACK inline)
+                    if "stop" in sequence:
+                        self._handle_single_command("stop", now, sample_count)
 
-                elif cmd_type == "shutdown":
-                    self._debug_log("🛑 SHUTDOWN command received", "red")
-                    self.running = False
-                    self.shutdown_event.set()
+                    # 2. FLUSH (synchronous: build & emit summary BEFORE ACK)
+                    if "flush" in sequence:
+                        with self.data_lock:
+                            snapshot = self.data_accumulator.copy()
+                            snapshot_start = self.segment_start or now
+                            snapshot_end = datetime.now(UTC)
+                            self.data_accumulator.clear()
+                            self.segment_start = snapshot_end
+                        self._debug_log(
+                            f"📸 (SEQ) Snapshot: {len(snapshot)} items from {snapshot_start.isoformat()} to {snapshot_end.isoformat()}",
+                            "green",
+                        )
+                        summary_data = self._format_summary_data(
+                            snapshot, snapshot_start, snapshot_end
+                        )
+                        # Emit summary first
+                        self.send_message(
+                            {
+                                "type": "summary",
+                                "timestamp": snapshot_end.isoformat(),
+                                "agent_id": self.agent_id,
+                                "agent_label": self.agent_label,
+                                "protocol_version": PROTOCOL_VERSION,
+                                "agent_version": AGENT_VERSION,
+                                "data": summary_data,
+                            }
+                        )
+                        # Then ACK(flush)
+                        self.send_message(
+                            {
+                                "type": "ack",
+                                "timestamp": snapshot_end.isoformat(),
+                                "agent_id": self.agent_id,
+                                "agent_label": self.agent_label,
+                                "protocol_version": PROTOCOL_VERSION,
+                                "agent_version": AGENT_VERSION,
+                                "ack_command": "flush",
+                                "message": f"Flushed {len(snapshot)} samples (sync)",
+                                "data": {},
+                                "metrics": {
+                                    "flushed_count": len(snapshot),
+                                    "queue": self.flush_queue.qsize(),
+                                },
+                            }
+                        )
 
-                elif cmd_type == "status":
-                    self._debug_log("📊 STATUS command received", "yellow")
-                    # TODO: Send status message if needed
+                    # 3. SHUTDOWN (after summary already emitted)
+                    if "shutdown" in sequence:
+                        self._handle_single_command(
+                            "shutdown", datetime.now(UTC), sample_count
+                        )
+                else:
+                    # Handle single command
+                    self._handle_single_command(cmd_type, now, sample_count)
 
-            except Empty:
-                pass
-
-            # Sleep to avoid busy-wait
-            time.sleep(self.sample_interval)
+            # Sleep briefly to avoid busy-wait but allow responsive command handling
+            # Use shorter interval (100ms) instead of full sample_interval for faster
+            # response to STOP/FLUSH/SHUTDOWN commands
+            time.sleep(0.1)
 
         self._debug_log("🛑 Worker thread shutting down", "blue")
 
+    def _handle_single_command(
+        self, cmd_type: str, now: datetime, sample_count: int
+    ) -> None:
+        """Handle a single command from orchestrator.
+
+        Args:
+            cmd_type: Command type string (lowercase)
+            now: Current timestamp
+            sample_count: Current sample count
+        """
+        if cmd_type == "flush":
+            self._debug_log(
+                "💾 FLUSH command received - taking snapshot", "yellow"
+            )
+
+            # Take snapshot and reset accumulator
+            with self.data_lock:
+                snapshot = self.data_accumulator.copy()
+                snapshot_start = self.segment_start or now
+                snapshot_end = now
+
+                # Reset for next segment
+                self.data_accumulator.clear()
+                self.segment_start = now
+
+            self._debug_log(
+                f"📸 Snapshot taken: {len(snapshot)} items from {snapshot_start.isoformat()} "
+                f"to {snapshot_end.isoformat()}",
+                "green",
+            )
+
+            # Queue for summarizer
+            self.flush_queue.put((snapshot_start, snapshot_end, snapshot))
+
+            # Send ACK for flush
+            with self.data_lock:
+                accumulated_count = len(self.data_accumulator)
+            self.send_message(
+                {
+                    "type": "ack",
+                    "timestamp": now.isoformat(),
+                    "agent_id": self.agent_id,
+                    "agent_label": self.agent_label,
+                    "protocol_version": PROTOCOL_VERSION,
+                    "agent_version": AGENT_VERSION,
+                    "ack_command": "flush",
+                    "message": f"Flushed {len(snapshot)} samples",
+                    "data": {},
+                    "metrics": {
+                        "flushed_count": len(snapshot),
+                        "queue": self.flush_queue.qsize(),
+                    },
+                }
+            )
+
+        elif cmd_type == "shutdown":
+            self._debug_log("🛑 SHUTDOWN command received", "red")
+
+            # Wait briefly for any pending summaries to be sent
+            # (especially important when SHUTDOWN follows FLUSH in a SEQUENCE)
+            if not self.flush_queue.empty():
+                self._debug_log(
+                    f"⏳ Waiting for {self.flush_queue.qsize()} pending summaries...",
+                    "yellow",
+                )
+                # Give summarizer up to 500ms to drain queue
+                deadline = time.time() + 0.5
+                while not self.flush_queue.empty() and time.time() < deadline:
+                    time.sleep(0.01)
+
+            self.running = False
+            self.shutdown_event.set()
+
+        elif cmd_type == "status":
+            self._debug_log("📊 STATUS command received", "yellow")
+            # TODO: Send status message if needed
+
+        elif cmd_type == "stop":
+            # Pause sampling without stopping threads
+            self._debug_log(
+                "⏸️  STOP command received - pausing sampling",
+                "magenta",
+            )
+            self.sampling_enabled = False
+
+            # Send ACK for stop
+            with self.data_lock:
+                accumulated_count = len(self.data_accumulator)
+            self.send_message(
+                {
+                    "type": "ack",
+                    "timestamp": now.isoformat(),
+                    "agent_id": self.agent_id,
+                    "agent_label": self.agent_label,
+                    "protocol_version": PROTOCOL_VERSION,
+                    "agent_version": AGENT_VERSION,
+                    "ack_command": "stop",
+                    "message": "Sampling stopped",
+                    "data": {},
+                    "metrics": {
+                        "queue": self.flush_queue.qsize(),
+                        "accumulated_count": accumulated_count,
+                        "sample_count": sample_count,
+                    },
+                }
+            )
+
+        elif cmd_type == "start":
+            # Resume sampling
+            self._debug_log(
+                "▶️  START command received - resuming sampling",
+                "magenta",
+            )
+            self.sampling_enabled = True
+            # Initialize segment start on resume if needed
+            if self.segment_start is None:
+                self.segment_start = now
+
+            # Send ACK for start
+            with self.data_lock:
+                accumulated_count = len(self.data_accumulator)
+            self.send_message(
+                {
+                    "type": "ack",
+                    "timestamp": now.isoformat(),
+                    "agent_id": self.agent_id,
+                    "agent_label": self.agent_label,
+                    "protocol_version": PROTOCOL_VERSION,
+                    "agent_version": AGENT_VERSION,
+                    "ack_command": "start",
+                    "message": "Sampling resumed",
+                    "data": {},
+                    "metrics": {
+                        "queue": self.flush_queue.qsize(),
+                        "accumulated_count": accumulated_count,
+                        "sample_count": sample_count,
+                    },
+                }
+            )
+
     def _format_summary_data(
         self,
-        snapshot: list[Any],
+        snapshot: list[dict[str, Any]],
         start: datetime,
-        end: datetime
+        end: datetime,
     ) -> dict[str, Any]:
         """Format accumulated data into summary payload.
 
@@ -395,11 +598,18 @@ class FieldAgentTemplate:
             "sample_count": len(snapshot),
             "samples": snapshot,  # TODO: Aggregate/summarize instead of raw dump
         }
-
-        # Example: Count occurrences
-        # if snapshot:
-        #     counter = Counter(item["value"] for item in snapshot)
-        #     summary_data["value_counts"] = dict(counter)
+        # Example aggregation actually applied so Counter import is used
+        if snapshot:
+            # Count string values only for deterministic typing
+            typed_values: list[str] = []
+            for raw in snapshot:
+                # raw is dict[str, Any] by type declaration
+                val = raw.get("value")
+                if isinstance(val, str):
+                    typed_values.append(val)
+            if typed_values:
+                value_counts: Counter[str] = Counter(typed_values)
+                summary_data["value_counts"] = dict(value_counts)
 
         return summary_data
         # =================================================================
@@ -494,23 +704,24 @@ class FieldAgentTemplate:
             ))
 
 
-def main() -> None:
-    """Entry point."""
-    # TODO: Parse command-line arguments if needed
-    # import argparse
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("--sample-interval", type=float, default=5.0)
-    # args = parser.parse_args()
+def main(
+    sample_interval: float = typer.Option(
+        5.0, help="Seconds between samples"
+    ),
+    heartbeat_interval: float = typer.Option(
+        15.0, help="Seconds between heartbeats"
+    ),
+) -> None:
+    """Entry point using Typer for CLI parsing."""
 
     agent = FieldAgentTemplate(
         agent_id=AGENT_ID,
         agent_label=AGENT_LABEL,
-        sample_interval=5.0,
-        heartbeat_interval=15.0,
-        # TODO: Pass your custom parameters
+        sample_interval=sample_interval,
+        heartbeat_interval=heartbeat_interval,
     )
     agent.run()
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)

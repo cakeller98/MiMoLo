@@ -18,6 +18,7 @@ class MessageType(str, Enum):
     STATUS = "status"
     ERROR = "error"
     LOG = "log"
+    ACK = "ack"  # Acknowledgment response to commands
 
 
 class CommandType(str, Enum):
@@ -28,6 +29,11 @@ class CommandType(str, Enum):
     FLUSH = "flush"
     STATUS = "status"
     SHUTDOWN = "shutdown"
+    # New commands to control agent sampling/monitoring behavior
+    START = "start"
+    STOP = "stop"
+    # Chained command sequence for synchronized shutdown
+    SEQUENCE = "sequence"
 
 
 class AgentMessage(BaseModel):
@@ -82,9 +88,23 @@ class LogMessage(AgentMessage):
 
     type: MessageType = MessageType.LOG
     level: LogLevel
-    message: str = Field(description="Log message text (may contain Rich markup)")
+    message: str | None = Field(
+        default=None, description="Log message text (may contain Rich markup)"
+    )
     markup: bool = Field(default=True, description="Whether message contains Rich markup")
     extra: dict[str, Any] = Field(default_factory=dict, description="Additional context data")
+
+
+class AckMessage(AgentMessage):
+    """Acknowledgment response to a command."""
+
+    type: MessageType = MessageType.ACK
+    ack_command: str = Field(
+        description="The command being acknowledged (e.g., 'stop', 'flush')"
+    )
+    message: str | None = Field(
+        default=None, description="Optional status message"
+    )
 
 
 class OrchestratorCommand(BaseModel):
@@ -93,6 +113,10 @@ class OrchestratorCommand(BaseModel):
     cmd: CommandType
     args: dict[str, Any] = Field(default_factory=dict)
     id: str | None = None
+    # For SEQUENCE commands, contains list of sub-commands
+    sequence: list[CommandType] | None = Field(
+        default=None, description="Ordered list of commands to execute"
+    )
 
 
 def parse_agent_message(line: str) -> AgentMessage:
@@ -120,5 +144,7 @@ def parse_agent_message(line: str) -> AgentMessage:
         return HeartbeatMessage(**data)
     elif msg_type == MessageType.LOG:
         return LogMessage(**data)
+    elif msg_type == MessageType.ACK:
+        return AckMessage(**data)
     else:
         return AgentMessage(**data)

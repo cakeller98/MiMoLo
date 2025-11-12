@@ -68,7 +68,12 @@ class AgentHandle:
                 if not line:
                     continue
 
-                # Parse and enqueue message
+                # Log raw line for diagnostics then parse and enqueue message
+                try:
+                    logger.debug(f"[{self.label}] RECV: {line.rstrip()}")
+                except Exception:
+                    pass
+
                 msg = parse_agent_message(line)
                 self.outbound_queue.put(msg)
 
@@ -92,8 +97,10 @@ class AgentHandle:
             json_line = cmd.model_dump_json() + "\n"
             self.process.stdin.write(json_line)
             self.process.stdin.flush()
+            return True
         except Exception as e:
             logger.error(f"[{self.label}] Command send error: {e}")
+            return False
 
     def read_message(self, timeout: float = 0.001) -> AgentMessage | None:
         """Non-blocking read from message queue."""
@@ -110,15 +117,34 @@ class AgentHandle:
         """Send shutdown command and wait."""
         from mimolo.core.protocol import CommandType
 
-        self._running = False
-        self.send_command(OrchestratorCommand(cmd=CommandType.SHUTDOWN))
+        # Send shutdown command but keep the stdout reader running so we
+        # can capture any final JSON lines the agent writes on shutdown.
+        try:
+            self.send_command(OrchestratorCommand(cmd=CommandType.SHUTDOWN))
+        except Exception:
+            # If sending fails, proceed to waiting/killing the process.
+            pass
 
-        # Wait up to 3 seconds for clean exit
+        # Wait up to 3 seconds for clean exit while the reader thread
+        # continues to consume stdout. If the process doesn't exit in
+        # time, forcefully terminate it.
         try:
             self.process.wait(timeout=3.0)
         except subprocess.TimeoutExpired:
-            self.process.kill()
+            try:
+                self.process.kill()
+            except Exception:
+                pass
             self.process.wait()
+
+        # Now stop the reader loop and join the thread to ensure all
+        # queued messages have been processed by the orchestrator.
+        self._running = False
+        if self._stdout_thread is not None and self._stdout_thread.is_alive():
+            try:
+                self._stdout_thread.join(timeout=1.0)
+            except Exception:
+                pass
 
 
 class AgentProcessManager:
@@ -303,8 +329,17 @@ class AgentProcessManager:
         self.agents[label] = handle
         return handle
 
-    def shutdown_all(self) -> None:
-        """Shutdown all managed agents."""
-        for handle in self.agents.values():
+    def shutdown_all(self) -> list[AgentHandle]:
+        """Shutdown all managed agents and return their handles.
+
+        Returns:
+            List of `AgentHandle` objects for any callers that want to
+            drain outstanding messages after the agents exit.
+        """
+        handles = list(self.agents.values())
+        for handle in handles:
             handle.shutdown()
-        self.agents.clear()
+
+        # Do not clear `self.agents` here — let the caller decide when to
+        # discard handles after draining any outstanding messages.
+        return handles
