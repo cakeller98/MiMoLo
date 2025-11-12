@@ -340,7 +340,11 @@ class MarkdownSink(BaseSink):
 
 
 class ConsoleSink(BaseSink):
-    """Console output sink (for debugging/monitoring)."""
+    """Console output sink (for debugging/monitoring).
+
+    This sink outputs event and segment information to the console via logging.
+    The verbosity level determines whether output is actually displayed.
+    """
 
     def __init__(self, verbosity: Literal["debug", "info", "warning", "error"] = "info") -> None:
         """Initialize console sink.
@@ -348,12 +352,19 @@ class ConsoleSink(BaseSink):
         Args:
             verbosity: Console verbosity level.
         """
+        import logging
+
         self.verbosity = verbosity
+        self.logger = logging.getLogger(__name__)
 
     def write_segment(self, segment: Segment) -> None:
-        """Print segment summary to console."""
+        """Print segment summary to console (respects verbosity)."""
+        # Only log segments in debug or info mode
+        if self.verbosity not in ("debug", "info"):
+            return
+
         labels = sorted({ref.label for ref in segment.events})
-        print(
+        message = (
             f"[SEGMENT] {segment.start.strftime('%H:%M:%S')} -> "
             f"{segment.end.strftime('%H:%M:%S')} "
             f"({segment.duration_s:.1f}s) | "
@@ -361,14 +372,20 @@ class ConsoleSink(BaseSink):
             f"Events: {len(segment.events)} | "
             f"Resets: {segment.resets_count}"
         )
+        self.logger.info(message)
 
     def write_event(self, event: Event) -> None:
-        """Print event to console."""
-        print(
+        """Print event to console (respects verbosity)."""
+        # Only log events in debug or info mode
+        if self.verbosity not in ("debug", "info"):
+            return
+
+        message = (
             f"[EVENT] {event.timestamp.strftime('%H:%M:%S')} | "
             f"{event.label}.{event.event} | "
             f"Data: {event.data if event.data else 'None'}"
         )
+        self.logger.info(message)
 
 
 def create_sink(

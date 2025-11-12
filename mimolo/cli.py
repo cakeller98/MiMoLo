@@ -22,6 +22,7 @@ from mimolo.core.config import Config, load_config_or_default
 from mimolo.core.errors import ConfigError, PluginRegistrationError
 from mimolo.core.event import Event
 from mimolo.core.ipc import check_platform_support
+from mimolo.core.logging_setup import init_orchestrator_logging
 from mimolo.core.plugin import BaseMonitor, PluginSpec
 from mimolo.core.registry import PluginRegistry
 from mimolo.core.runtime import Runtime
@@ -141,6 +142,9 @@ def monitor(
     try:
         # Load config
         config = load_config_or_default(config_path)
+
+        # Initialize orchestrator logging (for internal diagnostics)
+        init_orchestrator_logging(verbosity=config.monitor.console_verbosity)
 
         # Apply CLI overrides
         if log_format:

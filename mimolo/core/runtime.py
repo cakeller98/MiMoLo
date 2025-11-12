@@ -319,6 +319,8 @@ class Runtime:
                             self._handle_heartbeat(label, msg)
                         elif t == "summary" or t.endswith("summary"):
                             self._handle_agent_summary(label, msg)
+                        elif t == "log" or t.endswith("log"):
+                            self._handle_agent_log(label, msg)
                         elif t == "error" or t.endswith("error"):
                             # Log agent-reported error
                             try:
@@ -447,6 +449,77 @@ class Runtime:
                 self.console.print(f"[cyan]❤️  {label}{metrics_str}[/cyan]")
         except Exception as e:
             self.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
+
+    def _handle_agent_log(self, label: str, msg: object) -> None:
+        """Handle a structured log message from a Field-Agent.
+
+        Log messages flow through the IPC protocol and are rendered on the
+        orchestrator console with Rich formatting. The orchestrator respects
+        console_verbosity settings to filter log messages by level.
+
+        Args:
+            label: Agent label (plugin name)
+            msg: LogMessage instance with level, message, and markup fields
+        """
+        try:
+            from mimolo.core.protocol import LogLevel
+
+            # Extract log level (may be string or enum)
+            level_raw = getattr(msg, "level", "info")
+            if isinstance(level_raw, str):
+                level = level_raw.lower()
+            else:
+                level = str(level_raw).lower()
+
+            # Map verbosity setting to allowed log levels
+            verbosity_map = {
+                "debug": ["debug", "info", "warning", "error"],
+                "info": ["info", "warning", "error"],
+                "warning": ["warning", "error"],
+                "error": ["error"],
+            }
+
+            allowed_levels = verbosity_map.get(
+                self.config.monitor.console_verbosity, ["info", "warning", "error"]
+            )
+
+            # Filter based on verbosity
+            if level not in allowed_levels:
+                return
+
+            # Extract message and markup flag
+            message_text = getattr(msg, "message", "")
+            markup = getattr(msg, "markup", True)
+
+            # Pre-process message to handle Unicode issues on Windows console
+            # Replace non-ASCII characters that might cause encoding errors
+            try:
+                # Test if the message can be encoded to the console encoding
+                message_text.encode(self.console.encoding or 'utf-8')
+            except (UnicodeEncodeError, AttributeError):
+                # Fallback: replace non-ASCII with '?' to avoid crashes
+                message_text = message_text.encode('ascii', errors='replace').decode('ascii')
+
+            # Render with Rich console (prefix with agent label)
+            prefix = f"[dim][{label}][/dim] "
+
+            # Handle multiline messages by splitting and printing each line
+            if "\n" in message_text:
+                lines = message_text.split("\n")
+                for line in lines:
+                    if markup:
+                        self.console.print(prefix + line)
+                    else:
+                        self.console.print(prefix + line, markup=False)
+            else:
+                if markup:
+                    self.console.print(prefix + message_text)
+                else:
+                    self.console.print(prefix + message_text, markup=False)
+
+        except Exception as e:
+            # Fallback: display error without crashing
+            self.console.print(f"[red]Error handling log from {label}: {e}[/red]")
 
     def _flush_all_agents(self) -> None:
         """Send flush command to all active Field-Agents."""

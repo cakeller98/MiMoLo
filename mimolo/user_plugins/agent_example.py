@@ -22,6 +22,9 @@ from queue import Empty, Queue
 from random import randint
 from typing import Any
 
+# Import AgentLogger for error reporting
+from mimolo.core.agent_logging import AgentLogger
+
 
 class AgentExample:
     """Field-Agent that generates synthetic monitoring events."""
@@ -64,6 +67,14 @@ class AgentExample:
         self.running = True
         self.shutdown_event = threading.Event()
 
+        # IPC-based logger for error reporting
+        self.logger = AgentLogger(
+            agent_id=self.agent_id,
+            agent_label=self.agent_label,
+            protocol_version="0.3",
+            agent_version="1.0.0",
+        )
+
     def send_message(self, msg: dict[str, Any]) -> None:
         """Write a JSON message to stdout.
 
@@ -73,7 +84,8 @@ class AgentExample:
         try:
             print(json.dumps(msg), flush=True)
         except Exception as e:
-            print(json.dumps({"type": "error", "message": f"Failed to send message: {e}"}), file=sys.stderr, flush=True)
+            # Use logger for error reporting (goes through IPC protocol)
+            self.logger.error(f"[red]Failed to send message: {e}[/red]")
 
     def command_listener(self) -> None:
         """Read commands from stdin (blocking thread)."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import tempfile
@@ -18,6 +19,8 @@ from mimolo.core.protocol import (
     OrchestratorCommand,
     parse_agent_message,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -75,7 +78,7 @@ class AgentHandle:
 
             except Exception as e:
                 # Log error but keep reading
-                print(f"[{self.label}] Parse error: {e}")
+                logger.error(f"[{self.label}] Parse error: {e}")
 
     def send_command(self, cmd: OrchestratorCommand) -> None:
         """Write command to agent stdin."""
@@ -90,7 +93,7 @@ class AgentHandle:
             self.process.stdin.write(json_line)
             self.process.stdin.flush()
         except Exception as e:
-            print(f"[{self.label}] Command send error: {e}")
+            logger.error(f"[{self.label}] Command send error: {e}")
 
     def read_message(self, timeout: float = 0.001) -> AgentMessage | None:
         """Non-blocking read from message queue."""
@@ -195,6 +198,13 @@ class AgentProcessManager:
                 / f"mimolo_agent_{label}_{uuid.uuid4().hex[:8]}.log"
             )
             stderr_log_path = str(tmp)
+            # Create the log file immediately so PowerShell can tail it
+            try:
+                with open(stderr_log_path, "w", encoding="utf-8") as f:
+                    f.write(f"# MiMoLo Agent Log: {label}\n")
+                    f.write(f"# Started at {datetime.now(UTC).isoformat()}\n\n")
+            except Exception:
+                pass  # Non-fatal
 
         def _stderr_forwarder(
             p: subprocess.Popen[str], lbl: str, log_path: str | None
@@ -205,7 +215,7 @@ class AgentProcessManager:
                 for raw in p.stderr:
                     # Ensure we keep the original newlines.
                     line = raw.rstrip("\n")
-                    print(f"[{lbl}][ERR] {line}")
+                    logger.info(f"[{lbl}][ERR] {line}")
                     if log_path:
                         try:
                             with open(
@@ -234,20 +244,36 @@ class AgentProcessManager:
         if launch_sep and stderr_log_path:
             try:
                 if os.name == "nt":
-                    # Use PowerShell to tail the file and keep the window open
-                    tail_cmd = [
-                        "cmd",
-                        "/c",
-                        "start",
-                        "",
-                        "powershell",
-                        "-NoProfile",
-                        "-NoExit",
-                        "-Command",
-                        "Get-Content -Path @args[0] -Wait",
-                        stderr_log_path,
-                    ]
-                    subprocess.Popen(tail_cmd)
+                    # Use PowerShell 7+ (pwsh) to tail the file and keep the window open
+                    # Falls back to Windows PowerShell 5.1 (powershell) if pwsh not available
+                    try:
+                        # Try pwsh first (PowerShell 7+)
+                        tail_cmd = [
+                            "cmd",
+                            "/c",
+                            "start",
+                            "",
+                            "pwsh",
+                            "-NoProfile",
+                            "-NoExit",
+                            "-Command",
+                            f"Get-Content -Path '{stderr_log_path}' -Wait",
+                        ]
+                        subprocess.Popen(tail_cmd)
+                    except FileNotFoundError:
+                        # Fallback to Windows PowerShell 5.1
+                        tail_cmd = [
+                            "cmd",
+                            "/c",
+                            "start",
+                            "",
+                            "powershell",
+                            "-NoProfile",
+                            "-NoExit",
+                            "-Command",
+                            f"Get-Content -Path '{stderr_log_path}' -Wait",
+                        ]
+                        subprocess.Popen(tail_cmd)
                 else:
                     # Try common terminals on *nix
                     try:

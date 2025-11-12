@@ -17,6 +17,7 @@ class MessageType(str, Enum):
     HEARTBEAT = "heartbeat"
     STATUS = "status"
     ERROR = "error"
+    LOG = "log"
 
 
 class CommandType(str, Enum):
@@ -67,6 +68,25 @@ class HeartbeatMessage(AgentMessage):
     metrics: dict[str, Any] = Field(default_factory=dict, description="Required for heartbeats")
 
 
+class LogLevel(str, Enum):
+    """Log severity levels."""
+
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+
+
+class LogMessage(AgentMessage):
+    """Structured log message from agent."""
+
+    type: MessageType = MessageType.LOG
+    level: LogLevel
+    message: str = Field(description="Log message text (may contain Rich markup)")
+    markup: bool = Field(default=True, description="Whether message contains Rich markup")
+    extra: dict[str, Any] = Field(default_factory=dict, description="Additional context data")
+
+
 class OrchestratorCommand(BaseModel):
     """Base command envelope for orchestrator → agent commands."""
 
@@ -98,5 +118,7 @@ def parse_agent_message(line: str) -> AgentMessage:
         return SummaryMessage(**data)
     elif msg_type == MessageType.HEARTBEAT:
         return HeartbeatMessage(**data)
+    elif msg_type == MessageType.LOG:
+        return LogMessage(**data)
     else:
         return AgentMessage(**data)
