@@ -44,22 +44,20 @@ class MonitorConfig(BaseModel):
 
 
 class PluginConfig(BaseModel):
-    """Per-plugin configuration."""
+    """Per-plugin configuration (Field-Agent only)."""
 
     enabled: bool = Field(default=True)
-    poll_interval_s: float = Field(default=5.0, gt=0)
-    resets_cooldown: bool = Field(default=True)
-    infrequent: bool = Field(default=False)
 
     # Plugin-specific fields (stored as extra)
     model_config = {"extra": "allow"}
 
-    # NEW: Field-Agent specific
-    plugin_type: Literal["legacy", "field_agent"] = "legacy"  # Auto-detect
-    executable: str | None = None  # For field agents: python path or script
+    # Field-Agent specific
+    plugin_type: Literal["field_agent"] = "field_agent"
+    executable: str | None = None  # Python path or executable
     args: list[str] = Field(default_factory=list)  # CLI args for agent
     heartbeat_interval_s: float = Field(default=15.0)  # Expected heartbeat frequency
     agent_flush_interval_s: float = Field(default=60.0)  # How often to send flush command
+    launch_in_separate_terminal: bool = Field(default=False)  # Launch in separate terminal window
 
 
 class Config(BaseModel):

@@ -17,14 +17,7 @@ log_format = "jsonl"
 # Console verbosity: debug, info, warning, error
 console_verbosity = "debug"
 
-# Example Plugin Configuration (Legacy)
-[plugins.example]
-enabled = false
-poll_interval_s = 3.0
-resets_cooldown = true
-infrequent = false
-
-# Template Field-Agent Configuration (v0.3)
+# Field-Agent Configuration
 [plugins.agent_template]
 enabled = true
 plugin_type = "field_agent"
@@ -34,7 +27,6 @@ heartbeat_interval_s = 15.0
 agent_flush_interval_s = 300.0
 launch_in_separate_terminal = true
 
-# Example Field-Agent Configuration (v0.3)
 [plugins.agent_example]
 enabled = false
 plugin_type = "field_agent"
@@ -42,14 +34,3 @@ executable = "poetry"
 args = ["run", "python", "agent_example.py"]
 heartbeat_interval_s = 15.0
 agent_flush_interval_s = 300.0
-
-# Folder Watch Plugin Configuration
-[plugins.folderwatch]
-enabled = false
-poll_interval_s = 5.0
-resets_cooldown = true
-infrequent = false
-
-# Plugin-specific settings
-watch_dirs = ["./demo", "./watched_folder"]
-extensions = ["obj", "blend", "fbx", "py"]
