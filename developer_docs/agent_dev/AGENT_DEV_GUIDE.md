@@ -8,9 +8,8 @@
 ---
 
 > **⚠️ Architectural Notice**  
-> Beginning with **MiMoLo v0.3**, the canonical plugin model is the **asynchronous Field-Agent architecture**.  
-> The older `BaseMonitor` synchronous model remains supported for backward compatibility but is **deprecated** and will be retired in a future release.  
-> All new development must target **Field-Agent** standards.
+> Beginning with **MiMoLo v0.3**, the only supported plugin model is the **asynchronous Field-Agent architecture**.  
+> All development must target **Field-Agent** standards.
 
 ---
 
@@ -29,47 +28,9 @@ The orchestrator (the “collector”) aggregates these events into human-readab
 
 ---
 
-## 2  Plugin Types and Compatibility
+## 2  Field-Agent Architecture (v0.3+)
 
-| Plugin Type                  | Base Class                                | Launch Mode                       | Communication                | Status       |
-| ---------------------------- | ----------------------------------------- | --------------------------------- | ---------------------------- | ------------ |
-| **Synchronous Monitor**      | `BaseMonitor`                             | In-process (thread)               | Direct method calls          | *Deprecated* |
-| **Asynchronous Field-Agent** | `BaseFieldAgent` (→ `AdaptiveFieldAgent`) | Sub-process / external executable | JSON lines over stdin/stdout | **Default**  |
-
-Legacy monitors still work but are wrapped as “silent” agents inside the orchestrator.  
-They only *speak when spoken to*.  
-Field-Agents, by contrast, are autonomous: they send heartbeats, summaries, and status updates asynchronously.
-
----
-
-## 3  Synchronous Model (Deprecated but Supported)
-
-### 3.1 Definition
-A `BaseMonitor` subclass implements:
-```python
-def emit_event(self) -> Event | None
-```
-and optionally a `filter_method()` for aggregation.
-
-### 3.2 Runtime Behavior
-- The orchestrator polls the plugin on its configured `poll_interval_s`.  
-- Returned events are aggregated into segments.  
-- If no event is returned, nothing is emitted.
-
-### 3.3 Asynchronous Compatibility
-Legacy plugins are now managed through a *Legacy Monitor Adapter* which:
-- Wraps each synchronous plugin in an asynchronous facade  
-- Emits synthetic JSON messages identical to Field-Agent output  
-- Injects periodic heartbeats for health visibility  
-
-**Best practice:** keep legacy monitors simple, fast, and stateless.  
-They should defer heavy work to new Field-Agents whenever possible.
-
----
-
-## 4  Field-Agent Architecture (v0.3+)
-
-### 4.1 Philosophy
+### 2.1 Philosophy
 Field-Agents are **self-contained executables**.  
 They may be written in Python, Node.js, Go, Rust — any language — as long as they:
 
@@ -78,7 +39,7 @@ They may be written in Python, Node.js, Go, Rust — any language — as long as
 - Never block indefinitely  
 - Respect global resource limits (`main_system_max_cpu_per_plugin`)  
 
-### 4.2 Lifecycle
+### 2.2 Lifecycle
 Each agent runs **three cooperative loops**:
 
 | Component            | Responsibility                                         |
@@ -95,7 +56,7 @@ Agent     → {"type": "summary", "data": {...}}
 Agent     → {"type": "heartbeat", "timestamp": "..."}
 ```
 
-### 4.3 Required Message Types
+### 2.3 Required Message Types
 
 | Type        | Description                     | Example                                                |
 | ----------- | ------------------------------- | ------------------------------------------------------ |
@@ -106,7 +67,7 @@ Agent     → {"type": "heartbeat", "timestamp": "..."}
 
 Agents must emit at least one `heartbeat` every `heartbeat_interval` seconds.
 
-### 4.4 Freedom of Implementation
+### 2.4 Freedom of Implementation
 Beyond those basics, you’re free to be creative.  
 Your agent could:
 - Count files,
@@ -115,7 +76,7 @@ Your agent could:
 
 **As long as it stays polite** — within configured CPU and memory budgets — it’s a valid MiMoLo agent.
 
-### 4.5 Resource Etiquette
+### 2.5 Resource Etiquette
 - Respect `main_system_max_cpu_per_plugin` (default ≈ 0.1 %).  
 - Yield often; sleep between samples.  
 - Never spin-lock or busy-wait.  
@@ -123,11 +84,11 @@ Your agent could:
 
 ---
 
-## 5  Adaptive and Self-Healing Agents
+## 3  Adaptive and Self-Healing Agents
 
 A professional-grade Field-Agent is **self-monitoring**:
 
-### 5.1 Dynamic Self-Tuning
+### 3.1 Dynamic Self-Tuning
 - Track queue size, flush latency, CPU usage.  
 - If lag or load rises:  
   → reduce sampling rate or complexity.  
@@ -135,7 +96,7 @@ A professional-grade Field-Agent is **self-monitoring**:
   → gradually restore normal rate.  
 - Log each adjustment via `{"type":"status","tuned":{...}}`.
 
-### 5.2 Graceful Notification
+### 3.2 Graceful Notification
 If self-tuning fails, emit:
 ```json
 {"type":"status","health":"overload","metrics":{...}}
@@ -143,7 +104,7 @@ If self-tuning fails, emit:
 The collector may log, alert, or restart the agent.  
 Agent may enter a minimal “safe mode” that sends only heartbeats until cleared.
 
-### 5.3 Quality Control (QC)
+### 3.3 Quality Control (QC)
 Include health metrics in heartbeat or summary:
 ```json
 {"type":"heartbeat",
@@ -153,7 +114,7 @@ The collector aggregates these and can classify agents as *slowpoke*, *degraded*
 
 ---
 
-## 6  Collector Responsibilities (Orchestrator Side)
+## 4  Collector Responsibilities (Orchestrator Side)
 
 1. **Spawn** agents (sub-processes).  
 2. **Parse** stdout → JSON events.  
@@ -164,7 +125,7 @@ The collector aggregates these and can classify agents as *slowpoke*, *degraded*
 
 ---
 
-## 7  Developer Freedom and Compliance Checklist
+## 5  Developer Freedom and Compliance Checklist
 
 ✅ You *must*  
 - Use stdin/stdout JSON lines.  
@@ -187,7 +148,7 @@ The collector aggregates these and can classify agents as *slowpoke*, *degraded*
 
 ---
 
-## 8  Examples of Compliance
+## 6  Examples of Compliance
 
 ### Example A — Folder Watcher Agent (Py)
 A simple agent that monitors folders and flushes modified paths.  
@@ -202,7 +163,7 @@ Even this whimsical plugin is valid *if* it:
 
 ---
 
-## 9  Future Roadmap
+## 7  Future Roadmap
 
 - Formal schema registration (`mimolo-agent-schema.json`)  
 - Secure sandboxing / namespaces  
@@ -211,17 +172,16 @@ Even this whimsical plugin is valid *if* it:
 
 ---
 
-## 10  Summary
+## 8  Summary
 
 MiMoLo v0.3+ defines a **polite, asynchronous, self-aware ecosystem** of modular monitors.  
 Each Field-Agent is expected to:
 
 > *Observe lightly, report cleanly, adapt gracefully, and never steal headroom.*
 
-Legacy synchronous monitors may coexist for now, but the path forward is clear:
-**all new MiMoLo development belongs in the Field-Agent ecosystem.**
+MiMoLo v0.3+ is a **Field-Agent-only** ecosystem.
 
-## 11  Documentation Map
+## 9  Documentation Map
 
 For implementation details, see:
 
@@ -231,10 +191,9 @@ For implementation details, see:
 - **Architectural Deep-Dive**: `developer_docs/1_Core_Overview.md` through `8_Future_Roadmap_and_Summary.md`  
   Comprehensive conceptual framework covering design philosophy, data flow, and constraints.
 
-- **Working Examples**: `mimolo/plugins/`  
-  Reference implementations including `folderwatch.py` (file monitoring) and `template.py` (starter scaffold).
+- **Working Examples**: `mimolo/user_plugins/`  
+  Reference implementations including `agent_template.py` (starter scaffold).
 
 ---
 
-**Legacy Note**: Existing `BaseMonitor` plugins continue to function via compatibility adapters,  
-but development guidance for that synchronous model has been retired as of v0.3.
+**Note**: Legacy synchronous plugins are not supported in v0.3+.

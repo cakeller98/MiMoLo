@@ -15,11 +15,11 @@ Field-Agents are **self-contained, standalone executables** that monitor system 
 - When flushed, they create a snapshot, start fresh accumulation, and summarize the snapshot
 - The orchestrator **never re-aggregates** Field-Agent data
 
-### 2. **Heartbeats Are Logged, Not Aggregated**
+### 2. **Heartbeats Are Health Signals**
 
 - Heartbeats contain health metrics (CPU, memory, queue size, flush latency)
-- Orchestrator writes heartbeats **directly to file sink** as individual events
-- Used for monitoring agent health, not for data collection
+- Orchestrator uses heartbeats for health tracking and optional console output
+- Heartbeats are not aggregated into segments
 
 ### 3. **Summaries Are Pre-Aggregated**
 
@@ -93,21 +93,11 @@ Orchestrator → Logs error to console
 ```toml
 [plugins.my_field_agent]
 enabled = true
-plugin_type = "field_agent"           # Required: distinguishes from legacy
+plugin_type = "field_agent"           # Required
 executable = "python"                 # Command to execute
 args = ["agents/my_agent.py"]         # Arguments passed to executable
 heartbeat_interval_s = 15.0           # How often agent sends heartbeat
 agent_flush_interval_s = 60.0         # How often orchestrator sends flush
-```
-
-### Legacy Plugin Config (Backward Compatible)
-
-```toml
-[plugins.folderwatch]
-enabled = true
-plugin_type = "legacy"                # Default if omitted
-poll_interval_s = 5.0
-resets_cooldown = true
 ```
 
 ## Runtime Behavior
@@ -116,24 +106,20 @@ resets_cooldown = true
 1. Load config
 2. For each plugin:
    - If `plugin_type == "field_agent"` → spawn subprocess via `agent_manager.spawn_agent()`
-   - If `plugin_type == "legacy"` → wrap with `LegacyPluginAdapter`
 3. Start main event loop
 
 ### During Operation
 Every tick (~100ms):
-1. Poll legacy plugins (synchronous `emit_event()`)
-2. Check Field-Agent flush intervals
+1. Check Field-Agent flush intervals
    - Send `flush` commands when interval elapsed
-3. Drain Field-Agent message queues
+2. Drain Field-Agent message queues
    - Route by message type (heartbeat/summary/error)
-   - Write heartbeats and summaries directly to file
-4. Check cooldown for legacy segment closure
+   - Write summaries directly to file
 
 ### Shutdown
-1. Close any open legacy segments
-2. Send `shutdown` commands to all Field-Agents
-3. Wait for agent processes to exit
-4. Flush and close file sinks
+1. Send `shutdown` commands to all Field-Agents
+2. Wait for agent processes to exit
+3. Flush and close file sinks
 
 ## File Output Format
 
@@ -171,18 +157,6 @@ Every tick (~100ms):
 }
 ```
 
-## Key Differences from Legacy Plugins
-
-| Aspect                  | Legacy Plugins                        | Field-Agents                        |
-| ----------------------- | ------------------------------------- | ----------------------------------- |
-| **Execution**           | In-process (threads)                  | Sub-processes                       |
-| **Communication**       | Direct method calls                   | JSON Lines (stdin/stdout)           |
-| **Data Aggregation**    | Orchestrator aggregates into segments | Agent pre-aggregates before sending |
-| **Heartbeats**          | None                                  | Required every ~15s                 |
-| **Resource Monitoring** | None                                  | Self-reported metrics               |
-| **Language**            | Python only                           | Any language                        |
-| **Lifecycle**           | Synchronous poll                      | Asynchronous message passing        |
-
 ## Implementation Status
 
 ### ✅ Completed
@@ -196,7 +170,6 @@ Every tick (~100ms):
 
 ### 🚧 Next Steps
 1. Create reference Field-Agent implementations
-   - Migrate `folderwatch` to standalone Field-Agent
    - Create template Field-Agent with 3-thread architecture
 2. Add agent health monitoring dashboard
 3. Implement agent restart on failure

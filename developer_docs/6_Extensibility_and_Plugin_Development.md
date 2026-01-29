@@ -65,7 +65,7 @@ extensions = ["blend", "fbx", "obj"]
 
 **Summary**
 Extensibility in MiMoLo centers on **protocol compliance**, not code coupling.  
-By adhering to a simple, schema-driven interface, developers can introduce new Field-Agents, wrap legacy tools, or integrate creative sensors—all without modifying the orchestrator core.  
+By adhering to a simple, schema-driven interface, developers can introduce new Field-Agents or integrate creative sensors—all without modifying the orchestrator core.  
 This modular independence is the foundation of MiMoLo’s scalability and long-term maintainability.
 
 ### ...next [[7_Constraints_and_Performance_Etiquette]]

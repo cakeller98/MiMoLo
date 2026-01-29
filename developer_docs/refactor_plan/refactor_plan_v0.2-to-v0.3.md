@@ -1,5 +1,8 @@
 # Code Review & Migration Strategy for MiMoLo v0.2 → v0.3
 
+> **Note (v0.3+ reality):** Legacy synchronous plugins are removed. Field-Agents are the only supported plugin type.  
+> Any sections below that mention legacy adapters or `mimolo/plugins/` are historical and should not be implemented.
+
 ## Executive Summary
 
 **Recommendation: HYBRID APPROACH**

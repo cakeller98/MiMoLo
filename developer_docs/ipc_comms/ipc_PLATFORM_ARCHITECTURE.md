@@ -40,7 +40,7 @@ Older platforms lack native Unix socket support and would require TCP fallback, 
 
 If you're on Windows 7/8 or old macOS:
 1. **Upgrade your OS** (recommended)
-2. **Use MiMoLo v0.2** (legacy, limited features)
+2. **SLOWPOKE fallback** (not recommended, severe performance impact)
 
 We do not provide TCP fallback because it would compromise the core design principle of minimal system impact.
 

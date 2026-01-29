@@ -5,16 +5,9 @@
 
 ---
 
-## Core Principle: Dual-Mode Operation
+## Core Principle: Field-Agent Only
 
-The orchestrator will support **two plugin types simultaneously**:
-
-| Type                   | Location               | Communication       | Heartbeats                           | Status             |
-| ---------------------- | ---------------------- | ------------------- | ------------------------------------ | ------------------ |
-| **Legacy Sync Plugin** | `mimolo/plugins/`      | Direct method calls | Synthetic (injected by orchestrator) | Silent (poll-only) |
-| **Field-Agent Plugin** | `mimolo/user_plugins/` | stdin/stdout JSON   | Autonomous                           | Asynchronous       |
-
-Both types participate in the same segment lifecycle. The orchestrator abstracts the differences.
+MiMoLo v0.3+ is **Field-Agent only**. Legacy synchronous plugins are removed and not supported.
 
 ---
 
@@ -40,11 +33,9 @@ class MonitorConfig(BaseModel):
     
 class PluginConfig(BaseModel):
     enabled: bool = True
-    poll_interval_s: float = 5.0
-    resets_cooldown: bool = True
     
     # NEW: Field-Agent specific
-    plugin_type: Literal["legacy", "field_agent"] = "legacy"  # Auto-detect
+    plugin_type: Literal["field_agent"] = "field_agent"
     executable: str | None = None  # For field agents: python path or script
     args: list[str] = Field(default_factory=list)  # CLI args for agent
     heartbeat_interval_s: float = 15.0  # Expected heartbeat frequency
@@ -328,162 +319,16 @@ class AgentProcessManager:
 
 ---
 
-## Phase 2: Dual-Mode Orchestrator (Days 4-7)
-**Goal:** Runtime supports both legacy and Field-Agent plugins
-
-### Step 2.1: Create Plugin Adapter (`core/plugin_adapter.py` - NEW FILE)
-**Status:** Wraps legacy plugins with Field-Agent interface
-
-```python
-"""Adapter to make legacy plugins look like Field-Agents."""
-
-from __future__ import annotations
-
-from datetime import UTC, datetime
-from typing import Any
-
-from mimolo.core.event import Event
-from mimolo.core.plugin import BaseMonitor
-from mimolo.core.protocol import AgentMessage, HeartbeatMessage, SummaryMessage
-
-
-class LegacyPluginAdapter:
-    """Makes a legacy BaseMonitor plugin behave like a Field-Agent.
-    
-    This adapter:
-    - Wraps emit_event() and converts to SummaryMessage
-    - Generates synthetic heartbeats
-    - Provides consistent interface for orchestrator
-    """
-    
-    def __init__(self, plugin: BaseMonitor, label: str):
-        """Initialize adapter.
-        
-        Args:
-            plugin: Legacy plugin instance
-            label: Plugin label
-        """
-        self.plugin = plugin
-        self.label = label
-        self.agent_id = f"legacy-{label}"
-        self.last_heartbeat = datetime.now(UTC)
-    
-    def emit_event(self) -> Event | None:
-        """Call wrapped plugin's emit_event."""
-        return self.plugin.emit_event()
-    
-    def to_summary_message(self, event: Event) -> SummaryMessage:
-        """Convert Event to SummaryMessage format.
-        
-        Args:
-            event: Event from legacy plugin
-            
-        Returns:
-            SummaryMessage compatible with Field-Agent protocol
-        """
-        return SummaryMessage(
-            timestamp=event.timestamp,
-            agent_id=self.agent_id,
-            agent_label=self.label,
-            agent_version="legacy",
-            data=event.data or {}
-        )
-    
-    def generate_heartbeat(self) -> HeartbeatMessage:
-        """Generate synthetic heartbeat for legacy plugin."""
-        self.last_heartbeat = datetime.now(UTC)
-        return HeartbeatMessage(
-            timestamp=self.last_heartbeat,
-            agent_id=self.agent_id,
-            agent_label=self.label,
-            agent_version="legacy",
-            metrics={"mode": "legacy", "synthetic": True}
-        )
-```
-
-**Testing:** Wrap existing FolderWatchMonitor, verify message conversion.
-
----
-
-### Step 2.2: Extend Runtime to Support Both Types (`core/runtime.py`)
-**Status:** Modify existing file incrementally
+## Phase 2: Field-Agent Orchestrator (Days 4-7)
+**Goal:** Runtime supports Field-Agent plugins only
 
 **Changes needed:**
 1. Add `AgentProcessManager` instance
-2. During startup, detect plugin type and route accordingly
-3. In `_tick()`, poll both legacy plugins AND read Field-Agent queues
-4. Convert legacy Events to SummaryMessages internally
+2. During startup, spawn Field-Agents from config
+3. In `_tick()`, send flush commands and drain Field-Agent queues
+4. Route message types (summary/log/heartbeat/error) to sinks and console
 
-**Key modification to `Runtime.__init__`:**
-```python
-def __init__(self, config: Config, registry: PluginRegistry, console: Console | None = None):
-    # ... existing code ...
-    
-    # NEW: Add Field-Agent support
-    from mimolo.core.agent_process import AgentProcessManager
-    from mimolo.core.plugin_adapter import LegacyPluginAdapter
-    
-    self.agent_manager = AgentProcessManager(config)
-    self.legacy_adapters: dict[str, LegacyPluginAdapter] = {}
-    
-    # Wrap legacy plugins
-    for spec, instance in registry.list_all():
-        adapter = LegacyPluginAdapter(instance, spec.label)
-        self.legacy_adapters[spec.label] = adapter
-```
-
-**Key modification to `_tick()`:**
-```python
-def _tick(self) -> None:
-    self._tick_count += 1
-    current_time = time.time()
-    now = datetime.now(UTC)
-    
-    # Check cooldown
-    if self.cooldown.check_expiration(now):
-        self._close_segment()
-    
-    # Poll LEGACY plugins (existing code, adapted)
-    for spec, instance in self.registry.list_all():
-        if self.error_tracker.is_quarantined(spec.label):
-            continue
-        
-        if not self.scheduler.should_poll(spec.label, spec.poll_interval_s, current_time):
-            continue
-        
-        try:
-            adapter = self.legacy_adapters[spec.label]
-            event = adapter.emit_event()
-            
-            if event is not None:
-                # Convert to SummaryMessage
-                msg = adapter.to_summary_message(event)
-                self._handle_agent_message(msg, spec)
-                self.error_tracker.record_success(spec.label)
-                
-        except Exception as e:
-            error = PluginEmitError(spec.label, e)
-            self.console.print(f"[red]Plugin error: {error}[/red]")
-            self.error_tracker.record_error(spec.label)
-    
-    # Poll FIELD-AGENT messages (NEW)
-    for label, handle in self.agent_manager.agents.items():
-        while True:
-            msg = handle.read_message(timeout=0.001)
-            if msg is None:
-                break
-            
-            # Route by message type
-            if msg.type == "heartbeat":
-                self._handle_heartbeat(label, msg)
-            elif msg.type == "summary":
-                # Look up spec (need to extend registry or maintain separate dict)
-                self._handle_agent_summary(label, msg)
-            elif msg.type == "error":
-                self.console.print(f"[red]Agent {label} error: {msg.message}[/red]")
-```
-
-**Testing:** Run with only legacy plugins - should behave identically to v0.2.
+**Testing:** Run with only Field-Agent plugins and verify summaries, heartbeats, and shutdown.
 
 ---
 
@@ -797,11 +642,10 @@ Similar structure - I can provide these if needed.
 ## Phase 4: Testing & Refinement (Days 13-15)
 
 ### Checkpoint Tests:
-1. ✅ Legacy plugins still work exactly as before
-2. ✅ Field-Agent plugins spawn, handshake, and emit messages
-3. ✅ Both types participate in segment aggregation
-4. ✅ Cooldown timer works with both types
-5. ✅ Graceful shutdown works for both
+1. ✅ Field-Agent plugins spawn, handshake, and emit messages
+2. ✅ Summaries are written to sinks without re-aggregation
+3. ✅ Cooldown timer triggers flushes as expected
+4. ✅ Graceful shutdown works for all agents
 
 ### Configuration example (mimolo.toml):
 ```toml
@@ -814,7 +658,6 @@ enabled = true
 plugin_type = "field_agent"
 executable = "python"
 args = ["-m", "mimolo.user_plugins.agent_folderwatch", "--watch-dirs", "/projects"]
-resets_cooldown = true
 ```
 
 ---
@@ -822,11 +665,9 @@ resets_cooldown = true
 ## Success Criteria for Phase 1-3:
 
 - [ ] `mimolo monitor` starts successfully
-- [ ] Legacy plugins in `mimolo/plugins/` still work
 - [ ] Field-Agent plugins in `mimolo/user_plugins/` spawn as subprocesses
-- [ ] Both types emit events that appear in segments
-- [ ] Shutdown is clean for all plugin types
-- [ ] Tests pass for both legacy and Field-Agent paths
+- [ ] Summaries and logs appear in sinks
+- [ ] Shutdown is clean for all Field-Agent plugins
 
 ---
 
@@ -835,7 +676,7 @@ resets_cooldown = true
 **Phase 5:** Journal event stream writer  
 **Phase 6:** Dashboard bridge  
 **Phase 7:** Advanced agent features (self-tuning, metrics)  
-**Phase 8:** Deprecate legacy plugins, migrate all to Field-Agents
+**Phase 8:** Plugin packaging and distribution workflow
 
 ---
 
@@ -843,8 +684,7 @@ resets_cooldown = true
 
 ✅ **No "big bang" rewrite** - working code at every step  
 ✅ **Incremental testing** - can validate each change  
-✅ **Backward compatible** - legacy plugins never break  
-✅ **Forward looking** - Field-Agents are the future, but coexist during transition  
+✅ **Forward looking** - Field-Agents are the core architecture  
 ✅ **Risk mitigation** - can pause or rollback at any checkpoint  
 
 This is a **production-grade migration strategy** rather than a research prototype approach.
