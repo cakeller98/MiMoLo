@@ -54,6 +54,7 @@ class Runtime:
         # Runtime state
         self._running = False
         self._tick_count = 0
+        self._shutting_down = False
 
         # Field-Agent support
         from mimolo.core.agent_process import AgentProcessManager
@@ -61,6 +62,8 @@ class Runtime:
         self.agent_manager = AgentProcessManager(config)
         self.agent_last_flush: dict[str, datetime] = {}  # Track last flush time per agent
         self._agents_started = False
+        self._shutdown_deadlines: dict[str, float] = {}
+        self._shutdown_phase: dict[str, str] = {}
 
     def _start_agents(self) -> None:
         """Spawn Field-Agent plugins from config."""
@@ -70,8 +73,6 @@ class Runtime:
 
         for label, plugin_config in self.config.plugins.items():
             if not plugin_config.enabled:
-                continue
-            if plugin_config.plugin_type != "field_agent":
                 continue
             if not plugin_config.executable:
                 continue
@@ -138,6 +139,39 @@ class Runtime:
         """Execute one tick of the event loop."""
         self._tick_count += 1
         now = datetime.now(UTC)
+
+        # Track and report unexpected agent exits
+        for label, handle in list(self.agent_manager.agents.items()):
+            if not handle.is_alive():
+                exit_code = handle.process.poll()
+                last_heartbeat = (
+                    handle.last_heartbeat.isoformat()
+                    if handle.last_heartbeat
+                    else None
+                )
+                self.console.print(
+                    f"[red]Agent {label} exited unexpectedly (code={exit_code})[/red]"
+                )
+                try:
+                    exit_event = Event(
+                        timestamp=now,
+                        label="orchestrator",
+                        event="agent_exit",
+                        data={
+                            "agent": label,
+                            "exit_code": exit_code,
+                            "last_heartbeat": last_heartbeat,
+                            "note": "Agent process exited without shutdown sequence",
+                        },
+                    )
+                    self.file_sink.write_event(exit_event)
+                except Exception as e:
+                    self._debug(
+                        f"[yellow]Failed to write agent_exit event for {label}: {e}[/yellow]"
+                    )
+                # Remove dead handle to avoid repeated alerts
+                del self.agent_manager.agents[label]
+                continue
 
         # Check for cooldown expiration
         if self.cooldown.check_expiration(now):
@@ -295,48 +329,53 @@ class Runtime:
             label: Agent label (plugin name)
             msg: LogMessage instance with level, message, and markup fields
         """
+        # Extract log level (may be string or enum)
+        level_raw = getattr(msg, "level", "info")
+        if isinstance(level_raw, str):
+            level = level_raw.lower()
+        else:
+            level = str(level_raw).lower()
+
+        # Map verbosity setting to allowed log levels
+        verbosity_map = {
+            "debug": ["debug", "info", "warning", "error"],
+            "info": ["info", "warning", "error"],
+            "warning": ["warning", "error"],
+            "error": ["error"],
+        }
+
+        allowed_levels = verbosity_map.get(
+            self.config.monitor.console_verbosity,
+            ["info", "warning", "error"],
+        )
+
+        # Filter based on verbosity
+        if level not in allowed_levels:
+            return
+
+        # Extract message and markup flag
+        message_text = getattr(msg, "message", "")
+        markup = getattr(msg, "markup", True)
+
+        # Pre-process message to handle Unicode issues on Windows console
+        # Replace non-ASCII characters that might cause encoding errors
         try:
-
-            # Extract log level (may be string or enum)
-            level_raw = getattr(msg, "level", "info")
-            if isinstance(level_raw, str):
-                level = level_raw.lower()
-            else:
-                level = str(level_raw).lower()
-
-            # Map verbosity setting to allowed log levels
-            verbosity_map = {
-                "debug": ["debug", "info", "warning", "error"],
-                "info": ["info", "warning", "error"],
-                "warning": ["warning", "error"],
-                "error": ["error"],
-            }
-
-            allowed_levels = verbosity_map.get(
-                self.config.monitor.console_verbosity, ["info", "warning", "error"]
+            # Test if the message can be encoded to the console encoding
+            message_text.encode(self.console.encoding or "utf-8")
+        except (UnicodeEncodeError, AttributeError) as e:
+            self._debug(
+                f"[yellow]Log message encoding mismatch for {label}: {e}[/yellow]"
             )
+            # Fallback: replace non-ASCII with '?' to avoid crashes
+            message_text = message_text.encode(
+                "ascii", errors="replace"
+            ).decode("ascii")
 
-            # Filter based on verbosity
-            if level not in allowed_levels:
-                return
+        # Render with Rich console (prefix with agent label)
+        prefix = f"[dim][{label}][/dim] "
 
-            # Extract message and markup flag
-            message_text = getattr(msg, "message", "")
-            markup = getattr(msg, "markup", True)
-
-            # Pre-process message to handle Unicode issues on Windows console
-            # Replace non-ASCII characters that might cause encoding errors
-            try:
-                # Test if the message can be encoded to the console encoding
-                message_text.encode(self.console.encoding or 'utf-8')
-            except (UnicodeEncodeError, AttributeError):
-                # Fallback: replace non-ASCII with '?' to avoid crashes
-                message_text = message_text.encode('ascii', errors='replace').decode('ascii')
-
-            # Render with Rich console (prefix with agent label)
-            prefix = f"[dim][{label}][/dim] "
-
-            # Handle multiline messages by splitting and printing each line
+        # Handle multiline messages by splitting and printing each line
+        try:
             if "\n" in message_text:
                 lines = message_text.split("\n")
                 for line in lines:
@@ -349,10 +388,10 @@ class Runtime:
                     self.console.print(prefix + message_text)
                 else:
                     self.console.print(prefix + message_text, markup=False)
-
         except Exception as e:
-            # Fallback: display error without crashing
-            self.console.print(f"[red]Error handling log from {label}: {e}[/red]")
+            self.console.print(
+                f"[red]Error rendering log from {label} (markup={markup}): {e}[/red]"
+            )
 
     def _flush_all_agents(self) -> None:
         """Send flush command to all active Field-Agents."""
@@ -386,6 +425,7 @@ class Runtime:
     def _shutdown(self) -> None:
         """Clean shutdown: flush agents and close sinks."""
         self.console.print("[yellow]Shutting down...[/yellow]")
+        self._shutting_down = True
 
         # Graceful stop sequence:
         # Emit an orchestrator-level event so the file log shows shutdown boundaries.
@@ -426,234 +466,298 @@ class Runtime:
         logs_count = 0
         acks_count = 0
 
-        try:
-            from mimolo.core.protocol import CommandType, OrchestratorCommand
+        from mimolo.core.protocol import CommandType, OrchestratorCommand
 
-            # Send SEQUENCE command to all agents
-            self.console.print(
-                "[yellow]Sending shutdown sequence to Field-Agents...[/yellow]"
-            )
+        # Send SEQUENCE command to all agents
+        self.console.print(
+            "[yellow]Sending shutdown sequence to Field-Agents...[/yellow]"
+        )
 
-            sequence_cmd = OrchestratorCommand(
-                cmd=CommandType.SEQUENCE,
-                sequence=[
-                    CommandType.STOP,
-                    CommandType.FLUSH,
-                    CommandType.SHUTDOWN,
-                ],
-            )
+        sequence_cmd = OrchestratorCommand(
+            cmd=CommandType.SEQUENCE,
+            sequence=[
+                CommandType.STOP,
+                CommandType.FLUSH,
+                CommandType.SHUTDOWN,
+            ],
+        )
 
-            agents_in_shutdown = set(self.agent_manager.agents.keys())
+        agents_in_shutdown = set(self.agent_manager.agents.keys())
+        for label in list(agents_in_shutdown):
+            handle = self.agent_manager.agents.get(label)
+            if not handle:
+                continue
+            try:
+                ok = handle.send_command(sequence_cmd)
+                if not ok:
+                    self.console.print(
+                        f"[red]Failed to send SEQUENCE to {label} (stdin closed?)[/red]"
+                    )
+                    agents_in_shutdown.discard(label)
+                elif self.config.monitor.console_verbosity == "debug":
+                    self.console.print(
+                        f"[cyan]Sent shutdown SEQUENCE to {label}[/cyan]"
+                    )
+            except Exception as e:
+                self.console.print(
+                    f"[red]Exception sending SEQUENCE to {label}: {e}[/red]"
+                )
+                agents_in_shutdown.discard(label)
+
+        # Track expected responses: stop ACK, flush ACK + summary
+        pending_stop_ack = agents_in_shutdown.copy()
+        pending_flush_response = agents_in_shutdown.copy()
+        self._shutdown_deadlines = {}
+        self._shutdown_phase = {}
+        shutdown_timeout_s = 4.0
+        now_ts = time.time()
+        for label in agents_in_shutdown:
+            self._shutdown_deadlines[label] = now_ts + shutdown_timeout_s
+            self._shutdown_phase[label] = "sequence_sent"
+
+        # Drain messages for up to 4 seconds total
+        # Agents should respond: ACK(stop) → ACK(flush) + summary → final heartbeat → exit
+        while pending_stop_ack or pending_flush_response:
+            # Drop agents that exceeded their per-agent deadline
+            now_ts = time.time()
+            timed_out = [
+                label
+                for label, deadline in self._shutdown_deadlines.items()
+                if now_ts >= deadline and label in agents_in_shutdown
+            ]
+            for label in timed_out:
+                self.console.print(
+                    f"[red]Agent {label} shutdown timeout (phase={self._shutdown_phase.get(label, 'unknown')})[/red]"
+                )
+                try:
+                    timeout_event = Event(
+                        timestamp=datetime.now(UTC),
+                        label="orchestrator",
+                        event="shutdown_timeout",
+                        data={
+                            "agent": label,
+                            "phase": self._shutdown_phase.get(
+                                label, "unknown"
+                            ),
+                            "error": "Agent did not respond before deadline",
+                        },
+                    )
+                    self.file_sink.write_event(timeout_event)
+                except Exception as e:
+                    self._debug(
+                        f"[yellow]Failed to write shutdown_timeout for {label}: {e}[/yellow]"
+                    )
+                pending_stop_ack.discard(label)
+                pending_flush_response.discard(label)
+                agents_in_shutdown.discard(label)
+                self._shutdown_deadlines.pop(label, None)
+                self._shutdown_phase.pop(label, None)
+
+            if not agents_in_shutdown:
+                break
+
             for label in list(agents_in_shutdown):
                 handle = self.agent_manager.agents.get(label)
                 if not handle:
                     continue
-                try:
-                    ok = handle.send_command(sequence_cmd)
-                    if not ok:
-                        self.console.print(
-                            f"[red]Failed to send SEQUENCE to {label}[/red]"
-                        )
-                        agents_in_shutdown.discard(label)
-                    elif self.config.monitor.console_verbosity == "debug":
-                        self.console.print(
-                            f"[cyan]Sent shutdown SEQUENCE to {label}[/cyan]"
-                        )
-                except Exception as e:
-                    self.console.print(
-                        f"[red]Exception sending SEQUENCE to {label}: {e}[/red]"
-                    )
-                    agents_in_shutdown.discard(label)
 
-            # Track expected responses: stop ACK, flush ACK + summary
-            pending_stop_ack = agents_in_shutdown.copy()
-            pending_flush_response = agents_in_shutdown.copy()
+                while (msg := handle.read_message(timeout=0.01)) is not None:
+                    try:
+                        mtype = getattr(msg, "type", None)
+                        if isinstance(mtype, str):
+                            t = mtype
+                        else:
+                            t = str(mtype).lower()
 
-            # Drain messages for up to 4 seconds total
-            # Agents should respond: ACK(stop) → ACK(flush) + summary → final heartbeat → exit
-            deadline = time.time() + 4.0
-            while time.time() < deadline and (
-                pending_stop_ack or pending_flush_response
-            ):
-                for label in list(agents_in_shutdown):
-                    handle = self.agent_manager.agents.get(label)
-                    if not handle:
-                        continue
+                        if t == "ack" or t.endswith("ack"):
+                            ack_cmd = getattr(msg, "ack_command", None)
+                            acks_count += 1
 
-                    while (
-                        msg := handle.read_message(timeout=0.01)
-                    ) is not None:
-                        try:
-                            mtype = getattr(msg, "type", None)
-                            if isinstance(mtype, str):
-                                t = mtype
-                            else:
-                                t = str(mtype).lower()
-
-                            if t == "ack" or t.endswith("ack"):
-                                ack_cmd = getattr(msg, "ack_command", None)
-                                acks_count += 1
-
-                                if ack_cmd == "stop":
-                                    pending_stop_ack.discard(label)
-                                    if (
-                                        self.config.monitor.console_verbosity
-                                        == "debug"
-                                    ):
-                                        self.console.print(
-                                            f"[cyan]Agent {label} ACK(stop)[/cyan]"
-                                        )
-                                elif ack_cmd == "flush":
-                                    # Flush ACK received, but still wait for summary
-                                    if (
-                                        self.config.monitor.console_verbosity
-                                        == "debug"
-                                    ):
-                                        self.console.print(
-                                            f"[cyan]Agent {label} ACK(flush)[/cyan]"
-                                        )
-
-                            elif t == "summary" or t.endswith("summary"):
-                                try:
-                                    self._handle_agent_summary(label, msg)
-                                    summaries_count += 1
-                                    pending_flush_response.discard(label)
-                                    if (
-                                        self.config.monitor.console_verbosity
-                                        == "debug"
-                                    ):
-                                        self.console.print(
-                                            f"[cyan]Agent {label} sent summary[/cyan]"
-                                        )
-                                except Exception as e:
-                                    self._debug(
-                                        f"[yellow]Failed to handle shutdown summary from {label}: {e}[/yellow]"
+                            if ack_cmd == "stop":
+                                pending_stop_ack.discard(label)
+                                self._shutdown_deadlines[label] = (
+                                    time.time() + shutdown_timeout_s
+                                )
+                                self._shutdown_phase[label] = "stop_ack"
+                                if (
+                                    self.config.monitor.console_verbosity
+                                    == "debug"
+                                ):
+                                    self.console.print(
+                                        f"[cyan]Agent {label} ACK(stop)[/cyan]"
+                                    )
+                            elif ack_cmd == "flush":
+                                # Flush ACK received, but still wait for summary
+                                self._shutdown_deadlines[label] = (
+                                    time.time() + shutdown_timeout_s
+                                )
+                                self._shutdown_phase[label] = "flush_ack"
+                                if (
+                                    self.config.monitor.console_verbosity
+                                    == "debug"
+                                ):
+                                    self.console.print(
+                                        f"[cyan]Agent {label} ACK(flush)[/cyan]"
                                     )
 
-                            elif t == "log" or t.endswith("log"):
-                                try:
-                                    self._handle_agent_log(label, msg)
-                                    logs_count += 1
-                                except Exception as e:
-                                    self._debug(
-                                        f"[yellow]Failed to handle shutdown log from {label}: {e}[/yellow]"
+                        elif t == "summary" or t.endswith("summary"):
+                            try:
+                                self._handle_agent_summary(label, msg)
+                                summaries_count += 1
+                                pending_flush_response.discard(label)
+                                self._shutdown_deadlines[label] = (
+                                    time.time() + shutdown_timeout_s
+                                )
+                                self._shutdown_phase[label] = (
+                                    "summary_received"
+                                )
+                                if (
+                                    self.config.monitor.console_verbosity
+                                    == "debug"
+                                ):
+                                    self.console.print(
+                                        f"[cyan]Agent {label} sent summary[/cyan]"
                                     )
+                            except Exception as e:
+                                self._debug(
+                                    f"[yellow]Failed to handle shutdown summary from {label}: {e}[/yellow]"
+                                )
 
-                            elif t == "heartbeat" or t.endswith("heartbeat"):
-                                self._handle_heartbeat(label, msg)
+                        elif t == "log" or t.endswith("log"):
+                            try:
+                                self._handle_agent_log(label, msg)
+                                logs_count += 1
+                                self._shutdown_deadlines[label] = (
+                                    time.time() + shutdown_timeout_s
+                                )
+                                self._shutdown_phase[label] = "log_received"
+                            except Exception as e:
+                                self._debug(
+                                    f"[yellow]Failed to handle shutdown log from {label}: {e}[/yellow]"
+                                )
 
-                        except Exception as e:
-                            self._debug(
-                                f"[yellow]Failed to parse shutdown message from {label}: {e}[/yellow]"
+                        elif t == "heartbeat" or t.endswith("heartbeat"):
+                            self._handle_heartbeat(label, msg)
+                            self._shutdown_deadlines[label] = (
+                                time.time() + shutdown_timeout_s
                             )
+                            self._shutdown_phase[label] = "heartbeat"
 
-                time.sleep(0.01)
+                        elif t == "status" or t.endswith("status"):
+                            self._shutdown_deadlines[label] = (
+                                time.time() + shutdown_timeout_s
+                            )
+                            self._shutdown_phase[label] = "status"
 
-            # Log agents that didn't respond
-            for label in pending_stop_ack:
-                self.console.print(
-                    f"[red]Agent {label} did not ACK STOP (timeout)[/red]"
-                )
-                try:
-                    stop_exception = Event(
-                        timestamp=datetime.now(UTC),
-                        label="orchestrator",
-                        event="shutdown_exception",
-                        data={
-                            "agent": label,
-                            "phase": "stop",
-                            "error": "No stop ACK received",
-                        },
-                    )
-                    self.file_sink.write_event(stop_exception)
-                except Exception as e:
-                    self._debug(
-                        f"[yellow]Failed to write shutdown_exception (stop) for {label}: {e}[/yellow]"
-                    )
+                    except Exception as e:
+                        self._debug(
+                            f"[yellow]Failed to parse shutdown message from {label}: {e}[/yellow]"
+                        )
 
-            for label in pending_flush_response:
-                self.console.print(
-                    f"[red]Agent {label} did not send summary after FLUSH (timeout)[/red]"
-                )
-                try:
-                    flush_exception = Event(
-                        timestamp=datetime.now(UTC),
-                        label="orchestrator",
-                        event="shutdown_exception",
-                        data={
-                            "agent": label,
-                            "phase": "flush",
-                            "error": "No summary received",
-                        },
-                    )
-                    self.file_sink.write_event(flush_exception)
-                except Exception as e:
-                    self._debug(
-                        f"[yellow]Failed to write shutdown_exception (flush) for {label}: {e}[/yellow]"
-                    )
+            time.sleep(0.01)
 
-            # Agents should have shut down by now; wait for processes to exit
+        # Log agents that didn't respond
+        for label in pending_stop_ack:
             self.console.print(
-                "[yellow]Waiting for Field-Agent processes to exit...[/yellow]"
+                f"[red]Agent {label} did not ACK STOP (timeout)[/red]"
             )
-            handles = self.agent_manager.shutdown_all()
-
-            # Drain any remaining messages produced during shutdown (short period)
-            deadline = time.time() + 1.0
-            while time.time() < deadline:
-                got_any = False
-                for handle in handles:
-                    while (
-                        msg := handle.read_message(timeout=0.01)
-                    ) is not None:
-                        got_any = True
-                        try:
-                            mtype = getattr(msg, "type", None)
-                            if isinstance(mtype, str):
-                                t = mtype
-                            else:
-                                t = str(mtype).lower()
-
-                            if t == "summary" or t.endswith("summary"):
-                                try:
-                                    self._handle_agent_summary(
-                                        handle.label, msg
-                                    )
-                                    summaries_count += 1
-                                except Exception as e:
-                                    self._debug(
-                                        f"[yellow]Failed to handle late shutdown summary from {handle.label}: {e}[/yellow]"
-                                    )
-                            elif t == "log" or t.endswith("log"):
-                                try:
-                                    self._handle_agent_log(handle.label, msg)
-                                    logs_count += 1
-                                except Exception as e:
-                                    self._debug(
-                                        f"[yellow]Failed to handle late shutdown log from {handle.label}: {e}[/yellow]"
-                                    )
-                            elif t == "heartbeat" or t.endswith("heartbeat"):
-                                self._handle_heartbeat(handle.label, msg)
-                        except Exception as e:
-                            self._debug(
-                                f"[yellow]Failed to handle late shutdown message from {handle.label}: {e}[/yellow]"
-                            )
-
-                if not got_any:
-                    break
-
-            # Finally, remove references to the handles now we've drained them
             try:
-                for h in handles:
-                    if h.label in self.agent_manager.agents:
-                        del self.agent_manager.agents[h.label]
+                stop_exception = Event(
+                    timestamp=datetime.now(UTC),
+                    label="orchestrator",
+                    event="shutdown_exception",
+                    data={
+                        "agent": label,
+                        "phase": "stop",
+                        "error": "No stop ACK received",
+                    },
+                )
+                self.file_sink.write_event(stop_exception)
             except Exception as e:
                 self._debug(
-                    f"[yellow]Failed to clear agent handles after shutdown: {e}[/yellow]"
+                    f"[yellow]Failed to write shutdown_exception (stop) for {label}: {e}[/yellow]"
                 )
 
+        for label in pending_flush_response:
+            self.console.print(
+                f"[red]Agent {label} did not send summary after FLUSH (timeout)[/red]"
+            )
+            try:
+                flush_exception = Event(
+                    timestamp=datetime.now(UTC),
+                    label="orchestrator",
+                    event="shutdown_exception",
+                    data={
+                        "agent": label,
+                        "phase": "flush",
+                        "error": "No summary received",
+                    },
+                )
+                self.file_sink.write_event(flush_exception)
+            except Exception as e:
+                self._debug(
+                    f"[yellow]Failed to write shutdown_exception (flush) for {label}: {e}[/yellow]"
+                )
+
+        # Agents should have shut down by now; wait for processes to exit
+        self.console.print(
+            "[yellow]Waiting for Field-Agent processes to exit...[/yellow]"
+        )
+        handles = self.agent_manager.shutdown_all()
+
+        # Drain any remaining messages produced during shutdown (short period)
+        deadline = time.time() + 1.0
+        while time.time() < deadline:
+            got_any = False
+            for handle in handles:
+                while (msg := handle.read_message(timeout=0.01)) is not None:
+                    got_any = True
+                    try:
+                        mtype = getattr(msg, "type", None)
+                        if isinstance(mtype, str):
+                            t = mtype
+                        else:
+                            t = str(mtype).lower()
+
+                        if t == "summary" or t.endswith("summary"):
+                            try:
+                                self._handle_agent_summary(handle.label, msg)
+                                summaries_count += 1
+                            except Exception as e:
+                                self._debug(
+                                    f"[yellow]Failed to handle late shutdown summary from {handle.label}: {e}[/yellow]"
+                                )
+                        elif t == "log" or t.endswith("log"):
+                            try:
+                                self._handle_agent_log(handle.label, msg)
+                                logs_count += 1
+                            except Exception as e:
+                                self._debug(
+                                    f"[yellow]Failed to handle late shutdown log from {handle.label}: {e}[/yellow]"
+                                )
+                        elif t == "heartbeat" or t.endswith("heartbeat"):
+                            self._handle_heartbeat(handle.label, msg)
+                        elif t == "status" or t.endswith("status"):
+                            self._debug(
+                                f"[yellow]Late shutdown status from {handle.label} ignored[/yellow]"
+                            )
+                    except Exception as e:
+                        self._debug(
+                            f"[yellow]Failed to handle late shutdown message from {handle.label}: {e}[/yellow]"
+                        )
+
+            if not got_any:
+                break
+
+        # Finally, remove references to the handles now we've drained them
+        try:
+            for h in handles:
+                if h.label in self.agent_manager.agents:
+                    del self.agent_manager.agents[h.label]
         except Exception as e:
-            self.console.print(f"[red]Error shutting down agents: {e}[/red]")
+            self._debug(
+                f"[yellow]Failed to clear agent handles after shutdown: {e}[/yellow]"
+            )
 
         # Flush and close sinks
         try:

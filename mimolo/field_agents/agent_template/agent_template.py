@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Field-Agent Template for MiMoLo v0.3+
 
-This template demonstrates the complete 3-thread Field-Agent architecture
-with Agent JLP-based logging that preserves Rich formatting.
+This template demonstrates the BaseFieldAgent hook pattern and
+Agent JLP-based logging that preserves Rich formatting.
 
 Key sections to modify:
 1. Agent metadata (agent_id, agent_label, version)
 2. __init__ parameters for your specific monitoring needs
-3. worker_loop() - your actual monitoring/sampling logic
-4. _format_summary_data() - how you package accumulated data
+3. _accumulate() - your actual monitoring/sampling logic
+4. _take_snapshot() - how you capture a snapshot of accumulated observations
+5. _format_summary() - how you package accumulated data
 
 LOGGING APPROACH (v0.3+):
 This template uses AgentLogger, which sends structured log packets via the
@@ -56,19 +57,19 @@ To use:
 
 Architecture:
 - Command Listener: Reads stdin for flush/shutdown/status commands
-- Worker Loop: Samples/monitors continuously, accumulates data
-- Summarizer: Packages snapshots and emits summaries on flush
+- Worker Loop: Calls _accumulate() to collect data into your accumulator
+- Summarizer: Uses _take_snapshot() + _format_summary() to emit summaries
 """
 
 from __future__ import annotations
 
 import json
+import sys
 import threading
-import time
 
 # Standard library imports (alphabetical within group)
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 import typer
@@ -76,7 +77,6 @@ import typer
 # Third-party imports (alphabetical within group)
 from rich.console import Console
 from rich.panel import Panel
-from rich.syntax import Syntax
 
 # Import AgentLogger for Agent JLP-based logging
 from mimolo.core.agent_logging import AgentLogger
@@ -101,7 +101,7 @@ DEBUG_MODE = True  # Shows rich debugging output to stderr
 
 
 class FieldAgentTemplate(BaseFieldAgent):
-    """Template Field-Agent with full 3-thread architecture and debugging."""
+    """Template Field-Agent showing the BaseFieldAgent hook pattern."""
 
     def __init__(
         self,
@@ -109,6 +109,7 @@ class FieldAgentTemplate(BaseFieldAgent):
         agent_label: str = AGENT_LABEL,
         sample_interval: float = 5.0,
         heartbeat_interval: float = 15.0,
+        dev_pretty: bool = False,
         # TODO: Add your custom parameters here
         # example_param: str = "default_value",
     ) -> None:
@@ -119,6 +120,7 @@ class FieldAgentTemplate(BaseFieldAgent):
             agent_label: Logical plugin name
             sample_interval: Seconds between samples in worker loop
             heartbeat_interval: Seconds between heartbeat emissions
+            dev_pretty: Pretty-print JSON messages to stderr when True
             # TODO: Document your custom parameters
         """
         self.agent_id = agent_id
@@ -135,8 +137,9 @@ class FieldAgentTemplate(BaseFieldAgent):
 
         # TODO: Store your custom parameters
         # self.example_param = example_param
+        self.dev_pretty = dev_pretty
 
-        # Accumulator for current segment (structured samples)
+        # Accumulator for current segment (structured observations)
         self.data_accumulator: list[dict[str, Any]] = []
         self.segment_start: datetime | None = None
         self.data_lock = threading.Lock()
@@ -151,114 +154,32 @@ class FieldAgentTemplate(BaseFieldAgent):
 
         # Optional: Keep Rich console for complex debug panels (deprecated)
         # New approach: Use logger instead for all debug output
-        self.debug = Console(stderr=True, force_terminal=True) if DEBUG_MODE else None
+        self.debug = (
+            Console(stderr=True, force_terminal=True) if DEBUG_MODE else None
+        )
 
     def _debug_log(self, message: str, style: str = "cyan") -> None:
-        """Log debug message via Agent JLP logger.
-
-        DEPRECATED: Use self.logger.debug() directly instead.
-        Kept for backward compatibility with template examples.
-        """
-        # Old approach: stderr console
-        # if self.debug:
-        #     self.debug.print(f"[{style}][DEBUG {self.agent_label}][/{style}] {message}")
-
-        # New approach: Agent JLP log packet
+        """Emit a debug log for development-time visibility."""
         if DEBUG_MODE:
             styled_msg = f"[{style}]{message}[/{style}]"
             self.logger.debug(styled_msg)
 
-    def _debug_panel(self, content: Any, title: str, style: str = "blue") -> None:
-        """Display debug information via Agent JLP logger.
-
-        DEPRECATED: Use self.logger.debug() with Rich markup instead.
-        Kept for backward compatibility.
-
-        Note: Complex Rich panels (Syntax highlighting, tables) are converted
-        to simplified text for Agent JLP transmission. For full Rich rendering,
-        use the deprecated stderr console approach.
-        """
-        # Old approach: Rich panel to stderr
-        # if self.debug:
-        #     self.debug.print(Panel(content, title=f"[{style}]{title}[/{style}]", border_style=style))
-
-        # New approach: Simplified Agent JLP log
-        if DEBUG_MODE:
-            # Convert content to string representation
-            if isinstance(content, Syntax):
-                # For Syntax objects, just log the code
-                content_str = str(content.code) if hasattr(content, 'code') else str(content)
-            else:
-                content_str = str(content)
-
-            # Log as debug message with title (avoid special Unicode that might cause issues)
-            msg = f"[{style}]=== {title} ===[/{style}]\n{content_str}"
-            self.logger.debug(msg)
+    def _debug_json(self, label: str, payload: dict[str, Any]) -> None:
+        """Pretty-print a JSON payload for quick inspection."""
+        if not DEBUG_MODE:
+            return
+        pretty = json.dumps(payload, indent=2, sort_keys=True)
+        self.logger.debug(f"[magenta]=== {label} ===[/magenta]\n{pretty}")
 
     def send_message(self, msg: dict[str, Any]) -> None:
-        """Write a JSON message to stdout."""
-        try:
-            json_str = json.dumps(msg)
-            print(json_str, flush=True)
-
-            # Debug output
-            if self.debug:
-                msg_type = msg.get("type", "unknown")
-                syntax = Syntax(json_str, "json", theme="monokai", line_numbers=False)
-                self._debug_panel(syntax, f"📤 Sent: {msg_type}", "green")
-
-        except Exception as e:
-            error_msg = {"type": "error", "message": f"Failed to send message: {e}"}
-            print(json.dumps(error_msg), flush=True)
-
-    def _format_summary_data(
-        self,
-        snapshot: list[dict[str, Any]],
-        start: datetime,
-        end: datetime,
-    ) -> dict[str, Any]:
-        """Format accumulated data into summary payload.
-
-        TODO: Customize this to aggregate/summarize your data appropriately.
-
-        Args:
-            snapshot: Copy of accumulated data from segment
-            start: Segment start time
-            end: Segment end time
-
-        Returns:
-            Dictionary to include in summary message data field
-        """
-        duration = (end - start).total_seconds()
-
-        # =================================================================
-        # TODO: IMPLEMENT YOUR SUMMARIZATION LOGIC HERE
-        # =================================================================
-        # Example: Just pass through the raw samples
-        summary_data: dict[str, Any] = {
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-            "duration_s": duration,
-            "sample_count": len(snapshot),
-            "samples": snapshot,  # TODO: Aggregate/summarize instead of raw dump
-        }
-        # Example aggregation actually applied so Counter import is used
-        if snapshot:
-            # Count string values only for deterministic typing
-            typed_values: list[str] = []
-            for raw in snapshot:
-                # raw is dict[str, Any] by type declaration
-                val = raw.get("value")
-                if isinstance(val, str):
-                    typed_values.append(val)
-            if typed_values:
-                value_counts: Counter[str] = Counter(typed_values)
-                summary_data["value_counts"] = dict(value_counts)
-
-        return summary_data
-        # =================================================================
+        """Send a protocol message, optionally mirrored as pretty JSON on stderr."""
+        if self.dev_pretty:
+            pretty = json.dumps(msg, indent=2, sort_keys=True)
+            print(pretty, file=sys.stderr, flush=True)
+        super().send_message(msg)
 
     def _accumulate(self, now: datetime) -> None:
+        """Collect one observation and append it to the in-memory accumulator."""
         if self.segment_start is None:
             self.segment_start = now
             self._debug_log(f"📅 Segment started at {now.isoformat()}", "cyan")
@@ -276,6 +197,11 @@ class FieldAgentTemplate(BaseFieldAgent):
         )
 
     def _take_snapshot(self, now: datetime) -> tuple[datetime, datetime, list[Any]]:
+        """Snapshot the accumulated observations and reset the accumulator.
+
+        Returns:
+            (snapshot_start, snapshot_end, snapshot_data)
+        """
         snapshot = self.data_accumulator.copy()
         snapshot_start = self.segment_start or now
         snapshot_end = now
@@ -291,19 +217,44 @@ class FieldAgentTemplate(BaseFieldAgent):
     def _format_summary(
         self, snapshot: list[dict[str, Any]], start: datetime, end: datetime
     ) -> dict[str, Any]:
-        return self._format_summary_data(snapshot, start, end)
+        """Aggregate a snapshot of observations into a summary payload."""
+        duration = (end - start).total_seconds()
+
+        summary_data: dict[str, Any] = {
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "duration_s": duration,
+            "sample_count": len(snapshot),
+            "samples": snapshot,
+        }
+
+        if snapshot:
+            typed_values: list[str] = []
+            for raw in snapshot:
+                val = raw.get("value")
+                if isinstance(val, str):
+                    typed_values.append(val)
+            if typed_values:
+                value_counts: Counter[str] = Counter(typed_values)
+                summary_data["value_counts"] = dict(value_counts)
+
+        return summary_data
 
     def _accumulated_count(self) -> int:
         return len(self.data_accumulator)
 
     def _heartbeat_metrics(self) -> dict[str, Any]:
-        return {
-            "queue": self.flush_queue.qsize(),
-            "accumulated_count": len(self.data_accumulator),
-            "sample_count": len(self.data_accumulator),
-        }
+        """
+        Provide custom heartbeat metrics for monitoring agent health.
+
+        """
+        metrics = super()._heartbeat_metrics()
+        # Keep base metrics (queue, accumulated_count) and add sample_count.
+        metrics["sample_count"] = len(self.data_accumulator)
+        return metrics
 
     def run(self) -> None:
+        """Run the agent with optional pre/post hooks around BaseFieldAgent.run()."""
         if self.debug:
             self.debug.print(Panel.fit(
                 f"[bold cyan]{self.agent_label}[/bold cyan]\n"
@@ -316,7 +267,11 @@ class FieldAgentTemplate(BaseFieldAgent):
                 border_style="green"
             ))
 
+        # after our pre-run hook, start the BaseFieldAgent main loop
+
         super().run()
+
+        # the following runs after clean shutdown of BaseFieldAgent
 
         if self.debug:
             self.debug.print(Panel.fit(
@@ -332,6 +287,9 @@ def main(
     heartbeat_interval: float = typer.Option(
         15.0, help="Seconds between heartbeats"
     ),
+    dev_pretty: bool = typer.Option(
+        False, help="Pretty-print JSON messages to stderr"
+    ),
 ) -> None:
     """Entry point using Typer for CLI parsing."""
 
@@ -340,6 +298,7 @@ def main(
         agent_label=AGENT_LABEL,
         sample_interval=sample_interval,
         heartbeat_interval=heartbeat_interval,
+        dev_pretty=dev_pretty,
     )
     agent.run()
 
