@@ -275,7 +275,7 @@ class FieldAgentTemplate(BaseFieldAgent):
 
         if self.debug:
             self.debug.print(Panel.fit(
-                "[bold yellow]Agent stopped cleanly[/bold yellow]",
+                f"[bold yellow]Agent {self.agent_id} stopped[/bold yellow]",
                 border_style="yellow"
             ))
 

@@ -13,13 +13,30 @@ Three-thread architecture:
 from __future__ import annotations
 
 import threading
-import time
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import datetime
 from random import randint
 from typing import Any
 
+# Third-party imports (alphabetical within group)
+from rich.console import Console
+from rich.panel import Panel
+
+# Local application imports (alphabetical within group)
 from mimolo.field_agents.base_agent import BaseFieldAgent
+
+# =============================================================================
+# CUSTOMIZE THESE VALUES FOR YOUR AGENT
+# =============================================================================
+
+AGENT_LABEL = "template_agent"  # TODO: Change to your agent name
+AGENT_ID = "template_agent-001"  # TODO: Change to unique ID
+AGENT_VERSION = "1.0.0"  # TODO: Update as you develop
+PROTOCOL_VERSION = "0.3"
+MIN_APP_VERSION = "0.3.0"
+
+# Debug output (set to False in production)
+DEBUG_MODE = True  # Shows rich debugging output to stderr
 
 
 class AgentExample(BaseFieldAgent):
@@ -59,6 +76,12 @@ class AgentExample(BaseFieldAgent):
         self.item_counts: Counter[str] = Counter()
         self.segment_start: datetime | None = None
         self.data_lock = threading.Lock()
+
+        # Optional: Keep Rich console for complex debug panels (deprecated)
+        # New approach: Use logger instead for all debug output
+        self.debug = (
+            Console(stderr=True, force_terminal=True) if DEBUG_MODE else None
+        )
 
     def _accumulate(self, now: datetime) -> None:
         with self.data_lock:
@@ -100,6 +123,13 @@ class AgentExample(BaseFieldAgent):
         """Main entry point."""
         super().run()
 
+        if self.debug:
+            self.debug.print(
+                Panel.fit(
+                    f"[bold yellow]Agent {self.agent_id} stopped[/bold yellow]",
+                    border_style="yellow",
+                )
+            )
 
 def main() -> None:
     """Entry point."""

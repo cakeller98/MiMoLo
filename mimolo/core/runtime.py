@@ -372,7 +372,7 @@ class Runtime:
             ).decode("ascii")
 
         # Render with Rich console (prefix with agent label)
-        prefix = f"[dim][{label}][/dim] "
+        prefix = f"[grey70][{label}][/grey70] "
 
         # Handle multiline messages by splitting and printing each line
         try:
@@ -468,11 +468,6 @@ class Runtime:
 
         from mimolo.core.protocol import CommandType, OrchestratorCommand
 
-        # Send SEQUENCE command to all agents
-        self.console.print(
-            "[yellow]Sending shutdown sequence to Field-Agents...[/yellow]"
-        )
-
         sequence_cmd = OrchestratorCommand(
             cmd=CommandType.SEQUENCE,
             sequence=[
@@ -480,6 +475,11 @@ class Runtime:
                 CommandType.FLUSH,
                 CommandType.SHUTDOWN,
             ],
+        )
+
+        # Announce shutdown wait before sending sequence to avoid confusing ordering.
+        self.console.print(
+            "[yellow]Waiting for Field-Agent processes to exit...[/yellow]"
         )
 
         agents_in_shutdown = set(self.agent_manager.agents.keys())
@@ -700,9 +700,6 @@ class Runtime:
                 )
 
         # Agents should have shut down by now; wait for processes to exit
-        self.console.print(
-            "[yellow]Waiting for Field-Agent processes to exit...[/yellow]"
-        )
         handles = self.agent_manager.shutdown_all()
 
         # Drain any remaining messages produced during shutdown (short period)

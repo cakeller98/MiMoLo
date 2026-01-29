@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -29,8 +30,10 @@ class BaseFieldAgent(ABC):
         min_app_version: str,
         capabilities: list[str] | None = None,
     ) -> None:
-        self.agent_id = agent_id
-        self.agent_label = agent_label
+        env_label = os.getenv("MIMOLO_AGENT_LABEL")
+        env_id = os.getenv("MIMOLO_AGENT_ID")
+        self.agent_id = env_id or agent_id
+        self.agent_label = env_label or agent_label
         self.sample_interval = sample_interval
         self.heartbeat_interval = heartbeat_interval
         self.protocol_version = protocol_version
@@ -93,7 +96,7 @@ class BaseFieldAgent(ABC):
                         "protocol_version": self.protocol_version,
                         "agent_version": self.agent_version,
                         "data": {},
-                        "message": f"Invalid JSON command: {e}",
+                    "message": f"Invalid JSON command: {e}",
                     })
         except Exception as e:
             self.send_message(
@@ -169,6 +172,24 @@ class BaseFieldAgent(ABC):
         elif cmd_type == "start":
             self.sampling_enabled = True
         elif cmd_type == "shutdown":
+            self.send_message(
+                {
+                    "type": "log",
+                    "timestamp": now.isoformat(),
+                    "agent_id": self.agent_id,
+                    "agent_label": self.agent_label,
+                    "protocol_version": self.protocol_version,
+                    "agent_version": self.agent_version,
+                    "level": "info",
+                    "message": (
+                        f"Shutting down (label={self.agent_label}, "
+                        f"id={self.agent_id}, pid={os.getpid()})"
+                    ),
+                    "markup": False,
+                    "data": {},
+                    "extra": {},
+                }
+            )
             self.running = False
             self.shutdown_event.set()
         elif cmd_type == "status":

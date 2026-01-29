@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
-import tempfile
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -14,6 +13,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
+from mimolo.common.paths import get_mimolo_data_dir
 from mimolo.core.protocol import (
     AgentMessage,
     OrchestratorCommand,
@@ -105,7 +105,10 @@ class AgentHandle:
             self.process.stdin.flush()
             return True
         except Exception as e:
-            logger.error(f"[{self.label}] Command send error: {e}")
+            pid = self.process.pid
+            logger.error(
+                f"Agent {self.label} (pid={pid}) command send error: {e}"
+            )
             return False
 
     def read_message(self, timeout: float = 0.001) -> AgentMessage | None:
@@ -127,8 +130,9 @@ class AgentHandle:
         # can capture any final JSON lines the agent writes on shutdown.
         ok = self.send_command(OrchestratorCommand(cmd=CommandType.SHUTDOWN))
         if not ok:
+            pid = self.process.pid
             logger.warning(
-                f"[{self.label}] Failed to send shutdown command (stdin closed?)"
+                f"Agent {self.label} (pid={pid}) failed to send shutdown command (stdin closed?)"
             )
 
         # Wait up to 3 seconds for clean exit while the reader thread
@@ -216,7 +220,10 @@ class AgentProcessManager:
         else:
             popen_kwargs["start_new_session"] = True
 
-        proc = subprocess.Popen(cmd, **popen_kwargs)
+        env = os.environ.copy()
+        env["MIMOLO_AGENT_LABEL"] = label
+        env["MIMOLO_AGENT_ID"] = f"{label}-{uuid.uuid4().hex[:8]}"
+        proc = subprocess.Popen(cmd, env=env, **popen_kwargs)
 
         # Create handle and start reader
         handle = AgentHandle(label=label, process=proc, config=plugin_config)
@@ -234,10 +241,9 @@ class AgentProcessManager:
         stderr_log_path = None
         if launch_sep:
             # Prepare a temp log file for tailing
-            tmp = (
-                Path(tempfile.gettempdir())
-                / f"mimolo_agent_{label}_{uuid.uuid4().hex[:8]}.log"
-            )
+            logs_dir = get_mimolo_data_dir() / "logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
+            tmp = logs_dir / f"mimolo_agent_{label}_{uuid.uuid4().hex[:8]}.log"
             stderr_log_path = str(tmp)
             # Create the log file immediately so PowerShell can tail it
             try:
@@ -299,7 +305,8 @@ class AgentProcessManager:
         """
         handles = list(self.agents.values())
         for handle in handles:
-            handle.shutdown()
+            if handle.is_alive():
+                handle.shutdown()
 
         # Do not clear `self.agents` here — let the caller decide when to
         # discard handles after draining any outstanding messages.
