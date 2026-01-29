@@ -223,6 +223,7 @@ class AgentProcessManager:
         env = os.environ.copy()
         env["MIMOLO_AGENT_LABEL"] = label
         env["MIMOLO_AGENT_ID"] = f"{label}-{uuid.uuid4().hex[:8]}"
+        env["MIMOLO_DATA_DIR"] = str(get_mimolo_data_dir())
         proc = subprocess.Popen(cmd, env=env, **popen_kwargs)
 
         # Create handle and start reader

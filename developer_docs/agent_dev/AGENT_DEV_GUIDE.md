@@ -39,6 +39,11 @@ They may be written in Python, Node.js, Go, Rust — any language — as long as
 - Never block indefinitely  
 - Respect global resource limits (`main_system_max_cpu_per_plugin`)  
 
+The orchestrator provides common runtime context via environment variables:
+- `MIMOLO_AGENT_LABEL` — registered label from the config (TOML key)
+- `MIMOLO_AGENT_ID` — per-instance unique id
+- `MIMOLO_DATA_DIR` — OS-appropriate MiMoLo data root
+
 ### 2.2 Lifecycle
 Each agent runs **three cooperative loops**:
 
