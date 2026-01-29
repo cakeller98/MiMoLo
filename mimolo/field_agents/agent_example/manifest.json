@@ -1,7 +1,7 @@
 {
   "plugin_id": "agent_example",
   "name": "Agent Example",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "entry": "files/agent_example.py",
   "params": []
 }

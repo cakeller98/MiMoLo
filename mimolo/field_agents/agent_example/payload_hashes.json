@@ -1,5 +1,7 @@
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "hash_algo": "sha256",
-  "files": {}
+  "files": {
+    "files/agent_example.py": "ee0738b8705a6caab987a5ea62e5f42659506777337f0ed736861d2e4536f445"
+  }
 }
