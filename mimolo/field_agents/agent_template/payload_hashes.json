@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0",
+  "version": "4.2.0-alpha.2",
   "hash_algo": "sha256",
   "files": {
     "files/agent_template.py": "d448a314ea49f54b6a76deb901ab446123166f5b3ec1429fa2d367dd8525d03b"

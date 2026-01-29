@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "archiver": "^7.0.1",
+    "semver": "^7.6.3",
     "toml": "^3.0.0"
   }
 }

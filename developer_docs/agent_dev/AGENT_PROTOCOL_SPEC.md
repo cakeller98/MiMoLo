@@ -288,3 +288,13 @@ The **MiMoLo-LSP-lite Protocol v0.3** provides:
 
 This schema is the authoritative reference for all Field-Agent implementations.
 
+## Plugin UUID Migration Rule (Future)
+
+If `plugin_uuid` is introduced later, older logs will not be rewritten.
+Instead, the orchestrator/dashboard will apply this mapping at read time:
+
+- Maintain a persistent mapping: `plugin_id -> plugin_uuid`
+- If a log entry is missing `plugin_uuid`, inject from the mapping
+- If no mapping exists for the `plugin_id`, generate a UUID once and persist it
+
+This keeps old logs compatible while ensuring stable UUIDs going forward.

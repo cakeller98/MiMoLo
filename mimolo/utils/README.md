@@ -32,6 +32,35 @@ npm install
 npm run release-pack-agent:tsx -- --source <agent_dir> [--out <out_dir>]
 ```
 
+### Version bump flags
+
+Release flags (mutually exclusive):
+- `--major`
+- `--minor`
+- `--patch`
+
+Prerelease flags (mutually exclusive):
+- `--alpha`
+- `--beta`
+- `--rc`
+
+You may combine one release flag with one prerelease flag.
+
+Alpha/beta follow semver prerelease rules. Example:
+- `0.4.0-alpha.2` + `--alpha` -> `0.4.0-alpha.3`
+- `0.4.0-alpha.3` + `--beta` -> `0.4.0-beta.0`
+- `0.4.0-beta.0` + `--alpha` -> `0.4.0-alpha.0`
+
+RC example:
+- `1.2.3-beta.2` + `--rc` -> `1.2.3-rc.0`
+
+Combined example:
+- `2.5.0` + `--major --rc` -> `3.0.0-rc.0`
+
+Note:
+- Combined release + prerelease uses semver premajor/preminor/prepatch rules, so
+  `1.0.1-beta.0` + `--major --beta` -> `2.0.0-beta.0`.
+
 ### build-manifest.toml (required)
 
 ```toml
