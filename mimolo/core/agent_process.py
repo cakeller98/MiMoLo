@@ -169,21 +169,18 @@ class AgentProcessManager:
         Returns:
             AgentHandle for managing the subprocess
         """
-        # Resolve agent script path - only allow from user_plugins or plugins directories
+        # Resolve agent script path - only allow from field_agents directory
         args_with_resolved_path: list[str] = []
         for arg in plugin_config.args:
             if arg.endswith(".py"):
-                # Try user_plugins first, then plugins
-                user_path = Path(__file__).parent.parent / "user_plugins" / arg
-                plugins_path = Path(__file__).parent.parent / "plugins" / arg
+                # Resolve within field_agents
+                field_agents_path = Path(__file__).parent.parent / "field_agents" / arg
 
-                if user_path.exists():
-                    args_with_resolved_path.append(str(user_path.resolve()))
-                elif plugins_path.exists():
-                    args_with_resolved_path.append(str(plugins_path.resolve()))
+                if field_agents_path.exists():
+                    args_with_resolved_path.append(str(field_agents_path.resolve()))
                 else:
                     raise FileNotFoundError(
-                        f"Field-Agent script not found: {arg} (searched user_plugins and plugins)"
+                        f"Field-Agent script not found: {arg} (searched field_agents)"
                     )
             else:
                 args_with_resolved_path.append(arg)

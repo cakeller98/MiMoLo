@@ -81,7 +81,7 @@ Successfully implemented a comprehensive IPC-based logging infrastructure for Mi
 - Ensures all orchestrator-internal logs use configured verbosity
 
 ### ✅ Phase 8: Agent Template Refactor
-**Files Modified:** `mimolo/user_plugins/agent_template.py`
+**Files Modified:** `mimolo/field_agents/agent_template.py`
 
 - Added `AgentLogger` integration
 - Refactored `_debug_log()` to use IPC logger instead of stderr console
@@ -91,7 +91,7 @@ Successfully implemented a comprehensive IPC-based logging infrastructure for Mi
 - Maintained backward compatibility with existing template examples
 
 ### ✅ Phase 9: Agent Example Updates
-**Files Modified:** `mimolo/user_plugins/agent_example.py`
+**Files Modified:** `mimolo/field_agents/agent_example.py`
 
 - Added `AgentLogger` for error reporting
 - Replaced stderr print (line 88) with `logger.error()`
@@ -184,8 +184,8 @@ logger.info("Batch processed", count=100, duration=1.23, status="success")
 3. `mimolo/core/agent_process.py` (+5 lines)
 4. `mimolo/core/sink.py` (+20 lines)
 5. `mimolo/cli.py` (+3 lines)
-6. `mimolo/user_plugins/agent_template.py` (~80 line changes)
-7. `mimolo/user_plugins/agent_example.py` (+10 lines)
+6. `mimolo/field_agents/agent_template.py` (~80 line changes)
+7. `mimolo/field_agents/agent_example.py` (+10 lines)
 
 ### Test Files (2)
 1. `tests/test_logging_integration.py` (pytest tests)

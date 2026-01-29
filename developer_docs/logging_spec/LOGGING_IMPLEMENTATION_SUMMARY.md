@@ -15,8 +15,8 @@ mimolo/core/runtime.py - Log handler + Unicode safety
 mimolo/core/agent_process.py - Logging + PowerShell fixes
 mimolo/core/sink.py - Fixed verbosity bug
 mimolo/cli.py - Initialize logging
-mimolo/user_plugins/agent_template.py - Use AgentLogger
-mimolo/user_plugins/agent_example.py - Minimal logging
+mimolo/field_agents/agent_template.py - Use AgentLogger
+mimolo/field_agents/agent_example.py - Minimal logging
 mimolo/core/runtime.py - Unicode preprocessing
 Critical Fixes Applied
 ✅ Poetry Environment - Agents now run with poetry run python to access dependencies

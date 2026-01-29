@@ -332,19 +332,19 @@ class AgentProcessManager:
 
 ---
 
-### Step 2.3: Discover and Load user_plugins (`core/registry.py`)
+### Step 2.3: Discover and Load field_agents (`core/registry.py`)
 **Status:** Extend existing plugin discovery
 
 **Add to `PluginRegistry`:**
 ```python
-def discover_user_plugins(self, user_plugins_dir: Path) -> None:
-    """Discover Field-Agent plugins in user_plugins directory.
+def discover_field_agents(self, field_agents_dir: Path) -> None:
+    """Discover Field-Agent plugins in field_agents directory.
     
     Args:
-        user_plugins_dir: Path to user_plugins directory
+        field_agents_dir: Path to field_agents directory
     """
     # Scan for agent_*.py files
-    for agent_file in user_plugins_dir.glob("agent_*.py"):
+    for agent_file in field_agents_dir.glob("agent_*.py"):
         if agent_file.name.startswith("agent_"):
             # Extract label from filename: agent_folderwatch.py → folderwatch
             label = agent_file.stem.replace("agent_", "")
@@ -361,7 +361,7 @@ def discover_user_plugins(self, user_plugins_dir: Path) -> None:
 ## Phase 3: First Field-Agent Plugins (Days 8-12)
 **Goal:** Create three working Field-Agent examples
 
-### Step 3.1: Create BaseFieldAgent Template (`user_plugins/base_agent.py`)
+### Step 3.1: Create BaseFieldAgent Template (`field_agents/base_agent.py`)
 
 ```python
 """Base class for Field-Agent plugins."""
@@ -552,7 +552,7 @@ class BaseFieldAgent(ABC):
 
 ---
 
-### Step 3.2: Port FolderWatch to Field-Agent (`user_plugins/agent_folderwatch.py`)
+### Step 3.2: Port FolderWatch to Field-Agent (`field_agents/agent_folderwatch.py`)
 
 ```python
 #!/usr/bin/env python
@@ -564,7 +564,7 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mimolo.user_plugins.base_agent import BaseFieldAgent
+from mimolo.field_agents.base_agent import BaseFieldAgent
 
 
 class FolderWatchAgent(BaseFieldAgent):
@@ -657,7 +657,7 @@ journal_dir = "./journals"
 enabled = true
 plugin_type = "field_agent"
 executable = "python"
-args = ["-m", "mimolo.user_plugins.agent_folderwatch", "--watch-dirs", "/projects"]
+args = ["-m", "mimolo.field_agents.agent_folderwatch", "--watch-dirs", "/projects"]
 ```
 
 ---
@@ -665,7 +665,7 @@ args = ["-m", "mimolo.user_plugins.agent_folderwatch", "--watch-dirs", "/project
 ## Success Criteria for Phase 1-3:
 
 - [ ] `mimolo monitor` starts successfully
-- [ ] Field-Agent plugins in `mimolo/user_plugins/` spawn as subprocesses
+- [ ] Field-Agent plugins in `mimolo/field_agents/` spawn as subprocesses
 - [ ] Summaries and logs appear in sinks
 - [ ] Shutdown is clean for all Field-Agent plugins
 

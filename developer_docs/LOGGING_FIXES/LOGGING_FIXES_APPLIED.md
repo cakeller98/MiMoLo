@@ -64,7 +64,7 @@ except (UnicodeEncodeError, AttributeError):
     message_text = message_text.encode('ascii', errors='replace').decode('ascii')
 ```
 
-**Additional Fix:** [agent_template.py](mimolo/user_plugins/agent_template.py#L196)
+**Additional Fix:** [agent_template.py](mimolo/field_agents/agent_template.py#L196)
 ```python
 # BEFORE
 msg = f"[{style}]━━━ {title} ━━━[/{style}]\n{content_str}"
@@ -175,7 +175,7 @@ except Exception:
 |-------|---------------|---------------|--------|
 | Poetry environment | [mimolo.toml](mimolo.toml#L31) | 2 | ✅ Fixed |
 | Unicode encoding | [runtime.py](mimolo/core/runtime.py#L494) | 7 | ✅ Fixed |
-| ASCII characters | [agent_template.py](mimolo/user_plugins/agent_template.py#L196) | 1 | ✅ Fixed |
+| ASCII characters | [agent_template.py](mimolo/field_agents/agent_template.py#L196) | 1 | ✅ Fixed |
 | PowerShell syntax | [agent_process.py](mimolo/core/agent_process.py#L253) | 1 | ✅ Fixed |
 | PowerShell version | [agent_process.py](mimolo/core/agent_process.py#L242) | 28 | ✅ Fixed |
 | Log file race | [agent_process.py](mimolo/core/agent_process.py#L201) | 7 | ✅ Fixed |

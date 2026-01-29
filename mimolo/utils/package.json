@@ -1,0 +1,23 @@
+{
+  "name": "mimolo-utils",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "engines": {
+    "node": "24.11.1"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "release-pack-agent": "node dist/release-pack-agent.js",
+    "release-pack-agent:tsx": "tsx src/release-pack-agent.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "tsx": "^4.19.2"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "toml": "^3.0.0"
+  }
+}
