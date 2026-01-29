@@ -80,6 +80,12 @@ Agent → {"type":"summary","data":{start:"...",end:"...",items:[...]}}
 Orchestrator → Writes to file immediately
 ```
 
+### Sequence Flow (Ordered Commands)
+```
+Orchestrator → {"cmd":"sequence","sequence":["stop","flush","shutdown"]}
+Agent → ACK(stop) → summary → ACK(flush) → shutdown
+```
+
 ### Error Flow (As Needed)
 ```
 Agent → {"type":"error","message":"..."}
@@ -117,7 +123,7 @@ Every tick (~100ms):
    - Write summaries directly to file
 
 ### Shutdown
-1. Send `shutdown` commands to all Field-Agents
+1. Send `sequence` commands to all Field-Agents (stop → flush → shutdown)
 2. Wait for agent processes to exit
 3. Flush and close file sinks
 

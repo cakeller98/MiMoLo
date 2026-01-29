@@ -66,6 +66,8 @@ Agent     → {"type": "heartbeat", "timestamp": "..."}
 | `error`     | Recoverable agent-side failure  | `{"type":"error","message":"permission denied"}`       |
 
 Agents must emit at least one `heartbeat` every `heartbeat_interval` seconds.
+Agents must also handle `sequence` commands (stop → flush → shutdown), and send ACKs
+for `stop` and `flush` while emitting a summary on flush.
 
 ### 2.4 Freedom of Implementation
 Beyond those basics, you’re free to be creative.  
@@ -131,7 +133,8 @@ The collector aggregates these and can classify agents as *slowpoke*, *degraded*
 - Use stdin/stdout JSON lines.  
 - Send periodic heartbeats.  
 - Respect resource budgets.  
-- Handle `flush`, `status`, `shutdown` commands.  
+- Handle `flush`, `status`, `shutdown`, and `sequence` commands.  
+- ACK `stop` and `flush` during shutdown sequences.  
 - Exit cleanly on shutdown.  
 
 ✅ You *may*  

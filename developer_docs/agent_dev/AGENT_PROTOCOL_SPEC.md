@@ -156,7 +156,7 @@ Commands from the collector are simple one-object JSON messages.
 
 | Field  | Type              | Description                                                    |
 | ------ | ----------------- | -------------------------------------------------------------- |
-| `cmd`  | string            | Command verb (`flush`, `status`, `shutdown`, `ack`, `reject`). |
+| `cmd`  | string            | Command verb (`flush`, `stop`, `shutdown`, `status`, `sequence`, `ack`, `reject`). |
 | `args` | object (optional) | Additional command parameters.                                 |
 | `id`   | string (optional) | For correlation if acknowledgments are used.                   |
 
@@ -164,11 +164,15 @@ Commands from the collector are simple one-object JSON messages.
 
 ```json
 {"cmd":"flush"}
+{"cmd":"stop"}
 {"cmd":"shutdown"}
 {"cmd":"status"}
+{"cmd":"sequence","sequence":["stop","flush","shutdown"]}
 ```
 
 Agents must respond to `flush` by emitting a `summary` message, and must exit gracefully on `shutdown`.
+Agents must honor `sequence` commands by executing the listed commands in-order.
+When `stop` or `flush` appears in a sequence, agents must ACK those commands in-order.
 
 ---
 

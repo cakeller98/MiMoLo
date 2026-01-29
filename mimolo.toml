@@ -2,35 +2,45 @@
 # See docs for full configuration reference
 
 [monitor]
-# Cooldown duration in seconds - segment closes after this period with no resetting events
-cooldown_seconds = 600
+  # Cooldown duration in seconds - segment closes after this period with no resetting events
+  cooldown_seconds = 600
 
-# Polling tick interval in milliseconds
-poll_tick_ms = 200
+  # Polling tick interval in milliseconds
+  poll_tick_ms = 200
 
-# Directory for log files (will be created if doesn't exist)
-log_dir = "./logs"
+  # Directory for log files (will be created if doesn't exist)
+  log_dir = "./logs"
 
-# Log output format: jsonl (default), yaml, or md
-log_format = "jsonl"
+  # Log output format: jsonl (default), yaml, or md
+  log_format = "jsonl"
 
-# Console verbosity: debug, info, warning, error
-console_verbosity = "debug"
+  # Console verbosity: debug, info, warning, error
+  console_verbosity = "debug"
 
 # Field-Agent Configuration
 [plugins.agent_template]
-enabled = true
-plugin_type = "field_agent"
-executable = "poetry"
-args = ["run", "python", "agent_template/agent_template.py"]
-heartbeat_interval_s = 15.0
-agent_flush_interval_s = 300.0
-launch_in_separate_terminal = true
+  enabled = true
+  plugin_type = "field_agent"
+  executable = "poetry"
+  args = ["run", "python", "agent_template/agent_template.py"]
+  heartbeat_interval_s = 15.0
+  agent_flush_interval_s = 300.0
+  launch_in_separate_terminal = true
 
 [plugins.agent_example]
-enabled = false
-plugin_type = "field_agent"
-executable = "poetry"
-args = ["run", "python", "agent_example/agent_example.py"]
-heartbeat_interval_s = 15.0
-agent_flush_interval_s = 300.0
+  enabled = true
+  plugin_type = "field_agent"
+  executable = "poetry"
+  args = ["run", "python", "agent_example/agent_example.py"]
+  heartbeat_interval_s = 5.0
+  agent_flush_interval_s = 30.0
+  launch_in_separate_terminal = true
+
+[plugins.scheming_agent]
+  enabled = true
+  plugin_type = "field_agent"
+  executable = "poetry"
+  args = ["run", "python", "agent_template/agent_template.py"]
+  heartbeat_interval_s = 15.0
+  agent_flush_interval_s = 300.0
+  launch_in_separate_terminal = true

@@ -196,14 +196,21 @@ class AgentProcessManager:
         # Spawn process. We capture stderr so we can forward it (with a
         # prefix) into the orchestrator console and optionally mirror it
         # into a separate terminal window for debugging.
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,  # Line buffered
-        )
+        popen_kwargs: dict[str, Any] = {
+            "stdin": subprocess.PIPE,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "bufsize": 1,  # Line buffered
+        }
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = (
+                subprocess.CREATE_NEW_PROCESS_GROUP
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
+
+        proc = subprocess.Popen(cmd, **popen_kwargs)
 
         # Create handle and start reader
         handle = AgentHandle(label=label, process=proc, config=plugin_config)
@@ -243,7 +250,7 @@ class AgentProcessManager:
                 for raw in p.stderr:
                     # Ensure we keep the original newlines.
                     line = raw.rstrip("\n")
-                    logger.info(f"[{lbl}][ERR] {line}")
+                    logger.info(f"[{lbl}][STD_ERR] {line}")
                     if log_path:
                         try:
                             with open(

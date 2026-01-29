@@ -63,14 +63,12 @@ Architecture:
 from __future__ import annotations
 
 import json
-import sys
 import threading
 import time
 
 # Standard library imports (alphabetical within group)
 from collections import Counter
 from datetime import UTC, datetime
-from queue import Empty, Queue
 from typing import Any
 
 import typer
@@ -82,6 +80,7 @@ from rich.syntax import Syntax
 
 # Import AgentLogger for IPC-based logging
 from mimolo.core.agent_logging import AgentLogger
+from mimolo.field_agents.base_agent import BaseFieldAgent
 
 # =============================================================================
 # CUSTOMIZE THESE VALUES FOR YOUR AGENT
@@ -101,7 +100,7 @@ DEBUG_MODE = True  # Shows rich debugging output to stderr
 # =============================================================================
 
 
-class FieldAgentTemplate:
+class FieldAgentTemplate(BaseFieldAgent):
     """Template Field-Agent with full 3-thread architecture and debugging."""
 
     def __init__(
@@ -124,8 +123,15 @@ class FieldAgentTemplate:
         """
         self.agent_id = agent_id
         self.agent_label = agent_label
-        self.sample_interval = sample_interval
-        self.heartbeat_interval = heartbeat_interval
+        super().__init__(
+            agent_id=agent_id,
+            agent_label=agent_label,
+            sample_interval=sample_interval,
+            heartbeat_interval=heartbeat_interval,
+            protocol_version=PROTOCOL_VERSION,
+            agent_version=AGENT_VERSION,
+            min_app_version=MIN_APP_VERSION,
+        )
 
         # TODO: Store your custom parameters
         # self.example_param = example_param
@@ -134,18 +140,6 @@ class FieldAgentTemplate:
         self.data_accumulator: list[dict[str, Any]] = []
         self.segment_start: datetime | None = None
         self.data_lock = threading.Lock()
-
-        # Command queue for flush/shutdown/status
-        self.command_queue: Queue[dict[str, Any]] = Queue()
-
-        # Flush queue for summarizer
-        self.flush_queue: Queue[tuple[datetime, datetime, list[Any]]] = Queue()
-
-        # Control flags
-        self.running = True
-        self.shutdown_event = threading.Event()
-        # Sampling enable/disable (controlled by START/STOP commands)
-        self.sampling_enabled = True
 
         # IPC-based logger (sends log packets to orchestrator)
         self.logger = AgentLogger(
@@ -202,11 +196,7 @@ class FieldAgentTemplate:
             self.logger.debug(msg)
 
     def send_message(self, msg: dict[str, Any]) -> None:
-        """Write a JSON message to stdout.
-
-        Args:
-            msg: Message dictionary to serialize
-        """
+        """Write a JSON message to stdout."""
         try:
             json_str = json.dumps(msg)
             print(json_str, flush=True)
@@ -219,353 +209,7 @@ class FieldAgentTemplate:
 
         except Exception as e:
             error_msg = {"type": "error", "message": f"Failed to send message: {e}"}
-            print(json.dumps(error_msg), file=sys.stderr, flush=True)
-
-    def command_listener(self) -> None:
-        """Read commands from stdin (blocking thread)."""
-        self._debug_log("🎧 Command listener thread started", "magenta")
-
-        try:
-            while not self.shutdown_event.is_set():
-                try:
-                    line = sys.stdin.readline()
-                    if not line:  # EOF
-                        self._debug_log("📭 stdin closed (EOF)", "yellow")
-                        break
-
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    cmd = json.loads(line)
-                    cmd_type = cmd.get("cmd", "unknown")
-
-                    # Debug: show received command
-                    if self.debug:
-                        syntax = Syntax(json.dumps(cmd, indent=2), "json", theme="monokai")
-                        self._debug_panel(syntax, f"📥 Received command: {cmd_type}", "yellow")
-
-                    self.command_queue.put(cmd)
-
-                except json.JSONDecodeError as e:
-                    self._debug_log(f"❌ Invalid JSON: {e}", "red")
-                    self.send_message({
-                        "type": "error",
-                        "timestamp": datetime.now(UTC).isoformat(),
-                        "agent_id": self.agent_id,
-                        "agent_label": self.agent_label,
-                        "protocol_version": PROTOCOL_VERSION,
-                        "agent_version": AGENT_VERSION,
-                        "data": {},
-                        "message": f"Invalid JSON command: {e}",
-                    })
-                except EOFError:
-                    self._debug_log("📭 stdin EOF", "yellow")
-                    break
-        except Exception as e:
-            self._debug_log(f"❌ Command listener error: {e}", "red")
-        finally:
-            self._debug_log("🛑 Command listener shutting down", "magenta")
-            self.shutdown_event.set()
-            self.running = False
-
-    def worker_loop(self) -> None:
-        """Main work loop: sample/monitor continuously and accumulate data."""
-        self._debug_log("⚙️  Worker thread started", "blue")
-
-        last_heartbeat = time.time()
-        last_sample = time.time()
-        sample_count = 0
-
-        while self.running and not self.shutdown_event.is_set():
-            now = datetime.now(UTC)
-
-            # Only sample when enabled AND interval elapsed
-            if (
-                self.sampling_enabled
-                and (time.time() - last_sample) >= self.sample_interval
-            ):
-                # Initialize segment start if needed and perform sampling
-                with self.data_lock:
-                    if self.segment_start is None:
-                        self.segment_start = now
-                        self._debug_log(
-                            f"📅 Segment started at {now.isoformat()}", "cyan"
-                        )
-
-                    # =========================================================
-                    # TODO: IMPLEMENT YOUR MONITORING LOGIC HERE
-                    # =========================================================
-                    # Example: Sample something and accumulate
-                    sample_count += 1
-                    sample_data: dict[str, Any] = {
-                        "timestamp": now.isoformat(),
-                        "sample_id": sample_count,
-                        "value": f"sample_{sample_count}",
-                        # TODO: Add your actual sampled data
-                    }
-                    self.data_accumulator.append(sample_data)
-
-                    self._debug_log(
-                        f"📊 Sample #{sample_count} accumulated (total: {len(self.data_accumulator)})",
-                        "cyan",
-                    )
-                    # =========================================================
-
-                last_sample = time.time()
-            else:
-                # Optional: minimal debug signal while paused
-                if not self.sampling_enabled:
-                    self._debug_log(
-                        "⏸️  Sampling paused (STOP active)", "yellow"
-                    )
-
-            # Send heartbeat if interval elapsed
-            if time.time() - last_heartbeat >= self.heartbeat_interval:
-                with self.data_lock:
-                    accumulated_count = len(self.data_accumulator)
-
-                self.send_message({
-                    "type": "heartbeat",
-                    "timestamp": now.isoformat(),
-                    "agent_id": self.agent_id,
-                    "agent_label": self.agent_label,
-                    "protocol_version": PROTOCOL_VERSION,
-                    "agent_version": AGENT_VERSION,
-                    "data": {},
-                    "metrics": {
-                        "queue": self.flush_queue.qsize(),
-                        "accumulated_count": accumulated_count,
-                        "sample_count": sample_count,
-                    },
-                })
-                last_heartbeat = time.time()
-
-            # Drain and handle all pending commands (non-blocking)
-            while True:
-                try:
-                    cmd = self.command_queue.get_nowait()
-                except Empty:
-                    break
-
-                cmd_type = cmd.get("cmd", "").lower()
-
-                if cmd_type == "sequence":
-                    sequence_raw = cmd.get("sequence", [])
-                    sequence: list[str] = [
-                        s.lower() if isinstance(s, str) else str(s).lower()
-                        for s in sequence_raw
-                    ]
-                    self._debug_log(
-                        f"🔗 SEQUENCE command received: {sequence}", "magenta"
-                    )
-
-                    # Expected order: stop -> flush -> shutdown (others ignored)
-                    # 1. STOP (pause sampling, send ACK inline)
-                    if "stop" in sequence:
-                        self._handle_single_command("stop", now, sample_count)
-
-                    # 2. FLUSH (synchronous: build & emit summary BEFORE ACK)
-                    if "flush" in sequence:
-                        with self.data_lock:
-                            snapshot = self.data_accumulator.copy()
-                            snapshot_start = self.segment_start or now
-                            snapshot_end = datetime.now(UTC)
-                            self.data_accumulator.clear()
-                            self.segment_start = snapshot_end
-                        self._debug_log(
-                            f"📸 (SEQ) Snapshot: {len(snapshot)} items from {snapshot_start.isoformat()} to {snapshot_end.isoformat()}",
-                            "green",
-                        )
-                        summary_data = self._format_summary_data(
-                            snapshot, snapshot_start, snapshot_end
-                        )
-                        # Emit summary first
-                        self.send_message(
-                            {
-                                "type": "summary",
-                                "timestamp": snapshot_end.isoformat(),
-                                "agent_id": self.agent_id,
-                                "agent_label": self.agent_label,
-                                "protocol_version": PROTOCOL_VERSION,
-                                "agent_version": AGENT_VERSION,
-                                "data": summary_data,
-                            }
-                        )
-                        # Then ACK(flush)
-                        self.send_message(
-                            {
-                                "type": "ack",
-                                "timestamp": snapshot_end.isoformat(),
-                                "agent_id": self.agent_id,
-                                "agent_label": self.agent_label,
-                                "protocol_version": PROTOCOL_VERSION,
-                                "agent_version": AGENT_VERSION,
-                                "ack_command": "flush",
-                                "message": f"Flushed {len(snapshot)} samples (sync)",
-                                "data": {},
-                                "metrics": {
-                                    "flushed_count": len(snapshot),
-                                    "queue": self.flush_queue.qsize(),
-                                },
-                            }
-                        )
-
-                    # 3. SHUTDOWN (after summary already emitted)
-                    if "shutdown" in sequence:
-                        self._handle_single_command(
-                            "shutdown", datetime.now(UTC), sample_count
-                        )
-                else:
-                    # Handle single command
-                    self._handle_single_command(cmd_type, now, sample_count)
-
-            # Sleep briefly to avoid busy-wait but allow responsive command handling
-            # Use shorter interval (100ms) instead of full sample_interval for faster
-            # response to STOP/FLUSH/SHUTDOWN commands
-            time.sleep(0.1)
-
-        self._debug_log("🛑 Worker thread shutting down", "blue")
-
-    def _handle_single_command(
-        self, cmd_type: str, now: datetime, sample_count: int
-    ) -> None:
-        """Handle a single command from orchestrator.
-
-        Args:
-            cmd_type: Command type string (lowercase)
-            now: Current timestamp
-            sample_count: Current sample count
-        """
-        if cmd_type == "flush":
-            self._debug_log(
-                "💾 FLUSH command received - taking snapshot", "yellow"
-            )
-
-            # Take snapshot and reset accumulator
-            with self.data_lock:
-                snapshot = self.data_accumulator.copy()
-                snapshot_start = self.segment_start or now
-                snapshot_end = now
-
-                # Reset for next segment
-                self.data_accumulator.clear()
-                self.segment_start = now
-
-            self._debug_log(
-                f"📸 Snapshot taken: {len(snapshot)} items from {snapshot_start.isoformat()} "
-                f"to {snapshot_end.isoformat()}",
-                "green",
-            )
-
-            # Queue for summarizer
-            self.flush_queue.put((snapshot_start, snapshot_end, snapshot))
-
-            # Send ACK for flush
-            with self.data_lock:
-                accumulated_count = len(self.data_accumulator)
-            self.send_message(
-                {
-                    "type": "ack",
-                    "timestamp": now.isoformat(),
-                    "agent_id": self.agent_id,
-                    "agent_label": self.agent_label,
-                    "protocol_version": PROTOCOL_VERSION,
-                    "agent_version": AGENT_VERSION,
-                    "ack_command": "flush",
-                    "message": f"Flushed {len(snapshot)} samples",
-                    "data": {},
-                    "metrics": {
-                        "flushed_count": len(snapshot),
-                        "queue": self.flush_queue.qsize(),
-                    },
-                }
-            )
-
-        elif cmd_type == "shutdown":
-            self._debug_log("🛑 SHUTDOWN command received", "red")
-
-            # Wait briefly for any pending summaries to be sent
-            # (especially important when SHUTDOWN follows FLUSH in a SEQUENCE)
-            if not self.flush_queue.empty():
-                self._debug_log(
-                    f"⏳ Waiting for {self.flush_queue.qsize()} pending summaries...",
-                    "yellow",
-                )
-                # Give summarizer up to 500ms to drain queue
-                deadline = time.time() + 0.5
-                while not self.flush_queue.empty() and time.time() < deadline:
-                    time.sleep(0.01)
-
-            self.running = False
-            self.shutdown_event.set()
-
-        elif cmd_type == "status":
-            self._debug_log("📊 STATUS command received", "yellow")
-            # TODO: Send status message if needed
-
-        elif cmd_type == "stop":
-            # Pause sampling without stopping threads
-            self._debug_log(
-                "⏸️  STOP command received - pausing sampling",
-                "magenta",
-            )
-            self.sampling_enabled = False
-
-            # Send ACK for stop
-            with self.data_lock:
-                accumulated_count = len(self.data_accumulator)
-            self.send_message(
-                {
-                    "type": "ack",
-                    "timestamp": now.isoformat(),
-                    "agent_id": self.agent_id,
-                    "agent_label": self.agent_label,
-                    "protocol_version": PROTOCOL_VERSION,
-                    "agent_version": AGENT_VERSION,
-                    "ack_command": "stop",
-                    "message": "Sampling stopped",
-                    "data": {},
-                    "metrics": {
-                        "queue": self.flush_queue.qsize(),
-                        "accumulated_count": accumulated_count,
-                        "sample_count": sample_count,
-                    },
-                }
-            )
-
-        elif cmd_type == "start":
-            # Resume sampling
-            self._debug_log(
-                "▶️  START command received - resuming sampling",
-                "magenta",
-            )
-            self.sampling_enabled = True
-            # Initialize segment start on resume if needed
-            if self.segment_start is None:
-                self.segment_start = now
-
-            # Send ACK for start
-            with self.data_lock:
-                accumulated_count = len(self.data_accumulator)
-            self.send_message(
-                {
-                    "type": "ack",
-                    "timestamp": now.isoformat(),
-                    "agent_id": self.agent_id,
-                    "agent_label": self.agent_label,
-                    "protocol_version": PROTOCOL_VERSION,
-                    "agent_version": AGENT_VERSION,
-                    "ack_command": "start",
-                    "message": "Sampling resumed",
-                    "data": {},
-                    "metrics": {
-                        "queue": self.flush_queue.qsize(),
-                        "accumulated_count": accumulated_count,
-                        "sample_count": sample_count,
-                    },
-                }
-            )
+            print(json.dumps(error_msg), flush=True)
 
     def _format_summary_data(
         self,
@@ -614,42 +258,52 @@ class FieldAgentTemplate:
         return summary_data
         # =================================================================
 
-    def summarizer(self) -> None:
-        """Package snapshots and emit summaries."""
-        self._debug_log("📦 Summarizer thread started", "green")
+    def _accumulate(self, now: datetime) -> None:
+        if self.segment_start is None:
+            self.segment_start = now
+            self._debug_log(f"📅 Segment started at {now.isoformat()}", "cyan")
 
-        while self.running or not self.flush_queue.empty():
-            try:
-                # Wait for flush data (blocking with timeout)
-                start, end, snapshot = self.flush_queue.get(timeout=1.0)
+        sample_id = len(self.data_accumulator) + 1
+        sample_data: dict[str, Any] = {
+            "timestamp": now.isoformat(),
+            "sample_id": sample_id,
+            "value": f"sample_{sample_id}",
+        }
+        self.data_accumulator.append(sample_data)
+        self._debug_log(
+            f"📊 Sample #{sample_id} accumulated (total: {len(self.data_accumulator)})",
+            "cyan",
+        )
 
-                self._debug_log(
-                    f"🔄 Summarizing {len(snapshot)} items...",
-                    "yellow"
-                )
+    def _take_snapshot(self, now: datetime) -> tuple[datetime, datetime, list[Any]]:
+        snapshot = self.data_accumulator.copy()
+        snapshot_start = self.segment_start or now
+        snapshot_end = now
+        self.data_accumulator.clear()
+        self.segment_start = snapshot_end
+        self._debug_log(
+            f"📸 Snapshot taken: {len(snapshot)} items from {snapshot_start.isoformat()} "
+            f"to {snapshot_end.isoformat()}",
+            "green",
+        )
+        return snapshot_start, snapshot_end, snapshot
 
-                # Format summary data
-                summary_data = self._format_summary_data(snapshot, start, end)
+    def _format_summary(
+        self, snapshot: list[dict[str, Any]], start: datetime, end: datetime
+    ) -> dict[str, Any]:
+        return self._format_summary_data(snapshot, start, end)
 
-                # Emit summary
-                self.send_message({
-                    "type": "summary",
-                    "timestamp": end.isoformat(),
-                    "agent_id": self.agent_id,
-                    "agent_label": self.agent_label,
-                    "protocol_version": PROTOCOL_VERSION,
-                    "agent_version": AGENT_VERSION,
-                    "data": summary_data,
-                })
+    def _accumulated_count(self) -> int:
+        return len(self.data_accumulator)
 
-            except Empty:
-                if not self.running:
-                    break
-
-        self._debug_log("🛑 Summarizer thread shutting down", "green")
+    def _heartbeat_metrics(self) -> dict[str, Any]:
+        return {
+            "queue": self.flush_queue.qsize(),
+            "accumulated_count": len(self.data_accumulator),
+            "sample_count": len(self.data_accumulator),
+        }
 
     def run(self) -> None:
-        """Main entry point - starts all threads and sends handshake."""
         if self.debug:
             self.debug.print(Panel.fit(
                 f"[bold cyan]{self.agent_label}[/bold cyan]\n"
@@ -662,40 +316,7 @@ class FieldAgentTemplate:
                 border_style="green"
             ))
 
-        # Send handshake
-        self.send_message({
-            "type": "handshake",
-            "timestamp": datetime.now(UTC).isoformat(),
-            "agent_id": self.agent_id,
-            "agent_label": self.agent_label,
-            "protocol_version": PROTOCOL_VERSION,
-            "agent_version": AGENT_VERSION,
-            "min_app_version": MIN_APP_VERSION,
-            "capabilities": ["summary", "heartbeat", "status", "error"],
-            "data": {},
-        })
-
-        # Start threads
-        listener_thread = threading.Thread(target=self.command_listener, daemon=True, name="CommandListener")
-        worker_thread = threading.Thread(target=self.worker_loop, daemon=False, name="Worker")
-        summarizer_thread = threading.Thread(target=self.summarizer, daemon=False, name="Summarizer")
-
-        listener_thread.start()
-        worker_thread.start()
-        summarizer_thread.start()
-
-        self._debug_log("🎯 All threads started", "green")
-
-        # Wait for shutdown (with timeout to allow Ctrl+C)
-        try:
-            while worker_thread.is_alive():
-                worker_thread.join(timeout=0.5)
-            while summarizer_thread.is_alive():
-                summarizer_thread.join(timeout=0.5)
-        except KeyboardInterrupt:
-            self._debug_log("⚠️  KeyboardInterrupt - shutting down", "yellow")
-            self.running = False
-            self.shutdown_event.set()
+        super().run()
 
         if self.debug:
             self.debug.print(Panel.fit(
