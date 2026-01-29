@@ -268,66 +268,6 @@ class AgentProcessManager:
         handle._stderr_thread = _stderr_thread
         handle.stderr_log = stderr_log_path
 
-        # If requested, open a separate terminal that tails the log file
-        if launch_sep and stderr_log_path:
-            try:
-                if os.name == "nt":
-                    # Use PowerShell 7+ (pwsh) to tail the file and keep the window open
-                    # Falls back to Windows PowerShell 5.1 (powershell) if pwsh not available
-                    try:
-                        # Try pwsh first (PowerShell 7+)
-                        tail_cmd = [
-                            "cmd",
-                            "/c",
-                            "start",
-                            "",
-                            "pwsh",
-                            "-NoProfile",
-                            "-NoExit",
-                            "-Command",
-                            f"Get-Content -Path '{stderr_log_path}' -Wait",
-                        ]
-                        subprocess.Popen(tail_cmd)
-                    except FileNotFoundError:
-                        # Fallback to Windows PowerShell 5.1
-                        tail_cmd = [
-                            "cmd",
-                            "/c",
-                            "start",
-                            "",
-                            "powershell",
-                            "-NoProfile",
-                            "-NoExit",
-                            "-Command",
-                            f"Get-Content -Path '{stderr_log_path}' -Wait",
-                        ]
-                        subprocess.Popen(tail_cmd)
-                else:
-                    # Try common terminals on *nix
-                    try:
-                        subprocess.Popen(
-                            ["xterm", "-e", f"tail -f {stderr_log_path}"]
-                        )
-                    except Exception:
-                        try:
-                            subprocess.Popen(
-                                [
-                                    "gnome-terminal",
-                                    "--",
-                                    "bash",
-                                    "-c",
-                                    f"tail -f {stderr_log_path}; exec bash",
-                                ]
-                            )
-                        except Exception:
-                            # Last resort: background `tail -f` (no window)
-                            subprocess.Popen(
-                                ["sh", "-c", f"tail -f {stderr_log_path} &"]
-                            )
-            except Exception:
-                # Non-fatal — just don't open the separate window
-                pass
-
         self.agents[label] = handle
         return handle
 

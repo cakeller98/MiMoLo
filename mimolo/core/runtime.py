@@ -60,22 +60,37 @@ class Runtime:
 
         self.agent_manager = AgentProcessManager(config)
         self.agent_last_flush: dict[str, datetime] = {}  # Track last flush time per agent
+        self._agents_started = False
 
-        # Spawn Field-Agent plugins from config
-        for label, plugin_config in config.plugins.items():
+    def _start_agents(self) -> None:
+        """Spawn Field-Agent plugins from config."""
+        if self._agents_started:
+            return
+        self._agents_started = True
+
+        for label, plugin_config in self.config.plugins.items():
             if not plugin_config.enabled:
                 continue
+            if plugin_config.plugin_type != "field_agent":
+                continue
+            if not plugin_config.executable:
+                continue
+            try:
+                handle = self.agent_manager.spawn_agent(label, plugin_config)
+                # Optionally open a separate terminal to tail the stderr log.
+                if (
+                    getattr(plugin_config, "launch_in_separate_terminal", False)
+                    and handle.stderr_log
+                ):
+                    from mimolo.core.agent_debug import open_tail_window
 
-            if plugin_config.plugin_type == "field_agent":
-                if plugin_config.executable:
-                    try:
-                        self.agent_manager.spawn_agent(label, plugin_config)
-                        self.console.print(f"[green]Spawned Field-Agent: {label}[/green]")
-                    except Exception as e:
-                        self.console.print(f"[red]Failed to spawn agent {label}: {e}[/red]")
-                        import traceback
+                    open_tail_window(handle.stderr_log)
+                self.console.print(f"[green]Spawned Field-Agent: {label}[/green]")
+            except Exception as e:
+                self.console.print(f"[red]Failed to spawn agent {label}: {e}[/red]")
+                import traceback
 
-                        self.console.print(f"[red]{traceback.format_exc()}[/red]")
+                self.console.print(f"[red]{traceback.format_exc()}[/red]")
 
     def run(self, max_iterations: int | None = None) -> None:
         """Run the main event loop.
@@ -84,6 +99,7 @@ class Runtime:
             max_iterations: Optional maximum iterations (for testing/dry-run).
         """
         self._running = True
+        self._start_agents()
         self.console.print("[bold green]MiMoLo starting...[/bold green]")
         self.console.print(f"Cooldown: {self.config.monitor.cooldown_seconds}s")
         self.console.print(f"Poll tick: {self.config.monitor.poll_tick_ms}ms")

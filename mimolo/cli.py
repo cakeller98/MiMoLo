@@ -26,18 +26,19 @@ from mimolo.core.logging_setup import init_orchestrator_logging
 from mimolo.core.runtime import Runtime
 
 console = Console()
-# Check platform support on module import
-_supported, _reason = check_platform_support()
-if not _supported:
-    console.print(f"[red]ERROR: {_reason}[/red]")
-    console.print("\n[yellow]MiMoLo requires:[/yellow]")
-    console.print("  - Windows 10 version 1803+ (April 2018 or later)")
-    console.print("  - macOS 10.13 High Sierra or later")
-    console.print("  - Modern Linux (kernel 2.6+)")
-    console.print("\n[dim]Your platform is not supported.[/dim]")
-    sys.exit(1)
 
-console.print(f"[dim]Platform check: {_reason}[/dim]")
+
+def _check_platform_or_exit() -> None:
+    supported, reason = check_platform_support()
+    if not supported:
+        console.print(f"[red]ERROR: {reason}[/red]")
+        console.print("\n[yellow]MiMoLo requires:[/yellow]")
+        console.print("  - Windows 10 version 1803+ (April 2018 or later)")
+        console.print("  - macOS 10.13 High Sierra or later")
+        console.print("  - Modern Linux (kernel 2.6+)")
+        console.print("\n[dim]Your platform is not supported.[/dim]")
+        sys.exit(1)
+    console.print(f"[dim]Platform check: {reason}[/dim]")
 
 app = typer.Typer(
     name="mimolo",
@@ -82,6 +83,8 @@ def monitor(
     Loads configuration, registers plugins, and runs the main event loop.
     """
     try:
+        _check_platform_or_exit()
+
         # Load config
         config = load_config_or_default(config_path)
 
