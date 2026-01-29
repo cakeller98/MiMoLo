@@ -8,7 +8,7 @@ The system is designed to remain resilient under partial failures, maintaining d
 
 ### 1. Startup
 1. The Orchestrator loads configuration and initializes sinks.  
-2. Field-Agents are spawned as subprocesses with stdin/stdout communication channels.  
+2. Field-Agents are spawned as subprocesses with Agent JLP (stdin/stdout) communication channels.  
 3. Each Agent performs self-checks, loads its configuration, and sends an initial `status` or `heartbeat` message to confirm readiness.  
 4. The Orchestrator validates these messages, records agent identities, and begins the main monitoring loop.
 

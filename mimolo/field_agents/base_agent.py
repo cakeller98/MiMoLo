@@ -95,8 +95,13 @@ class BaseFieldAgent(ABC):
                         "data": {},
                         "message": f"Invalid JSON command: {e}",
                     })
-        except Exception:
-            pass
+        except Exception as e:
+            self.send_message(
+                {
+                    "type": "error",
+                    "message": f"Command listener crashed: {e}",
+                }
+            )
         finally:
             self.shutdown_event.set()
             self.running = False

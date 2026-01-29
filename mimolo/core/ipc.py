@@ -2,6 +2,7 @@
 """Generic IPC using Unix domain sockets (Windows 10+, macOS, Linux only)."""
 
 import json
+import logging
 import os
 import platform as _platform
 import socket
@@ -20,6 +21,8 @@ platform = _platform
 
 # Maximum socket path length (conservative for cross-platform compatibility)
 MAX_SOCKET_PATH_LENGTH = 100  # Unix typically allows ~108, Windows ~256
+
+logger = logging.getLogger(__name__)
 
 
 def _check_af_unix_support() -> None:
@@ -176,8 +179,8 @@ class MessageChannel:
             self.buffer += chunk.decode("utf-8")
         except BlockingIOError:
             return None
-        except Exception:
-            # Connection error
+        except Exception as e:
+            logger.warning(f"Socket read failed for {self.socket_path}: {e}")
             return None
 
         # Extract one line if available
@@ -209,15 +212,19 @@ class MessageChannel:
         if self.conn is not None:
             try:
                 self.conn.close()
-            except Exception:
-                pass  # Ignore errors on close
+            except Exception as e:
+                logger.warning(
+                    f"Failed to close IPC connection {self.socket_path}: {e}"
+                )
             self.conn = None
 
         if self.sock is not None:
             try:
                 self.sock.close()
-            except Exception:
-                pass  # Ignore errors on close
+            except Exception as e:
+                logger.warning(
+                    f"Failed to close IPC server socket {self.socket_path}: {e}"
+                )
             self.sock = None
 
         if self.server:
@@ -225,8 +232,10 @@ class MessageChannel:
                 os.unlink(self.socket_path)
             except FileNotFoundError:
                 pass
-            except Exception:
-                pass  # Ignore other errors (e.g., permission denied)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to remove IPC socket file {self.socket_path}: {e}"
+                )
 
 
 def check_platform_support() -> tuple[bool, str]:
@@ -244,7 +253,10 @@ def check_platform_support() -> tuple[bool, str]:
         version = plat.version()  # type: ignore[attr-defined]
         try:
             build = int(version.split(".")[-1]) if "." in version else 0
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"Failed to parse Windows build from version '{version}': {e}"
+            )
             build = 0
         if build < 17063:
             return (
@@ -261,7 +273,10 @@ def check_platform_support() -> tuple[bool, str]:
         try:
             major = int(parts[0]) if len(parts) > 0 and parts[0] else 0
             minor = int(parts[1]) if len(parts) > 1 and parts[1] else 0
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"Failed to parse macOS version '{version}': {e}"
+            )
             major, minor = 0, 0
         if major < 10 or (major == 10 and minor < 13):
             return False, f"macOS {version} < 10.13"

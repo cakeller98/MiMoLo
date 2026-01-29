@@ -24,7 +24,7 @@ A Field-Agent is an autonomous, ultra-lightweight process that performs an indep
 - Emit periodic heartbeats, health summaries, and status updates  
 - Report warnings or recoverable errors through structured messages  
 - Self-monitor and dynamically throttle sampling to remain within CPU and memory limits  
-- Communicate asynchronously via newline-delimited JSON over stdin/stdout  
+- Communicate asynchronously via Agent JLP (JSON Lines over stdin/stdout)  
 - Respect orchestrator commands and exit cleanly on shutdown  
 
 ---
@@ -56,7 +56,7 @@ The schema defines the structure of all JSON messages exchanged between orchestr
 
 **Capabilities**
 - Define canonical message types (`heartbeat`, `summary`, `status`, `error`, `command`)  
-- Maintain a stable, language-neutral newline-delimited JSON format  
+- Maintain a stable, language-neutral Agent JLP format  
 - Govern asynchronous bidirectional communication and timing rules  
 - Enforce separation of responsibility: agents produce data; the orchestrator consumes and commands  
 - Support large-scale monitoring where polling occurs every 5–15 seconds, minimizing total system overhead while still capturing meaningful workflow signals 
@@ -79,5 +79,10 @@ The Dashboard is the human-facing companion to the orchestrator. It provides vis
 The orchestrator remains the single point of authority for all communication:
 - **Field-Agents** report upward to the **Orchestrator**.  
 - The **Dashboard** queries and commands through the **Orchestrator**, never bypassing it.  
+
+---
+
+### Glossary
+**Agent JLP** — *Agent JSON Lines Protocol.* The newline-delimited JSON protocol over stdin/stdout used exclusively for Field-Agent ↔ Orchestrator messaging (commands, heartbeats, summaries, logs).  
 
 ### ...next [[3_Architectural_Overview]]

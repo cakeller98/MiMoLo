@@ -18,7 +18,7 @@ It provides:
 - A **minimal schema** for structured JSON validation.  
 - A **stable foundation** for cross-language plugin development and future protocol evolution.
 
-Agents communicate exclusively over **stdin/stdout** using **newline-delimited JSON** (JSON Lines).  
+Agents communicate via **Agent JLP**: JSON Lines over stdin/stdout.  
 Each line is a complete, self-contained JSON object.
 
 ---

@@ -1,12 +1,12 @@
-🎉 MiMoLo IPC-Based Logging Infrastructure - COMPLETE & BATTLE-TESTED!
+🎉 MiMoLo Agent JLP Logging Infrastructure - COMPLETE & BATTLE-TESTED!
 Implementation Summary
-We've successfully implemented a production-ready logging infrastructure for MiMoLo with the following architecture: 📦 IPC Protocol Logging
+We've successfully implemented a production-ready logging infrastructure for MiMoLo with the following architecture: 📦 Agent JLP Logging
 Field-agents send structured log packets via stdout (JSON)
 Orchestrator receives, filters, and renders with Rich formatting
 Centralized verbosity control through mimolo.toml
 Preserves colors/styles across process boundaries
 Files Created (2)
-mimolo/core/agent_logging.py - AgentLogger for IPC-based logging
+mimolo/core/agent_logging.py - AgentLogger for Agent JLP-based logging
 mimolo/core/logging_setup.py - Orchestrator logging configuration
 Files Modified (9)
 mimolo.toml - Use poetry for agent execution
@@ -62,7 +62,7 @@ launch_in_separate_terminal = true  # ✅ Opens PowerShell 7+ window
 Test Results
 ✅ All files compile without errors
 ✅ Agents start successfully with dependencies
-✅ IPC log messages flow correctly
+✅ Agent JLP log messages flow correctly
 ✅ Unicode handled gracefully (emoji → ? on Windows)
 ✅ PowerShell 7+ terminal opens without errors
 ✅ Log file exists before terminal starts

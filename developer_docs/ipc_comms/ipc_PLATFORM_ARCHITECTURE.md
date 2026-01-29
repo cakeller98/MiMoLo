@@ -46,7 +46,7 @@ We do not provide TCP fallback because it would compromise the core design princ
 
 # MiMoLo IPC Architecture and Platform Requirements
 
-Field-Agent ↔ Orchestrator: stdin/stdout (subprocess pipes)
+Field-Agent ↔ Orchestrator: Agent JLP (stdin/stdout subprocess pipes)
   - Zero overhead
   - Scales to 1000s of agents
   - Already implemented

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
+
+logger = logging.getLogger(__name__)
 
 
 def open_tail_window(stderr_log_path: str) -> None:
@@ -40,7 +43,7 @@ def open_tail_window(stderr_log_path: str) -> None:
         else:
             try:
                 subprocess.Popen(["xterm", "-e", f"tail -f {stderr_log_path}"])
-            except Exception:
+            except Exception as e:
                 try:
                     subprocess.Popen(
                         [
@@ -51,7 +54,13 @@ def open_tail_window(stderr_log_path: str) -> None:
                             f"tail -f {stderr_log_path}; exec bash",
                         ]
                     )
-                except Exception:
-                    subprocess.Popen(["sh", "-c", f"tail -f {stderr_log_path} &"])
-    except Exception:
-        pass
+                except Exception as e2:
+                    try:
+                        subprocess.Popen(["sh", "-c", f"tail -f {stderr_log_path} &"])
+                    except Exception as e3:
+                        logger.warning(
+                            "Failed to open Linux tail window (xterm/gnome-terminal/sh): "
+                            f"{e}; {e2}; {e3}"
+                        )
+    except Exception as e:
+        logger.warning(f"Failed to open tail window for {stderr_log_path}: {e}")

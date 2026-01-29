@@ -2,7 +2,7 @@
 """Field-Agent Template for MiMoLo v0.3+
 
 This template demonstrates the complete 3-thread Field-Agent architecture
-with IPC-based logging that preserves Rich formatting.
+with Agent JLP-based logging that preserves Rich formatting.
 
 Key sections to modify:
 1. Agent metadata (agent_id, agent_label, version)
@@ -12,14 +12,14 @@ Key sections to modify:
 
 LOGGING APPROACH (v0.3+):
 This template uses AgentLogger, which sends structured log packets via the
-IPC protocol. These logs are rendered by the orchestrator with full Rich
+Agent JLP. These logs are rendered by the orchestrator with full Rich
 formatting (colors, styles, markup) on the orchestrator console.
 
 Benefits:
 - Logs work in separate terminals and remote agents
 - Centralized orchestrator control over verbosity
 - Preserves Rich formatting across process boundaries
-- Testable (logs are structured IPC packets)
+- Testable (logs are structured Agent JLP packets)
 
 Usage:
     from mimolo.core.agent_logging import AgentLogger
@@ -78,7 +78,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
 
-# Import AgentLogger for IPC-based logging
+# Import AgentLogger for Agent JLP-based logging
 from mimolo.core.agent_logging import AgentLogger
 from mimolo.field_agents.base_agent import BaseFieldAgent
 
@@ -141,7 +141,7 @@ class FieldAgentTemplate(BaseFieldAgent):
         self.segment_start: datetime | None = None
         self.data_lock = threading.Lock()
 
-        # IPC-based logger (sends log packets to orchestrator)
+        # Agent JLP-based logger (sends log packets to orchestrator)
         self.logger = AgentLogger(
             agent_id=self.agent_id,
             agent_label=self.agent_label,
@@ -154,7 +154,7 @@ class FieldAgentTemplate(BaseFieldAgent):
         self.debug = Console(stderr=True, force_terminal=True) if DEBUG_MODE else None
 
     def _debug_log(self, message: str, style: str = "cyan") -> None:
-        """Log debug message via IPC logger.
+        """Log debug message via Agent JLP logger.
 
         DEPRECATED: Use self.logger.debug() directly instead.
         Kept for backward compatibility with template examples.
@@ -163,26 +163,26 @@ class FieldAgentTemplate(BaseFieldAgent):
         # if self.debug:
         #     self.debug.print(f"[{style}][DEBUG {self.agent_label}][/{style}] {message}")
 
-        # New approach: IPC log packet
+        # New approach: Agent JLP log packet
         if DEBUG_MODE:
             styled_msg = f"[{style}]{message}[/{style}]"
             self.logger.debug(styled_msg)
 
     def _debug_panel(self, content: Any, title: str, style: str = "blue") -> None:
-        """Display debug information via IPC logger.
+        """Display debug information via Agent JLP logger.
 
         DEPRECATED: Use self.logger.debug() with Rich markup instead.
         Kept for backward compatibility.
 
         Note: Complex Rich panels (Syntax highlighting, tables) are converted
-        to simplified text for IPC transmission. For full Rich rendering,
+        to simplified text for Agent JLP transmission. For full Rich rendering,
         use the deprecated stderr console approach.
         """
         # Old approach: Rich panel to stderr
         # if self.debug:
         #     self.debug.print(Panel(content, title=f"[{style}]{title}[/{style}]", border_style=style))
 
-        # New approach: Simplified IPC log
+        # New approach: Simplified Agent JLP log
         if DEBUG_MODE:
             # Convert content to string representation
             if isinstance(content, Syntax):

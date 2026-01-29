@@ -100,7 +100,7 @@ def keyboard_listener():
 
 **Issues:**
 - Platform-specific (different for Windows/Unix)
-- Stdin conflicts with agent IPC reading
+- Stdin conflicts with agent JLP reading
 - Thread safety with Rich console
 
 ### Option 3: Signal-Based (Unix/POSIX)

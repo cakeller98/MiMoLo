@@ -5,7 +5,7 @@
 
 ## Overview
 
-Field-Agents are **self-contained, standalone executables** that monitor system activity and report to the MiMoLo orchestrator via JSON Lines over stdin/stdout.
+Field-Agents are **self-contained, standalone executables** that monitor system activity and report to the MiMoLo orchestrator via Agent JLP (JSON Lines over stdin/stdout).
 
 ## Key Architectural Principles
 

@@ -4,7 +4,7 @@ The orchestrator:
 - Loads configuration
 - Spawns and manages Field-Agent processes
 - Runs main event loop
-- Handles agent IPC messages (heartbeats, summaries, logs)
+- Handles agent JLP messages (heartbeats, summaries, logs)
 - Sends flush commands to agents
 - Writes output via sinks
 """
@@ -129,6 +129,11 @@ class Runtime:
         finally:
             self._shutdown()
 
+    def _debug(self, message: str) -> None:
+        """Print a debug-only message to the console."""
+        if self.config.monitor.console_verbosity == "debug":
+            self.console.print(message)
+
     def _tick(self) -> None:
         """Execute one tick of the event loop."""
         self._tick_count += 1
@@ -180,10 +185,14 @@ class Runtime:
                         try:
                             message = getattr(msg, "message", None) or getattr(msg, "data", None)
                             self.console.print(f"[red]Agent {label} error: {message}[/red]")
-                        except Exception:
-                            self.console.print(f"[red]Agent {label} reported an error[/red]")
+                        except Exception as e:
+                            self.console.print(
+                                f"[red]Agent {label} reported an error (unreadable payload): {e}[/red]"
+                            )
                 except Exception as e:
-                    self.console.print(f"[red]Error handling agent message from {label}: {e}[/red]")
+                    self.console.print(
+                        f"[red]Error handling agent message from {label}: {e}[/red]"
+                    )
 
     def _coerce_timestamp(self, ts: object) -> datetime:
         """Coerce a timestamp value (str or datetime) into timezone-aware datetime."""
@@ -262,8 +271,10 @@ class Runtime:
                     handle = agm.agents.get(label)
                     if handle is not None:
                         handle.last_heartbeat = timestamp
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._debug(
+                        f"[yellow]Failed to update heartbeat for {label}: {e}[/yellow]"
+                    )
 
             # Log to console in debug mode
             if self.config.monitor.console_verbosity == "debug":
@@ -276,7 +287,7 @@ class Runtime:
     def _handle_agent_log(self, label: str, msg: object) -> None:
         """Handle a structured log message from a Field-Agent.
 
-        Log messages flow through the IPC protocol and are rendered on the
+        Log messages flow through Agent JLP and are rendered on the
         orchestrator console with Rich formatting. The orchestrator respects
         console_verbosity settings to filter log messages by level.
 
@@ -369,8 +380,8 @@ class Runtime:
             self.cooldown.close_segment()
             if self.config.monitor.console_verbosity == "debug":
                 self.console.print("[blue]Segment closed[/blue]")
-        except RuntimeError:
-            pass  # No segment open
+        except RuntimeError as e:
+            self._debug(f"[yellow]No open segment to close: {e}[/yellow]")
 
     def _shutdown(self) -> None:
         """Clean shutdown: flush agents and close sinks."""
@@ -394,14 +405,16 @@ class Runtime:
             )
             try:
                 self.file_sink.write_event(shutdown_event)
-            except Exception:
-                # Non-fatal - continue shutdown even if logging fails
-                pass
+            except Exception as e:
+                self._debug(
+                    f"[yellow]Failed to write shutdown_initiated event: {e}[/yellow]"
+                )
             if self.config.monitor.console_verbosity in ("debug", "info"):
                 self.console_sink.write_event(shutdown_event)
-        except Exception:
-            # Non-fatal; continue with shutdown
-            pass
+        except Exception as e:
+            self._debug(
+                f"[yellow]Failed to emit shutdown_initiated event: {e}[/yellow]"
+            )
 
         # Graceful stop sequence using chained SEQUENCE command:
         # Send SEQUENCE([STOP, FLUSH, SHUTDOWN]) to all agents
@@ -512,21 +525,27 @@ class Runtime:
                                         self.console.print(
                                             f"[cyan]Agent {label} sent summary[/cyan]"
                                         )
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    self._debug(
+                                        f"[yellow]Failed to handle shutdown summary from {label}: {e}[/yellow]"
+                                    )
 
                             elif t == "log" or t.endswith("log"):
                                 try:
                                     self._handle_agent_log(label, msg)
                                     logs_count += 1
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    self._debug(
+                                        f"[yellow]Failed to handle shutdown log from {label}: {e}[/yellow]"
+                                    )
 
                             elif t == "heartbeat" or t.endswith("heartbeat"):
                                 self._handle_heartbeat(label, msg)
 
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            self._debug(
+                                f"[yellow]Failed to parse shutdown message from {label}: {e}[/yellow]"
+                            )
 
                 time.sleep(0.01)
 
@@ -547,8 +566,10 @@ class Runtime:
                         },
                     )
                     self.file_sink.write_event(stop_exception)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._debug(
+                        f"[yellow]Failed to write shutdown_exception (stop) for {label}: {e}[/yellow]"
+                    )
 
             for label in pending_flush_response:
                 self.console.print(
@@ -566,8 +587,10 @@ class Runtime:
                         },
                     )
                     self.file_sink.write_event(flush_exception)
-                except Exception:
-                    pass
+                except Exception as e:
+                    self._debug(
+                        f"[yellow]Failed to write shutdown_exception (flush) for {label}: {e}[/yellow]"
+                    )
 
             # Agents should have shut down by now; wait for processes to exit
             self.console.print(
@@ -597,18 +620,24 @@ class Runtime:
                                         handle.label, msg
                                     )
                                     summaries_count += 1
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    self._debug(
+                                        f"[yellow]Failed to handle late shutdown summary from {handle.label}: {e}[/yellow]"
+                                    )
                             elif t == "log" or t.endswith("log"):
                                 try:
                                     self._handle_agent_log(handle.label, msg)
                                     logs_count += 1
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    self._debug(
+                                        f"[yellow]Failed to handle late shutdown log from {handle.label}: {e}[/yellow]"
+                                    )
                             elif t == "heartbeat" or t.endswith("heartbeat"):
                                 self._handle_heartbeat(handle.label, msg)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            self._debug(
+                                f"[yellow]Failed to handle late shutdown message from {handle.label}: {e}[/yellow]"
+                            )
 
                 if not got_any:
                     break
@@ -618,8 +647,10 @@ class Runtime:
                 for h in handles:
                     if h.label in self.agent_manager.agents:
                         del self.agent_manager.agents[h.label]
-            except Exception:
-                pass
+            except Exception as e:
+                self._debug(
+                    f"[yellow]Failed to clear agent handles after shutdown: {e}[/yellow]"
+                )
 
         except Exception as e:
             self.console.print(f"[red]Error shutting down agents: {e}[/red]")
@@ -644,14 +675,16 @@ class Runtime:
                 )
                 try:
                     self.file_sink.write_event(complete_event)
-                except Exception:
-                    # If writing the final event fails, continue to close sinks
-                    pass
+                except Exception as e:
+                    self._debug(
+                        f"[yellow]Failed to write shutdown_complete event: {e}[/yellow]"
+                    )
                 if self.config.monitor.console_verbosity in ("debug", "info"):
                     self.console_sink.write_event(complete_event)
-            except Exception:
-                # Non-fatal - continue to closing sinks
-                pass
+            except Exception as e:
+                self._debug(
+                    f"[yellow]Failed to emit shutdown_complete event: {e}[/yellow]"
+                )
 
             self.file_sink.flush()
             self.file_sink.close()

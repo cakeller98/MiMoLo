@@ -2,7 +2,7 @@
 
 ## Overview
 
-Successfully implemented a comprehensive IPC-based logging infrastructure for MiMoLo that replaces scattered `print()` statements with a unified, protocol-native logging system. This implementation preserves Rich formatting across process boundaries and provides centralized orchestrator control over all logging output.
+Successfully implemented a comprehensive Agent JLP-based logging infrastructure for MiMoLo that replaces scattered `print()` statements with a unified, protocol-native logging system. This implementation preserves Rich formatting across process boundaries and provides centralized orchestrator control over all logging output.
 
 ## Implementation Completed
 
@@ -26,7 +26,7 @@ Successfully implemented a comprehensive IPC-based logging infrastructure for Mi
   - `logger.info(message, **extra)`
   - `logger.warning(message, **extra)`
   - `logger.error(message, **extra)`
-- Logs are emitted as JSON packets via stdout (IPC protocol)
+- Logs are emitted as JSON packets via stdout (Agent JLP)
 - Preserves Rich markup in messages for colorful console output
 - Includes comprehensive docstrings and usage examples
 
@@ -84,8 +84,8 @@ Successfully implemented a comprehensive IPC-based logging infrastructure for Mi
 **Files Modified:** `mimolo/field_agents/agent_template.py`
 
 - Added `AgentLogger` integration
-- Refactored `_debug_log()` to use IPC logger instead of stderr console
-- Refactored `_debug_panel()` to send simplified logs via IPC
+- Refactored `_debug_log()` to use Agent JLP logger instead of stderr console
+- Refactored `_debug_panel()` to send simplified logs via Agent JLP
 - Updated documentation with logging best practices
 - Marked old stderr console approach as deprecated
 - Maintained backward compatibility with existing template examples
@@ -106,7 +106,7 @@ Successfully implemented a comprehensive IPC-based logging infrastructure for Mi
 
 ## Architecture Summary
 
-### IPC-Based Logging Flow
+### Agent JLP-based Logging Flow
 
 ```
 ┌─────────────────┐
@@ -116,7 +116,7 @@ Successfully implemented a comprehensive IPC-based logging infrastructure for Mi
 │  logger.error() │  │
 └─────────────────┘  │
                      │ JSON log packet
-                     │ via stdout (IPC)
+                     │ via stdout (Agent JLP)
                      ▼
 ┌─────────────────────────────────┐
 │  Orchestrator                   │
@@ -138,14 +138,14 @@ Successfully implemented a comprehensive IPC-based logging infrastructure for Mi
 
 ### Logging Strategy
 
-1. **Field-Agents:** Use `AgentLogger` → sends log packets via IPC
+1. **Field-Agents:** Use `AgentLogger` → sends log packets via Agent JLP
 2. **Orchestrator:** Uses Python `logging` module with `RichHandler`
 3. **Verbosity Control:** Centralized in `mimolo.toml` config
 4. **Output:** All logs flow through orchestrator console (Rich-formatted)
 
 ## Key Benefits
 
-✅ **Protocol-Native:** Logging is a first-class IPC feature
+✅ **Protocol-Native:** Logging is a first-class Agent JLP feature
 ✅ **Rich Formatting Preserved:** Colors/styles work across process boundaries
 ✅ **Centralized Control:** Orchestrator decides what to display
 ✅ **Scalable:** Works with remote agents, distributed setups
@@ -161,7 +161,7 @@ console = Console(stderr=True)
 console.print("[cyan]Processing...[/cyan]")
 ```
 
-### New Approach (IPC log packet)
+### New Approach (Agent JLP log packet)
 ```python
 logger = AgentLogger(agent_id, agent_label)
 logger.debug("[cyan]Processing...[/cyan]")
@@ -264,7 +264,7 @@ poetry run mimolo monitor
 
 ## Critical Design Decisions
 
-### 1. Log packets go through stdout IPC (not stderr)
+### 1. Log packets go through stdout Agent JLP (not stderr)
 - **Rationale:** Works in all deployment scenarios (separate terminals, remote agents)
 - **Benefit:** Centralized orchestrator control over all output
 - **Trade-off:** Slightly more protocol overhead (negligible)
@@ -277,7 +277,7 @@ poetry run mimolo monitor
 ### 3. Verbosity filtering at orchestrator
 - **Rationale:** Agents can log freely without performance concerns
 - **Benefit:** Single configuration point (mimolo.toml)
-- **Trade-off:** Network/IPC overhead for filtered messages (negligible)
+- **Trade-off:** protocol overhead for filtered messages (negligible)
 
 ### 4. Separate orchestrator internal logging
 - **Rationale:** Orchestrator process errors need standard logging
@@ -286,7 +286,7 @@ poetry run mimolo monitor
 
 ## Protocol Messages Preserved
 
-**CRITICAL:** The following stdout outputs are part of the IPC protocol and were NOT modified:
+**CRITICAL:** The following stdout outputs are part of the Agent JLP and were NOT modified:
 
 - `agent_template.py:138` - Protocol JSON output (handshake, heartbeat, summary, error)
 - `agent_example.py:74` - Protocol JSON output
@@ -305,7 +305,7 @@ poetry run mimolo monitor
 - [ ] Add rotating file handler configuration option
 
 ### Long-Term
-- [ ] Dynamic log level control via IPC command (`set-log-level`)
+- [ ] Dynamic log level control via Agent JLP command (`set-log-level`)
 - [ ] Log aggregation for multi-agent scenarios
 - [ ] Metrics collection from log data
 
@@ -334,7 +334,7 @@ poetry run mimolo monitor
 3. ✅ Orchestrator receives and renders logs with Rich formatting
 4. ✅ Verbosity filtering works at orchestrator level
 5. ✅ print() statements replaced in orchestrator code
-6. ✅ Field-agents use IPC logging, not stderr
+6. ✅ Field-agents use Agent JLP logging, not stderr
 7. ✅ Backward compatibility maintained (protocol messages preserved)
 8. ✅ Code compiles and syntax-checks pass
 9. ✅ Documentation and examples provided
@@ -342,7 +342,7 @@ poetry run mimolo monitor
 
 ## Conclusion
 
-The IPC-based logging infrastructure is fully implemented and ready for testing with live agents. All code changes compile successfully, and the architecture supports the original goal of centralizing logging control while preserving Rich formatting across process boundaries.
+The Agent JLP-based logging infrastructure is fully implemented and ready for testing with live agents. All code changes compile successfully, and the architecture supports the original goal of centralizing logging control while preserving Rich formatting across process boundaries.
 
 The implementation is production-ready pending full integration testing with dependencies installed (pytest, pyyaml, etc.).
 
@@ -351,3 +351,4 @@ The implementation is production-ready pending full integration testing with dep
 **Date:** 2025-01-11
 **Implementation Status:** ✅ Complete
 **Ready for:** Integration testing with live orchestrator + agents
+

@@ -1,11 +1,11 @@
-"""Logging helper for Field-Agents that sends structured log packets via IPC protocol.
+"""Logging helper for Field-Agents that sends structured log packets via Agent JLP.
 
 This module provides AgentLogger, which allows Field-Agents to emit structured
 log messages that are routed through the orchestrator and rendered with Rich
 formatting on the orchestrator console.
 
 Key features:
-- Logs flow through stdout IPC protocol (not stderr)
+- Logs flow through stdout Agent JLP (not stderr)
 - Preserves Rich markup for colorful, styled output
 - Orchestrator controls verbosity filtering
 - Works across process boundaries and in separate terminals
@@ -40,7 +40,7 @@ class AgentLogger:
     Attributes:
         agent_id: Unique runtime identifier for the agent
         agent_label: Logical plugin name
-        protocol_version: IPC protocol version
+        protocol_version: Agent JLP protocol version
         agent_version: Agent implementation version
     """
 
@@ -56,7 +56,7 @@ class AgentLogger:
         Args:
             agent_id: Unique runtime identifier (e.g., "my_agent-001")
             agent_label: Logical plugin name (e.g., "my_agent")
-            protocol_version: IPC protocol version (default: "0.3")
+            protocol_version: Agent JLP protocol version (default: "0.3")
             agent_version: Agent implementation version (default: "1.0.0")
         """
         self.agent_id = agent_id
@@ -74,7 +74,7 @@ class AgentLogger:
         """Send a structured log packet via stdout.
 
         This is an internal method that constructs and emits a log packet
-        in the IPC protocol format. The orchestrator will parse this packet
+        in the Agent JLP format. The orchestrator will parse this packet
         and route it to the appropriate output handler based on verbosity
         settings.
 

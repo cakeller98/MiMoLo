@@ -126,7 +126,7 @@ def parse_agent_message(line: str) -> AgentMessage:
     """Parse JSON line into appropriate message type.
     
     Args:
-        line: JSON string from agent stdout
+        line: JSON string from Agent JLP stdout
         
     Returns:
         Parsed message object
@@ -203,7 +203,7 @@ class AgentHandle:
         self._stdout_thread.start()
     
     def _read_stdout_loop(self) -> None:
-        """Read JSON lines from agent stdout."""
+        """Read JSON lines from Agent JLP stdout."""
         while self._running and self.process.poll() is None:
             try:
                 line = self.process.stdout.readline()
@@ -227,7 +227,7 @@ class AgentHandle:
                 print(f"[{self.label}] Parse error: {e}")
     
     def send_command(self, cmd: OrchestratorCommand) -> None:
-        """Write command to agent stdin."""
+        """Write command to Agent JLP stdin."""
         if self.process.poll() is not None:
             return  # Process dead
         
@@ -447,7 +447,7 @@ class BaseFieldAgent(ABC):
         self._write_stdout(msg)
     
     def _command_listener(self) -> None:
-        """Read commands from stdin."""
+        """Read commands from Agent JLP stdin."""
         for line in sys.stdin:
             try:
                 cmd = json.loads(line.strip())
@@ -459,8 +459,8 @@ class BaseFieldAgent(ABC):
                     self.running = False
                     break
                     
-            except Exception:
-                pass  # Ignore invalid commands
+            except Exception as e:
+                logger.warning(f"Invalid command payload: {e}")
     
     def _worker_loop(self) -> None:
         """Sample data periodically."""
@@ -470,8 +470,8 @@ class BaseFieldAgent(ABC):
                 if data is not None:
                     with self.data_lock:
                         self.accumulated_data.append(data)
-            except Exception:
-                pass  # Log or emit error message
+            except Exception as e:
+                logger.warning(f"Failed to handle command: {e}")
             
             time.sleep(self.poll_interval_s)
     
@@ -688,3 +688,4 @@ args = ["-m", "mimolo.field_agents.agent_folderwatch", "--watch-dirs", "/project
 ✅ **Risk mitigation** - can pause or rollback at any checkpoint  
 
 This is a **production-grade migration strategy** rather than a research prototype approach.
+

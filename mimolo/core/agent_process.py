@@ -71,8 +71,10 @@ class AgentHandle:
                 # Log raw line for diagnostics then parse and enqueue message
                 try:
                     logger.debug(f"[{self.label}] RECV: {line.rstrip()}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(
+                        f"[{self.label}] Failed to log raw line: {e}"
+                    )
 
                 msg = parse_agent_message(line)
                 self.outbound_queue.put(msg)
@@ -123,11 +125,11 @@ class AgentHandle:
 
         # Send shutdown command but keep the stdout reader running so we
         # can capture any final JSON lines the agent writes on shutdown.
-        try:
-            self.send_command(OrchestratorCommand(cmd=CommandType.SHUTDOWN))
-        except Exception:
-            # If sending fails, proceed to waiting/killing the process.
-            pass
+        ok = self.send_command(OrchestratorCommand(cmd=CommandType.SHUTDOWN))
+        if not ok:
+            logger.warning(
+                f"[{self.label}] Failed to send shutdown command (stdin closed?)"
+            )
 
         # Wait up to 3 seconds for clean exit while the reader thread
         # continues to consume stdout. If the process doesn't exit in
@@ -137,8 +139,10 @@ class AgentHandle:
         except subprocess.TimeoutExpired:
             try:
                 self.process.kill()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    f"[{self.label}] Failed to kill agent after timeout: {e}"
+                )
             self.process.wait()
 
         # Now stop the reader loop and join the thread to ensure all
@@ -147,8 +151,10 @@ class AgentHandle:
         if self._stdout_thread is not None and self._stdout_thread.is_alive():
             try:
                 self._stdout_thread.join(timeout=1.0)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    f"[{self.label}] Failed to join stdout reader thread: {e}"
+                )
 
 
 class AgentProcessManager:
@@ -220,7 +226,7 @@ class AgentProcessManager:
         # (prefixed) and optionally into a temp log file. If the plugin
         # requests a separate terminal, we will open one that tails the
         # temp log so the developer can see colorful rich output in its
-        # own window while IPC remains via pipes.
+        # own window while Agent JLP remains via pipes.
         launch_sep = bool(
             getattr(plugin_config, "launch_in_separate_terminal", False)
         )
@@ -238,8 +244,10 @@ class AgentProcessManager:
                 with open(stderr_log_path, "w", encoding="utf-8") as f:
                     f.write(f"# MiMoLo Agent Log: {label}\n")
                     f.write(f"# Started at {datetime.now(UTC).isoformat()}\n\n")
-            except Exception:
-                pass  # Non-fatal
+            except Exception as e:
+                logger.warning(
+                    f"[{label}] Failed to initialize stderr log at {stderr_log_path}: {e}"
+                )
 
         def _stderr_forwarder(
             p: subprocess.Popen[str], lbl: str, log_path: str | None
@@ -260,10 +268,14 @@ class AgentProcessManager:
                                 errors="ignore",
                             ) as f:
                                 f.write(raw)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                        except Exception as e:
+                            logger.warning(
+                                f"[{lbl}] Failed to append stderr log to {log_path}: {e}"
+                            )
+            except Exception as e:
+                logger.warning(
+                    f"[{lbl}] Stderr forwarder crashed: {e}"
+                )
 
         _stderr_thread = threading.Thread(
             target=_stderr_forwarder,

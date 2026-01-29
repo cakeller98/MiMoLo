@@ -2,7 +2,7 @@
 
 This module provides logging setup for the orchestrator (runtime) process
 itself, NOT for Field-Agents. Field-Agents use the AgentLogger which sends
-structured log packets via IPC protocol.
+structured log packets via Agent JLP.
 
 The orchestrator logging is used for:
 - Internal orchestrator diagnostics
@@ -33,7 +33,7 @@ def setup_logging(
     level controls what orchestrator-internal logs are displayed.
 
     Note: This does NOT affect Field-Agent logging, which flows through the
-    IPC protocol via AgentLogger.
+    Agent JLP via AgentLogger.
 
     Args:
         verbosity: Console verbosity level (debug, info, warning, error)

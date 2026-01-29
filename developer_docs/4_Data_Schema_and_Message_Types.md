@@ -74,7 +74,7 @@ Agents must use this instead of printing diagnostic text.
 ---
 
 ### Command
-Instruction sent from the Orchestrator to a Field-Agent via stdin.  
+Instruction sent from the Orchestrator to a Field-Agent via Agent JLP (stdin).  
 Commands control lifecycle, flushing, and health checks.
 
 ```json

@@ -1,17 +1,17 @@
 ## Extensibility and Plugin Development
 
 MiMoLo’s plugin ecosystem is intentionally open and language-agnostic.  
-Any executable that communicates via newline-delimited JSON and adheres to the defined message schema can operate as a Field-Agent.  
+Any executable that communicates via Agent JLP (JSON Lines over stdin/stdout) and adheres to the defined message schema can operate as a Field-Agent.  
 This allows developers to extend the system without modifying core code—each agent is independently testable, replaceable, and sandboxed within its own process space.
 
 ---
 
 ### Field-Agent Implementation
-Developers can implement Field-Agents in any language capable of reading from **stdin** and writing to **stdout**.  
+Developers can implement Field-Agents in any language capable of reading from **stdin** and writing to **stdout** (Agent JLP).  
 Agents must remain compliant with the MiMoLo communication schema and follow lightweight, cooperative behavior rules.
 
 **Requirements**
-- Communicate exclusively over stdin/stdout using the canonical JSON line format.  
+- Communicate exclusively over Agent JLP using the canonical JSON line format.  
 - Implement handlers for the core commands: `flush`, `status`, and `shutdown`.  
 - Emit periodic `heartbeat` messages containing minimal health metrics.  
 - Aggregate locally and emit concise `summary` messages instead of raw event streams.  
@@ -51,7 +51,7 @@ extensions = ["blend", "fbx", "obj"]
 ---
 
 ### Developer Compliance Checklist
-✅ Communicates using newline-delimited JSON (`"type"` or `"cmd"` required).  
+✅ Communicates using Agent JLP (`"type"` or `"cmd"` required).  
 ✅ Emits a `heartbeat` within the configured interval.  
 ✅ Responds deterministically to `flush`, `status`, and `shutdown`.  
 ✅ Aggregates locally—no raw or verbose output flooding.  

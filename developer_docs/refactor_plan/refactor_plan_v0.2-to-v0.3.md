@@ -71,7 +71,7 @@ class BaseMonitor(ABC):
 
 **v0.3 Pattern (Asynchronous Field-Agent):**
 ```python
-# Separate subprocess communicating via stdin/stdout JSON
+# Separate subprocess communicating via Agent JLP
 # Three cooperative loops: Command Listener, Worker Loop, Summarizer
 # No shared memory, no direct method calls
 ```
@@ -79,7 +79,7 @@ class BaseMonitor(ABC):
 **Impact:** Every plugin must be rewritten as a Field-Agent subprocess.
 
 **Migration Path:**
-1. Create `BaseFieldAgent` class with stdin/stdout JSON protocol
+1. Create `BaseFieldAgent` class with Agent JLP
 2. Create legacy adapter that wraps v0.2 plugins in Field-Agent interface
 3. Rewrite plugins one-by-one as true Field-Agents
 
@@ -91,13 +91,13 @@ class BaseMonitor(ABC):
 - In-process polling loop ❌
 - Direct method calls to plugins ❌
 - No subprocess management ❌
-- No stdin/stdout JSON communication ❌
+- No Agent JLP communication ❌
 - No protocol validation ❌
 
 **v0.3 Requirements:**
 - Spawn Field-Agents as subprocesses ✅ (new)
-- Read/parse stdout JSON lines ✅ (new)
-- Write commands to stdin ✅ (new)
+- Read/parse Agent JLP stdout lines ✅ (new)
+- Write commands to Agent JLP stdin ✅ (new)
 - Validate against `mimolo-agent-schema.json` ✅ (new)
 - Track agent health via heartbeats ✅ (new)
 - Enforce CPU/memory limits ✅ (new)
@@ -108,7 +108,7 @@ class BaseMonitor(ABC):
 - Tick-based main loop structure ✅
 
 **Needs Rebuilding:**
-- Plugin emission (becomes: read stdout lines, parse JSON)
+- Plugin emission (becomes: read Agent JLP stdout lines, parse JSON)
 - Event handling (becomes: validate, route by message type)
 - Segment lifecycle (becomes: write to daily journal JSONL on segment_close)
 
@@ -227,12 +227,12 @@ class BaseMonitor(ABC):
 
 ### **Phase 2: Build Field-Agent Protocol Layer (3-5 days)**
 
-**Goal:** New stdin/stdout JSON communication infrastructure
+**Goal:** New Agent JLP communication infrastructure
 
 1. **Create `core/protocol.py`:**
    ```python
    class FieldAgentProtocol:
-       """Handles stdin/stdout JSON communication with Field-Agents."""
+       """Handles Agent JLP communication with Field-Agents."""
        
        def __init__(self, process: subprocess.Popen):
            self.process = process
@@ -499,7 +499,7 @@ class BaseMonitor(ABC):
 ### Immediate (Week 1)
 - [ ] Extend `core/config.py` with v0.3 fields
 - [ ] Add new message types to `core/event.py`
-- [ ] Create `core/protocol.py` (stdin/stdout JSON)
+- [ ] Create `core/protocol.py` (Agent JLP)
 - [ ] Create `core/agent_manager.py` (subprocess lifecycle)
 
 ### Core Rebuild (Week 2-3)
@@ -528,3 +528,4 @@ class BaseMonitor(ABC):
 **Estimated Timeline:** 4-5 weeks for full v0.3 implementation with the roadmap above.
 
 Ready to dive in? Want me to help write any of these new components?
+

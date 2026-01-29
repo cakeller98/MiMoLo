@@ -1,6 +1,6 @@
 # MiMoLo Logging Implementation - Fixes Applied
 
-This document tracks all fixes applied during testing of the IPC-based logging infrastructure.
+This document tracks all fixes applied during testing of the Agent JLP-based logging infrastructure.
 
 ## Issues Found During Testing
 
@@ -161,8 +161,8 @@ try:
     with open(stderr_log_path, "w", encoding="utf-8") as f:
         f.write(f"# MiMoLo Agent Log: {label}\n")
         f.write(f"# Started at {datetime.now(UTC).isoformat()}\n\n")
-except Exception:
-    pass  # Non-fatal
+except Exception as e:
+    logger.warning(f"Non-fatal error during logging setup: {e}")
 ```
 
 **Status:** ✅ FIXED
@@ -188,7 +188,7 @@ except Exception:
 
 - [x] All files compile without syntax errors
 - [x] Agents start successfully with Poetry environment
-- [x] IPC log messages received by orchestrator
+- [x] Agent JLP log messages received by orchestrator
 - [x] Unicode characters handled gracefully (replaced with ?)
 - [x] PowerShell 7+ used for separate terminal
 - [x] Log file created before PowerShell window opens

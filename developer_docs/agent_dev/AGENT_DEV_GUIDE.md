@@ -22,9 +22,9 @@ The orchestrator (the “collector”) aggregates these events into human-readab
 **Design goals**
 
 - Modular: each plugin is isolated and replaceable  
-- Predictable: all agents communicate via JSON lines  
+- Predictable: all agents communicate via Agent JLP (JSON Lines)  
 - Minimal overhead: hundreds – thousands of agents can coexist without noticeable impact on system **headroom**  
-- Cross-language: any executable that speaks the JSON protocol can be a valid MiMoLo agent  
+- Cross-language: any executable that speaks Agent JLP can be a valid MiMoLo agent  
 
 ---
 
@@ -34,8 +34,8 @@ The orchestrator (the “collector”) aggregates these events into human-readab
 Field-Agents are **self-contained executables**.  
 They may be written in Python, Node.js, Go, Rust — any language — as long as they:
 
-- Read **commands** from **stdin**  
-- Write **structured JSON messages** to **stdout**  
+- Read **commands** from **stdin** (Agent JLP)  
+- Write **structured JSON messages** to **stdout** (Agent JLP)  
 - Never block indefinitely  
 - Respect global resource limits (`main_system_max_cpu_per_plugin`)  
 
@@ -119,7 +119,7 @@ The collector aggregates these and can classify agents as *slowpoke*, *degraded*
 ## 4  Collector Responsibilities (Orchestrator Side)
 
 1. **Spawn** agents (sub-processes).  
-2. **Parse** stdout → JSON events.  
+2. **Parse** Agent JLP stdout → JSON events.  
 3. **Enforce** CPU and memory budgets.  
 4. **Record** metrics and segment data.  
 5. **Intervene** when agents misbehave (log, restart, back-off).  
@@ -130,7 +130,7 @@ The collector aggregates these and can classify agents as *slowpoke*, *degraded*
 ## 5  Developer Freedom and Compliance Checklist
 
 ✅ You *must*  
-- Use stdin/stdout JSON lines.  
+- Use Agent JLP (stdin/stdout JSON lines).  
 - Send periodic heartbeats.  
 - Respect resource budgets.  
 - Handle `flush`, `status`, `shutdown`, and `sequence` commands.  
