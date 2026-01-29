@@ -136,8 +136,8 @@ class Runtime:
                 if last_flush is None or (now - last_flush).total_seconds() >= flush_interval:
                     try:
                         flush_cmd = OrchestratorCommand(cmd=CommandType.FLUSH)
-                        handle.send_command(flush_cmd)
-                        self.agent_last_flush[label] = now
+                        if handle.send_command(flush_cmd):
+                            self.agent_last_flush[label] = now
                         if self.config.monitor.console_verbosity == "debug":
                             self.console.print(f"[cyan]Sent flush to {label}[/cyan]")
                     except Exception as e:

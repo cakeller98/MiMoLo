@@ -85,13 +85,17 @@ class AgentHandle:
                 # Log error but keep reading
                 logger.error(f"[{self.label}] Parse error: {e}")
 
-    def send_command(self, cmd: OrchestratorCommand) -> None:
-        """Write command to agent stdin."""
+    def send_command(self, cmd: OrchestratorCommand) -> bool:
+        """Write command to agent stdin.
+
+        Returns:
+            True if the command was written, False otherwise.
+        """
         if self.process.poll() is not None:
-            return  # Process dead
+            return False  # Process dead
 
         if self.process.stdin is None:
-            return
+            return False
 
         try:
             json_line = cmd.model_dump_json() + "\n"
@@ -174,10 +178,11 @@ class AgentProcessManager:
         for arg in plugin_config.args:
             if arg.endswith(".py"):
                 # Resolve within field_agents
-                field_agents_path = Path(__file__).parent.parent / "field_agents" / arg
+                field_agents_root = Path(__file__).parent.parent / "field_agents"
+                field_agents_path = (field_agents_root / arg).resolve()
 
-                if field_agents_path.exists():
-                    args_with_resolved_path.append(str(field_agents_path.resolve()))
+                if field_agents_path.exists() and field_agents_path.is_relative_to(field_agents_root.resolve()):
+                    args_with_resolved_path.append(str(field_agents_path))
                 else:
                     raise FileNotFoundError(
                         f"Field-Agent script not found: {arg} (searched field_agents)"
