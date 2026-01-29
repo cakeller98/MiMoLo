@@ -1,6 +1,6 @@
 # Code Review & Migration Strategy for MiMoLo v0.2 → v0.3
 
-> **Note (v0.3+ reality):** Legacy synchronous plugins are removed. Field-Agents are the only supported plugin type.  
+> **Note (v0.3+ reality):** Legacy synchronous plugins are removed. Agents are the only supported plugin type.  
 > Any sections below that mention legacy adapters or `mimolo/plugins/` are historical and should not be implemented.
 
 ## Executive Summary
@@ -50,7 +50,7 @@
 - Command structure (monitor, test) ✅
 - **Changes needed:**
   - Remove synchronous plugin discovery
-  - Add Field-Agent subprocess spawning
+  - Add Agent subprocess spawning
   - Add dashboard launch command
 
 ---
@@ -69,19 +69,19 @@ class BaseMonitor(ABC):
         return Event(...)
 ```
 
-**v0.3 Pattern (Asynchronous Field-Agent):**
+**v0.3 Pattern (Asynchronous Agent):**
 ```python
 # Separate subprocess communicating via Agent JLP
 # Three cooperative loops: Command Listener, Worker Loop, Summarizer
 # No shared memory, no direct method calls
 ```
 
-**Impact:** Every plugin must be rewritten as a Field-Agent subprocess.
+**Impact:** Every plugin must be rewritten as a Agent subprocess.
 
 **Migration Path:**
 1. Create `BaseFieldAgent` class with Agent JLP
-2. Create legacy adapter that wraps v0.2 plugins in Field-Agent interface
-3. Rewrite plugins one-by-one as true Field-Agents
+2. Create legacy adapter that wraps v0.2 plugins in Agent interface
+3. Rewrite plugins one-by-one as true Agents
 
 ---
 
@@ -95,7 +95,7 @@ class BaseMonitor(ABC):
 - No protocol validation ❌
 
 **v0.3 Requirements:**
-- Spawn Field-Agents as subprocesses ✅ (new)
+- Spawn Agents as subprocesses ✅ (new)
 - Read/parse Agent JLP stdout lines ✅ (new)
 - Write commands to Agent JLP stdin ✅ (new)
 - Validate against `mimolo-agent-schema.json` ✅ (new)
@@ -169,7 +169,7 @@ class BaseMonitor(ABC):
 - Lookup methods ✅
 
 **Needs Changes:**
-- Store Field-Agent subprocess handles (not instances)
+- Store Agent subprocess handles (not instances)
 - Track PIDs, health status, last heartbeat
 - Remove filter_method references (no in-memory aggregation)
 
@@ -225,14 +225,14 @@ class BaseMonitor(ABC):
 
 ---
 
-### **Phase 2: Build Field-Agent Protocol Layer (3-5 days)**
+### **Phase 2: Build Agent Protocol Layer (3-5 days)**
 
 **Goal:** New Agent JLP communication infrastructure
 
 1. **Create `core/protocol.py`:**
    ```python
    class FieldAgentProtocol:
-       """Handles Agent JLP communication with Field-Agents."""
+       """Handles Agent JLP communication with Agents."""
        
        def __init__(self, process: subprocess.Popen):
            self.process = process
@@ -259,7 +259,7 @@ class BaseMonitor(ABC):
 2. **Create `core/agent_manager.py`:**
    ```python
    class FieldAgentManager:
-       """Manages Field-Agent subprocess lifecycle."""
+       """Manages Agent subprocess lifecycle."""
        
        def spawn_agent(self, config: PluginConfig) -> FieldAgentHandle:
            """Spawn agent as subprocess."""
@@ -287,7 +287,7 @@ class BaseMonitor(ABC):
 
 ### **Phase 3: Rebuild Orchestrator Core (5-7 days)**
 
-**Goal:** New orchestrator that spawns Field-Agents and writes daily journals
+**Goal:** New orchestrator that spawns Agents and writes daily journals
 
 1. **Create `core/orchestrator.py`:**
    ```python
@@ -300,7 +300,7 @@ class BaseMonitor(ABC):
            self.cooldown = CooldownTimer(config.cooldown_seconds)
        
        def start(self):
-           """Spawn all configured Field-Agents."""
+           """Spawn all configured Agents."""
            for plugin_name, plugin_config in self.config.plugins.items():
                if plugin_config.enabled:
                    handle = self.agent_manager.spawn_agent(plugin_config)
@@ -379,14 +379,14 @@ class BaseMonitor(ABC):
 
 ---
 
-### **Phase 4: Migrate Plugins to Field-Agents (3-5 days)**
+### **Phase 4: Migrate Plugins to Agents (3-5 days)**
 
-**Goal:** Convert existing plugins to Field-Agent architecture
+**Goal:** Convert existing plugins to Agent architecture
 
 1. **Create `BaseFieldAgent` wrapper:**
    ```python
    class BaseFieldAgent(ABC):
-       """Base class for Field-Agent implementations."""
+       """Base class for Agent implementations."""
        
        def __init__(self):
            self.stdin = sys.stdin
@@ -528,4 +528,5 @@ class BaseMonitor(ABC):
 **Estimated Timeline:** 4-5 weeks for full v0.3 implementation with the roadmap above.
 
 Ready to dive in? Want me to help write any of these new components?
+
 

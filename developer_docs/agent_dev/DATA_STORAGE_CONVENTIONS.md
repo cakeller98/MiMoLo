@@ -7,9 +7,9 @@ All components store data under the per-user application data directory.
 - macOS: ~/Library/Application Support/mimolo
 - Linux: ~/.local/share/mimolo
 
-## Field-Agent Artifacts
+## Agent Artifacts
 Each agent writes only to its own subtree:
-- <base>/field-agent-name/...
+- <base>/Agent-name/...
 
 Examples:
 - %AppData%\\mimolo\\trail_tracker\\...
@@ -24,3 +24,4 @@ Example report layout:
 - mimolo/dashboard/reports/report_20260128_<client>_1/
   - report_20260128_<client>.md
   - assets/ (mp4, wav, jpg, png, svg)
+

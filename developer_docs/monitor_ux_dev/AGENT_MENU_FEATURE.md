@@ -2,12 +2,12 @@
 
 ## Overview
 
-Interactive menu system for viewing and managing Field-Agents in the MiMoLo orchestrator with keyboard-driven navigation and pagination.
+Interactive menu system for viewing and managing Agents in the MiMoLo orchestrator with keyboard-driven navigation and pagination.
 
 ## Requirements
 
 ### User Story
-As a user running the MiMoLo orchestrator with multiple Field-Agents, I want to:
+As a user running the MiMoLo orchestrator with multiple Agents, I want to:
 - Press `Ctrl+A` to show a list of running agents
 - See agents in pages of 9 (numbered 1-9 for easy selection)
 - Navigate pages with `n/p` or `>/<` keys
@@ -173,7 +173,7 @@ menu.prev_page(agents)  # Back to page 1 (wraps around)
 
 ### Display Format
 ```
-┌─ Field-Agents (Page 1/2) ─────────────────────────┐
+┌─ Agents (Page 1/2) ─────────────────────────┐
 │ #  Label            Status    Uptime      Heartbeat│
 │ 1  template_agent   ok        5m 23s      2s ago   │
 │ 2  example_agent    ok        5m 23s      15s ago  │
@@ -269,3 +269,4 @@ assert menu.current_page == 0  # Wraps back to page 1
 
 **Date:** 2025-01-11
 **Status:** Infrastructure ready, awaiting integration decision
+

@@ -1,10 +1,10 @@
 ## Core Concepts
 
 ### Orchestrator
-The orchestrator is the supervisory process that spawns, tracks, and manages Field-Agents. It coordinates communication, enforces resource policies, and aggregates data into time-based segments. It never executes agent code directly but interacts asynchronously with them through structured JSON messages.
+The orchestrator is the supervisory process that spawns, tracks, and manages Agents. It coordinates communication, enforces resource policies, and aggregates data into time-based segments. It never executes agent code directly but interacts asynchronously with them through structured JSON messages.
 
 **Capabilities**
-- Spawn and terminate Field-Agents as subprocesses  
+- Spawn and terminate Agents as subprocesses  
 - Send structured control commands (`flush`, `status`, `shutdown`)  
 - Track agent status, heartbeat signals, and health metrics  
 - Request live data (with or without flush) for dashboards or active monitoring  
@@ -15,8 +15,8 @@ The orchestrator is the supervisory process that spawns, tracks, and manages Fie
 
 ---
 
-### Field-Agent
-A Field-Agent is an autonomous, ultra-lightweight process that performs an independent sensing or observation task while adhering to strict efficiency mandates. Each agent operates with **less than 0.1% instantaneous CPU utilization** and typically averages **below 0.01% CPU load over time**. Agents may sample data at high internal frequency but are required to aggregate locally and report infrequently—only when results are meaningful or requested. This design ensures that MiMoLo can run thousands of concurrent agents without measurable system impact.
+### Agent
+A Agent is an autonomous, ultra-lightweight process that performs an independent sensing or observation task while adhering to strict efficiency mandates. Each agent operates with **less than 0.1% instantaneous CPU utilization** and typically averages **below 0.01% CPU load over time**. Agents may sample data at high internal frequency but are required to aggregate locally and report infrequently—only when results are meaningful or requested. This design ensures that MiMoLo can run thousands of concurrent agents without measurable system impact.
 
 **Capabilities**
 - Perform any independent sensing or monitoring function in any language  
@@ -30,7 +30,7 @@ A Field-Agent is an autonomous, ultra-lightweight process that performs an indep
 ---
 
 ### Event
-An event is a discrete, timestamped message representing a single unit of information or state change. It may originate from a Field-Agent (observation, heartbeat, summary, warning, error) or from the orchestrator (command, acknowledgment). Events are the atomic communication layer of MiMoLo.
+An event is a discrete, timestamped message representing a single unit of information or state change. It may originate from a Agent (observation, heartbeat, summary, warning, error) or from the orchestrator (command, acknowledgment). Events are the atomic communication layer of MiMoLo.
 
 **Capabilities**
 - Carry structured JSON data for reliable machine parsing  
@@ -64,7 +64,7 @@ The schema defines the structure of all JSON messages exchanged between orchestr
 ---
 
 ### Dashboard / Control Interface
-The Dashboard is the human-facing companion to the orchestrator. It provides visualization, configuration, and reporting tools that translate the orchestrator’s aggregated data into interpretable context for users. The Dashboard never communicates directly with Field-Agents—it interacts solely with the orchestrator through a control API or IPC channel.
+The Dashboard is the human-facing companion to the orchestrator. It provides visualization, configuration, and reporting tools that translate the orchestrator’s aggregated data into interpretable context for users. The Dashboard never communicates directly with Agents—it interacts solely with the orchestrator through a control API or IPC channel.
 
 **Capabilities**
 - Query orchestrator state, agent health, and recent segment data in near-real time  
@@ -77,12 +77,13 @@ The Dashboard is the human-facing companion to the orchestrator. It provides vis
 
 ### Hierarchy Note
 The orchestrator remains the single point of authority for all communication:
-- **Field-Agents** report upward to the **Orchestrator**.  
+- **Agents** report upward to the **Orchestrator**.  
 - The **Dashboard** queries and commands through the **Orchestrator**, never bypassing it.  
 
 ---
 
 ### Glossary
-**Agent JLP** — *Agent JSON Lines Protocol.* The newline-delimited JSON protocol over stdin/stdout used exclusively for Field-Agent ↔ Orchestrator messaging (commands, heartbeats, summaries, logs).  
+**Agent JLP** — *Agent JSON Lines Protocol.* The newline-delimited JSON protocol over stdin/stdout used exclusively for Agent ↔ Orchestrator messaging (commands, heartbeats, summaries, logs).  
 
 ### ...next [[3_Architectural_Overview]]
+

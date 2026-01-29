@@ -1,4 +1,4 @@
-# MiMoLo Field-Agent Protocol Specification
+# MiMoLo Agent Protocol Specification (formerly Field-Agent)
 
 > **Protocol Version:** 0.3  
 > **Status:** Current (since MiMoLo v0.3.0)  
@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-**MiMoLo-LSP-lite** defines the lightweight, language-agnostic communication protocol between the **MiMoLo Orchestrator** (collector) and its **Field-Agent** subprocesses.
+**MiMoLo-LSP-lite** defines the lightweight, language-agnostic communication protocol between the **MiMoLo Orchestrator** (collector) and its **Agent** subprocesses (formerly Field-Agent).
 
 It provides:
 
@@ -182,7 +182,7 @@ When `stop` or `flush` appears in a sequence, agents must ACK those commands in-
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mimolo.io/schema/mimolo-agent-schema.json",
-  "title": "MiMoLo Field-Agent Protocol (v0.3)",
+  "title": "MiMoLo Agent Protocol (v0.3)",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -254,7 +254,7 @@ Example version timeline:
 
 | Version | Change                                  | Backward Compatibility |
 | ------- | --------------------------------------- | ---------------------- |
-| `0.3`   | Initial asynchronous Field-Agent schema | —                      |
+| `0.3`   | Initial asynchronous Agent schema | —                      |
 | `0.4`   | Adds `trace_id` optional field          | backward-compatible    |
 | `1.0`   | Structural change to message envelope   | breaking change        |
 
@@ -290,7 +290,7 @@ The **MiMoLo-LSP-lite Protocol v0.3** provides:
 - Clean version negotiation and extensibility.  
 - Guaranteed compatibility across languages and future MiMoLo releases.
 
-This schema is the authoritative reference for all Field-Agent implementations.
+This schema is the authoritative reference for all Agent implementations.
 
 ## Plugin UUID Migration Rule (Future)
 
@@ -302,3 +302,4 @@ Instead, the orchestrator/dashboard will apply this mapping at read time:
 - If no mapping exists for the `plugin_id`, generate a UUID once and persist it
 
 This keeps old logs compatible while ensuring stable UUIDs going forward.
+

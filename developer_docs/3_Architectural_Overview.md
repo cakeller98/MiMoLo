@@ -1,21 +1,21 @@
 ## Architectural Overview
 
-MiMoLo operates as a distributed monitoring loop connecting Field-Agents, the Orchestrator, and an optional Dashboard.  
-Each Field-Agent performs localized sampling with near-zero overhead, reports summarized observations as structured JSON, and the Orchestrator aggregates these into time-based segments for persistence and visualization.  
+MiMoLo operates as a distributed monitoring loop connecting Agents, the Orchestrator, and an optional Dashboard.  
+Each Agent performs localized sampling with near-zero overhead, reports summarized observations as structured JSON, and the Orchestrator aggregates these into time-based segments for persistence and visualization.  
 The Dashboard observes the Orchestrator’s state, queries aggregated data, and provides human interaction for configuration and reporting.
 
 ---
 
 ### Operational Flow
-1. **Launch** – The Orchestrator starts and loads configuration, then spawns each Field-Agent as a subprocess.  
-2. **Initialization** – Each Field-Agent registers itself by sending a `status` or `heartbeat` message confirming readiness.  
+1. **Launch** – The Orchestrator starts and loads configuration, then spawns each Agent as a subprocess.  
+2. **Initialization** – Each Agent registers itself by sending a `status` or `heartbeat` message confirming readiness.  
 3. **Sampling Loop** – Agents collect local data at their own cadence (<0.1% instantaneous CPU, <0.01% sustained) and internally aggregate results.  
 4. **Event Emission** – Agents emit Agent JLP messages (`heartbeat`, `summary`, `status`, `error`) through stdout.  
 5. **Aggregation** – The Orchestrator receives these events, validates structure, and groups them into segments representing continuous work periods.  
 6. **Persistence** – Segments and events are written to configured sinks (JSONL, YAML, Markdown).  
 7. **Dashboard Interaction** – The Dashboard queries the Orchestrator over its control channel for near-real-time summaries, agent health, and accumulated statistics.  
 8. **User Interaction** – The user views current activity, modifies monitored paths or settings, and can trigger on-demand reports or exports.  
-9. **Shutdown** – The Orchestrator issues a `shutdown` command to all Field-Agents, collects any final data, and closes sinks cleanly.
+9. **Shutdown** – The Orchestrator issues a `shutdown` command to all Agents, collects any final data, and closes sinks cleanly.
 
 ---
 
@@ -25,7 +25,7 @@ User
 ↑  
 │ (configuration / reports)  
 │  
-Dashboard ⇄ Orchestrator ⇄ Field-Agents  
+Dashboard ⇄ Orchestrator ⇄ Agents  
 │             │  
 │             └──> Logs / Sinks → Persistent storage  
 │  
@@ -48,7 +48,8 @@ Dashboard ⇄ Orchestrator ⇄ Field-Agents
 
 **System Summary**  
 MiMoLo’s architecture forms a closed feedback loop:  
-`Field-Agent → Event → Orchestrator → Segment → Sink → Dashboard → User`  
+`Agent → Event → Orchestrator → Segment → Sink → Dashboard → User`  
 Each component communicates asynchronously using well-defined, low-overhead channels, ensuring accurate time and activity tracking without measurable impact on system performance.
 
 ### ...next [[4_Data_Schema_and_Message_Types]]
+

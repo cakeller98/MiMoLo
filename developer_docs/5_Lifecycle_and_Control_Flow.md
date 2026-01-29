@@ -1,6 +1,6 @@
 ## Lifecycle and Control Flow
 
-MiMoLo operates as a continuous cooperative loop between the Orchestrator, its Field-Agents, and the optional Dashboard.  
+MiMoLo operates as a continuous cooperative loop between the Orchestrator, its Agents, and the optional Dashboard.  
 Each component participates in a predictable lifecycle: initialization, active monitoring, cooldown or idle periods, and graceful shutdown.  
 The system is designed to remain resilient under partial failures, maintaining data integrity and stability at all times.
 
@@ -8,7 +8,7 @@ The system is designed to remain resilient under partial failures, maintaining d
 
 ### 1. Startup
 1. The Orchestrator loads configuration and initializes sinks.  
-2. Field-Agents are spawned as subprocesses with Agent JLP (stdin/stdout) communication channels.  
+2. Agents are spawned as subprocesses with Agent JLP (stdin/stdout) communication channels.  
 3. Each Agent performs self-checks, loads its configuration, and sends an initial `status` or `heartbeat` message to confirm readiness.  
 4. The Orchestrator validates these messages, records agent identities, and begins the main monitoring loop.
 
@@ -96,6 +96,7 @@ MiMoLo’s full loop can be represented as:
 
 `Startup → Sampling → Event → Aggregation → Segment → Dashboard → User → (Flush / Shutdown)`
 
-This continuous feedback cycle ensures each Field-Agent operates independently yet contributes to a unified, low-overhead timeline of creative or system activity.
+This continuous feedback cycle ensures each Agent operates independently yet contributes to a unified, low-overhead timeline of creative or system activity.
 
 ### ...next [[6_Extensibility_and_Plugin_Development]]
+

@@ -14,8 +14,9 @@
 
 ![[8_Future_Roadmap_and_Summary]]
 
-## Plugin aka Field-Agent Development Guide and Protocol Specification
+## Plugin aka Agent Development Guide and Protocol Specification
 
 ![[AGENT_DEV_GUIDE]]
 
 ![[AGENT_PROTOCOL_SPEC]]
+

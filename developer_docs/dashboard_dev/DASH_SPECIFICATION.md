@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-The Dashboard is MiMoLo's human-facing interface for monitoring, reporting, and controlling the Orchestrator and its Field-Agents.
+The Dashboard is MiMoLo's human-facing interface for monitoring, reporting, and controlling the Orchestrator and its Agents.
 
 ### Core Principle: Separation of Concerns
 
@@ -30,7 +30,7 @@ Orchestrator Responsibilities:
 ├── Write current_segment.json cache (partial segment before final write)
 ├── Respond to status queries (agent health, registered plugins, runtime metrics)
 ├── Accept control commands (lifecycle, config changes)
-└── Manage Field-Agents (spawn, monitor, throttle, restart)
+└── Manage Agents (spawn, monitor, throttle, restart)
 ```
 
 **Key Insight:**  
@@ -198,7 +198,7 @@ else:
 - Process IDs and lifecycle state
 
 **What the Dashboard Commands:**
-- Start/stop "the monitors" (all Field-Agents)
+- Start/stop "the monitors" (all Agents)
 - Restart individual agents
 - Modify configuration (poll intervals, watch folders, etc.)
 - Trigger forced flush
@@ -615,7 +615,7 @@ class MiMoLoDashboard:
         # Connect to bridge
         self.bridge = connect_to_orchestrator()  # Implementation-specific
         
-        # Start all field agents
+        # Start all Agents
         response = self.bridge.send_command({"cmd":"start_monitors"})
         print(f"Monitors started: {response['agents_started']}")
     

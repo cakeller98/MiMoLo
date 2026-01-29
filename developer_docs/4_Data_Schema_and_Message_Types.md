@@ -1,12 +1,12 @@
 ## Data Schema and Message Types
 
-All MiMoLo communication occurs through **newline-delimited JSON objects** transmitted over each Field-Agent’s standard input and output streams.  
-Every message includes a `"type"` or `"cmd"` field that identifies its semantic role. These structures define the canonical vocabulary used between Field-Agents, the Orchestrator, and—indirectly—the Dashboard.
+All MiMoLo communication occurs through **newline-delimited JSON objects** transmitted over each Agent’s standard input and output streams.  
+Every message includes a `"type"` or `"cmd"` field that identifies its semantic role. These structures define the canonical vocabulary used between Agents, the Orchestrator, and—indirectly—the Dashboard.
 
 ---
 
 ### Heartbeat
-Periodic signal from a Field-Agent indicating it is alive and within resource limits.
+Periodic signal from a Agent indicating it is alive and within resource limits.
 
 ```json
 {
@@ -22,7 +22,7 @@ Periodic signal from a Field-Agent indicating it is alive and within resource li
 ---
 
 ### Summary
-Aggregated result emitted by a Field-Agent representing condensed observations since the last flush or time window.
+Aggregated result emitted by a Agent representing condensed observations since the last flush or time window.
 
 ```json
 {
@@ -74,7 +74,7 @@ Agents must use this instead of printing diagnostic text.
 ---
 
 ### Command
-Instruction sent from the Orchestrator to a Field-Agent via Agent JLP (stdin).  
+Instruction sent from the Orchestrator to a Agent via Agent JLP (stdin).  
 Commands control lifecycle, flushing, and health checks.
 
 ```json
@@ -108,3 +108,4 @@ Commands control lifecycle, flushing, and health checks.
 - This schema is versioned at the protocol level; backward-compatible fields should use additive expansion rather than mutation.
 
 ### ...next [[5_Lifecycle_and_Control_Flow]]
+

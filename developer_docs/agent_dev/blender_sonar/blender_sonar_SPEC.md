@@ -1,8 +1,8 @@
-# Blender Sonar Field-Agent Spec
+# Blender Sonar Agent Spec
 
 > Agent: blender_sonar
 > Version: 0.1 (draft)
-> Protocol: MiMoLo Field-Agent Protocol v0.3 (see AGENT_PROTOCOL_SPEC.md)
+> Protocol: MiMoLo Agent Protocol v0.3 (see AGENT_PROTOCOL_SPEC.md)
 
 ## Purpose
 Runs inside Blender and emits periodic activity pings with viewport thumbnails.
@@ -51,3 +51,4 @@ executable = "blender"
 args = ["--background", "--python", "blender_sonar.py"]
 heartbeat_interval_s = 15.0
 agent_flush_interval_s = 60.0
+

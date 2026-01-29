@@ -1,7 +1,7 @@
 🎉 MiMoLo Agent JLP Logging Infrastructure - COMPLETE & BATTLE-TESTED!
 Implementation Summary
 We've successfully implemented a production-ready logging infrastructure for MiMoLo with the following architecture: 📦 Agent JLP Logging
-Field-agents send structured log packets via stdout (JSON)
+Agents send structured log packets via stdout (JSON)
 Orchestrator receives, filters, and renders with Rich formatting
 Centralized verbosity control through mimolo.toml
 Preserves colors/styles across process boundaries
@@ -29,7 +29,7 @@ Documentation Created
 LOGGING_IMPLEMENTATION_SUMMARY.md - Complete architecture guide
 LOGGING_FIXES_APPLIED.md - All bugs fixed during testing
 How It Works
-# In Field-Agent (agent_template.py)
+# In Agent (agent_template.py)
 from mimolo.core.agent_logging import AgentLogger
 
 logger = AgentLogger(agent_id="my_agent-001", agent_label="my_agent")
@@ -74,3 +74,4 @@ Run the orchestrator with poetry run mimolo monitor
 See colorful agent logs in the orchestrator console with [agent_template] prefix
 View agent stderr in the separate PowerShell window (Rich debug panels)
 Control verbosity via console_verbosity in mimolo.toml
+

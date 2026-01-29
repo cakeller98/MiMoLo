@@ -1,8 +1,8 @@
-# Screen Tracker Field-Agent Spec
+# Screen Tracker Agent Spec
 
 > Agent: screen_tracker
 > Version: 0.1 (draft)
-> Protocol: MiMoLo Field-Agent Protocol v0.3 (see AGENT_PROTOCOL_SPEC.md)
+> Protocol: MiMoLo Agent Protocol v0.3 (see AGENT_PROTOCOL_SPEC.md)
 
 ## Purpose
 Captures periodic screenshots (full screen or active window) for broad activity context.
@@ -47,3 +47,4 @@ executable = "python"
 args = ["screen_tracker.py", "--interval", "60"]
 heartbeat_interval_s = 30.0
 agent_flush_interval_s = 120.0
+

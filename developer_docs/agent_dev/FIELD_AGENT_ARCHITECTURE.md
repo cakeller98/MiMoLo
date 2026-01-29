@@ -1,19 +1,19 @@
-# MiMoLo Field-Agent Architecture Summary
+# MiMoLo Agent Architecture Summary
 
 > **Status:** Implemented in v0.3  
 > **Last Updated:** November 10, 2025
 
 ## Overview
 
-Field-Agents are **self-contained, standalone executables** that monitor system activity and report to the MiMoLo orchestrator via Agent JLP (JSON Lines over stdin/stdout).
+Agents are **self-contained, standalone executables** that monitor system activity and report to the MiMoLo orchestrator via Agent JLP (JSON Lines over stdin/stdout).
 
 ## Key Architectural Principles
 
 ### 1. **Agents Aggregate Their Own Data**
 
-- Field-Agents maintain internal accumulators in their Worker Loop
+- Agents maintain internal accumulators in their Worker Loop
 - When flushed, they create a snapshot, start fresh accumulation, and summarize the snapshot
-- The orchestrator **never re-aggregates** Field-Agent data
+- The orchestrator **never re-aggregates** Agent data
 
 ### 2. **Heartbeats Are Health Signals**
 
@@ -40,11 +40,11 @@ The orchestrator sends `flush` commands based on:
 
 ## Three-Thread Agent Architecture
 
-Each Field-Agent runs three cooperative threads:
+Each Agent runs three cooperative threads:
 
 ```
 ┌─────────────────────────────────────────────┐
-│  Field-Agent Process                        │
+│  Agent Process                        │
 │                                             │
 │  ┌─────────────┐  ┌──────────────┐         │
 │  │  Command    │  │  Worker Loop │         │
@@ -94,7 +94,7 @@ Orchestrator → Logs error to console
 
 ## Configuration
 
-### Field-Agent Plugin Config
+### Agent Plugin Config
 
 ```toml
 [plugins.my_field_agent]
@@ -116,14 +116,14 @@ agent_flush_interval_s = 60.0         # How often orchestrator sends flush
 
 ### During Operation
 Every tick (~100ms):
-1. Check Field-Agent flush intervals
+1. Check Agent flush intervals
    - Send `flush` commands when interval elapsed
-2. Drain Field-Agent message queues
+2. Drain Agent message queues
    - Route by message type (heartbeat/summary/error)
    - Write summaries directly to file
 
 ### Shutdown
-1. Send `sequence` commands to all Field-Agents (stop → flush → shutdown)
+1. Send `sequence` commands to all Agents (stop → flush → shutdown)
 2. Wait for agent processes to exit
 3. Flush and close file sinks
 
@@ -175,8 +175,8 @@ Every tick (~100ms):
 - Configuration schema with flush intervals
 
 ### 🚧 Next Steps
-1. Create reference Field-Agent implementations
-   - Create template Field-Agent with 3-thread architecture
+1. Create reference Agent implementations
+   - Create template Agent with 3-thread architecture
 2. Add agent health monitoring dashboard
 3. Implement agent restart on failure
 4. Add flush timeout handling
@@ -188,3 +188,4 @@ Every tick (~100ms):
 - **Configuration:** `mimolo/core/config.py` (PluginConfig)
 - **Agent Management:** `mimolo/core/agent_process.py` (AgentProcessManager)
 - **Orchestrator:** `mimolo/core/runtime.py` (MonitorRuntime)
+

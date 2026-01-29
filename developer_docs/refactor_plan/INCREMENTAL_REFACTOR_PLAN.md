@@ -5,14 +5,14 @@
 
 ---
 
-## Core Principle: Field-Agent Only
+## Core Principle: Agent Only
 
-MiMoLo v0.3+ is **Field-Agent only**. Legacy synchronous plugins are removed and not supported.
+MiMoLo v0.3+ is **Agent only**. Legacy synchronous plugins are removed and not supported.
 
 ---
 
 ## Phase 1: Foundation (Days 1-3)
-**Goal:** Add Field-Agent protocol support without breaking existing plugins
+**Goal:** Add Agent protocol support without breaking existing plugins
 
 ### Step 1.1: Extend Configuration (`core/config.py`)
 **Status:** Additive only - no breaking changes
@@ -25,7 +25,7 @@ class MonitorConfig(BaseModel):
     log_format: str = "jsonl"
     console_verbosity: str = "info"
     
-    # NEW: Field-Agent support
+    # NEW: Agent support
     journal_dir: str = "./journals"  # Event stream storage
     cache_dir: str = "./cache"  # Agent state cache
     main_system_max_cpu_per_plugin: float = 0.1  # CPU limit per agent
@@ -34,9 +34,9 @@ class MonitorConfig(BaseModel):
 class PluginConfig(BaseModel):
     enabled: bool = True
     
-    # NEW: Field-Agent specific
+    # NEW: Agent specific
     plugin_type: Literal["field_agent"] = "field_agent"
-    executable: str | None = None  # For field agents: python path or script
+    executable: str | None = None  # For Agents: python path or script
     args: list[str] = Field(default_factory=list)  # CLI args for agent
     heartbeat_interval_s: float = 15.0  # Expected heartbeat frequency
 ```
@@ -52,7 +52,7 @@ class PluginConfig(BaseModel):
 **Status:** New file, no existing code affected
 
 ```python
-"""Field-Agent protocol message types and validation."""
+"""Agent protocol message types and validation."""
 
 from __future__ import annotations
 
@@ -156,7 +156,7 @@ def parse_agent_message(line: str) -> AgentMessage:
 **Status:** New file, handles subprocess lifecycle
 
 ```python
-"""Field-Agent subprocess management and communication."""
+"""Agent subprocess management and communication."""
 
 from __future__ import annotations
 
@@ -174,7 +174,7 @@ from mimolo.core.protocol import AgentMessage, OrchestratorCommand, parse_agent_
 
 @dataclass
 class AgentHandle:
-    """Runtime handle for a Field-Agent subprocess."""
+    """Runtime handle for a Agent subprocess."""
     
     label: str
     process: subprocess.Popen
@@ -263,7 +263,7 @@ class AgentHandle:
 
 
 class AgentProcessManager:
-    """Spawns and manages Field-Agent subprocesses."""
+    """Spawns and manages Agent subprocesses."""
     
     def __init__(self, config: Any):  # Config type
         """Initialize manager.
@@ -275,7 +275,7 @@ class AgentProcessManager:
         self.agents: dict[str, AgentHandle] = {}
     
     def spawn_agent(self, label: str, plugin_config: Any) -> AgentHandle:
-        """Spawn a Field-Agent subprocess.
+        """Spawn a Agent subprocess.
         
         Args:
             label: Plugin label
@@ -319,16 +319,16 @@ class AgentProcessManager:
 
 ---
 
-## Phase 2: Field-Agent Orchestrator (Days 4-7)
-**Goal:** Runtime supports Field-Agent plugins only
+## Phase 2: Agent Orchestrator (Days 4-7)
+**Goal:** Runtime supports Agent plugins only
 
 **Changes needed:**
 1. Add `AgentProcessManager` instance
-2. During startup, spawn Field-Agents from config
-3. In `_tick()`, send flush commands and drain Field-Agent queues
+2. During startup, spawn Agents from config
+3. In `_tick()`, send flush commands and drain Agent queues
 4. Route message types (summary/log/heartbeat/error) to sinks and console
 
-**Testing:** Run with only Field-Agent plugins and verify summaries, heartbeats, and shutdown.
+**Testing:** Run with only Agent plugins and verify summaries, heartbeats, and shutdown.
 
 ---
 
@@ -338,7 +338,7 @@ class AgentProcessManager:
 **Add to `PluginRegistry`:**
 ```python
 def discover_field_agents(self, field_agents_dir: Path) -> None:
-    """Discover Field-Agent plugins in field_agents directory.
+    """Discover Agent plugins in field_agents directory.
     
     Args:
         field_agents_dir: Path to field_agents directory
@@ -349,7 +349,7 @@ def discover_field_agents(self, field_agents_dir: Path) -> None:
             # Extract label from filename: agent_folderwatch.py → folderwatch
             label = agent_file.stem.replace("agent_", "")
             
-            # Register as Field-Agent type (store differently or flag in registry)
+            # Register as Agent type (store differently or flag in registry)
             # This will be expanded in Phase 3
             pass
 ```
@@ -358,13 +358,13 @@ def discover_field_agents(self, field_agents_dir: Path) -> None:
 
 ---
 
-## Phase 3: First Field-Agent Plugins (Days 8-12)
-**Goal:** Create three working Field-Agent examples
+## Phase 3: First Agent Plugins (Days 8-12)
+**Goal:** Create three working Agent examples
 
 ### Step 3.1: Create BaseFieldAgent Template (`field_agents/base_agent.py`)
 
 ```python
-"""Base class for Field-Agent plugins."""
+"""Base class for Agent plugins."""
 
 import json
 import sys
@@ -377,7 +377,7 @@ from typing import Any
 
 
 class BaseFieldAgent(ABC):
-    """Base class for MiMoLo Field-Agent plugins.
+    """Base class for MiMoLo Agent plugins.
     
     Subclasses must implement:
     - sample() → returns data to accumulate
@@ -391,7 +391,7 @@ class BaseFieldAgent(ABC):
         poll_interval_s: float = 5.0,
         heartbeat_interval_s: float = 15.0
     ):
-        """Initialize Field-Agent.
+        """Initialize Agent.
         
         Args:
             label: Plugin label
@@ -552,11 +552,11 @@ class BaseFieldAgent(ABC):
 
 ---
 
-### Step 3.2: Port FolderWatch to Field-Agent (`field_agents/agent_folderwatch.py`)
+### Step 3.2: Port FolderWatch to Agent (`field_agents/agent_folderwatch.py`)
 
 ```python
 #!/usr/bin/env python
-"""Field-Agent: Folder modification watcher."""
+"""Agent: Folder modification watcher."""
 
 import sys
 from pathlib import Path
@@ -642,7 +642,7 @@ Similar structure - I can provide these if needed.
 ## Phase 4: Testing & Refinement (Days 13-15)
 
 ### Checkpoint Tests:
-1. ✅ Field-Agent plugins spawn, handshake, and emit messages
+1. ✅ Agent plugins spawn, handshake, and emit messages
 2. ✅ Summaries are written to sinks without re-aggregation
 3. ✅ Cooldown timer triggers flushes as expected
 4. ✅ Graceful shutdown works for all agents
@@ -665,9 +665,9 @@ args = ["-m", "mimolo.field_agents.agent_folderwatch", "--watch-dirs", "/project
 ## Success Criteria for Phase 1-3:
 
 - [ ] `mimolo monitor` starts successfully
-- [ ] Field-Agent plugins in `mimolo/field_agents/` spawn as subprocesses
+- [ ] Agent plugins in `mimolo/field_agents/` spawn as subprocesses
 - [ ] Summaries and logs appear in sinks
-- [ ] Shutdown is clean for all Field-Agent plugins
+- [ ] Shutdown is clean for all Agent plugins
 
 ---
 
@@ -684,8 +684,9 @@ args = ["-m", "mimolo.field_agents.agent_folderwatch", "--watch-dirs", "/project
 
 ✅ **No "big bang" rewrite** - working code at every step  
 ✅ **Incremental testing** - can validate each change  
-✅ **Forward looking** - Field-Agents are the core architecture  
+✅ **Forward looking** - Agents are the core architecture  
 ✅ **Risk mitigation** - can pause or rollback at any checkpoint  
 
 This is a **production-grade migration strategy** rather than a research prototype approach.
+
 

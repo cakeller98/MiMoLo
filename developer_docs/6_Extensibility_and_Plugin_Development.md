@@ -1,13 +1,13 @@
 ## Extensibility and Plugin Development
 
 MiMoLo’s plugin ecosystem is intentionally open and language-agnostic.  
-Any executable that communicates via Agent JLP (JSON Lines over stdin/stdout) and adheres to the defined message schema can operate as a Field-Agent.  
+Any executable that communicates via Agent JLP (JSON Lines over stdin/stdout) and adheres to the defined message schema can operate as a Agent.  
 This allows developers to extend the system without modifying core code—each agent is independently testable, replaceable, and sandboxed within its own process space.
 
 ---
 
-### Field-Agent Implementation
-Developers can implement Field-Agents in any language capable of reading from **stdin** and writing to **stdout** (Agent JLP).  
+### Agent Implementation
+Developers can implement Agents in any language capable of reading from **stdin** and writing to **stdout** (Agent JLP).  
 Agents must remain compliant with the MiMoLo communication schema and follow lightweight, cooperative behavior rules.
 
 **Requirements**
@@ -65,7 +65,8 @@ extensions = ["blend", "fbx", "obj"]
 
 **Summary**
 Extensibility in MiMoLo centers on **protocol compliance**, not code coupling.  
-By adhering to a simple, schema-driven interface, developers can introduce new Field-Agents or integrate creative sensors—all without modifying the orchestrator core.  
+By adhering to a simple, schema-driven interface, developers can introduce new Agents or integrate creative sensors—all without modifying the orchestrator core.  
 This modular independence is the foundation of MiMoLo’s scalability and long-term maintainability.
 
 ### ...next [[7_Constraints_and_Performance_Etiquette]]
+

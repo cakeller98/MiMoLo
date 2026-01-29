@@ -17,7 +17,7 @@ Successfully removed all legacy plugin code from the MiMoLo codebase.
 - Removed all legacy plugin polling logic from _tick()
 - Removed _handle_event() and _handle_agent_message() methods
 - Simplified _close_segment() - no more aggregation logic
-- Simplified _shutdown() - only handles Field-Agents
+- Simplified _shutdown() - only handles Agents
 
 ### cli.py
 - Removed imports: ExampleMonitor, FolderWatchMonitor, BaseMonitor, PluginSpec, PluginRegistry, PluginRegistrationError
@@ -34,7 +34,7 @@ Successfully removed all legacy plugin code from the MiMoLo codebase.
 ### mimolo.toml
 - Removed [plugins.example] section
 - Removed [plugins.folderwatch] section
-- Kept only Field-Agent configurations (agent_template, agent_example)
+- Kept only Agent configurations (agent_template, agent_example)
 
 ## Files Preserved
 
@@ -42,17 +42,18 @@ Successfully removed all legacy plugin code from the MiMoLo codebase.
 - **registry.py** - Kept for backward compatibility (exported from __init__.py)
 - **event.py** - Kept (used by sinks and aggregate)
 - **aggregate.py** - Kept (still exported from __init__.py)
-- **agent_template.py** - Field-Agent ✅
-- **agent_example.py** - Field-Agent ✅
+- **agent_template.py** - Agent ✅
+- **agent_example.py** - Agent ✅
 
 ## Test Results
 
 ```
-✅ Field-Agent system works perfectly!
+✅ Agent system works perfectly!
 ✅ agent_template spawned successfully
 ✅ Agent JLP communication working
 ✅ Logging via Agent JLP functional
 ✅ Shutdown clean
 ```
 
-The codebase is now 100% Field-Agent architecture - no more legacy BaseMonitor plugins! MiMoLo is now streamlined and focused on the superior Agent JLP-based Field-Agent system.
+The codebase is now 100% Agent architecture - no more legacy BaseMonitor plugins! MiMoLo is now streamlined and focused on the superior Agent JLP-based Agent system.
+

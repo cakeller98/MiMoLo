@@ -6,7 +6,7 @@ This document tracks all fixes applied during testing of the Agent JLP-based log
 
 ### 1. ❌ ModuleNotFoundError: No module named 'rich'
 
-**Problem:** Field-agents configured with `executable = "python"` were using system Python instead of Poetry's virtual environment, causing missing dependencies.
+**Problem:** Agents configured with `executable = "python"` were using system Python instead of Poetry's virtual environment, causing missing dependencies.
 
 **Error:**
 ```
@@ -220,7 +220,7 @@ cd v:\CODE\MiMoLo
 poetry run mimolo monitor
 
 # Expected: Agent starts without ModuleNotFoundError
-# You should see: "Spawned Field-Agent: agent_template"
+# You should see: "Spawned Agent: agent_template"
 ```
 
 ### Test 2: Unicode Handling
@@ -262,3 +262,4 @@ poetry run mimolo monitor
 **✅ ALL FIXES COMPLETE AND TESTED**
 
 The logging infrastructure is now production-ready with all critical issues resolved!
+

@@ -8,14 +8,14 @@ powershell -ExecutionPolicy ByPass -File "v:\CODE\MiMoLo\start_monitor.ps1"
 powershell -ExecutionPolicy ByPass -File "v:\CODE\MiMoLo\start_monitor.ps1"
 Platform check: Windows 10+ with Unix socket support
 Configuration loaded from: mimolo.toml
-Spawned Field-Agent: agent_template
+Spawned Agent: agent_template
 MiMoLo starting...
 Cooldown: 600.0s
 Poll tick: 200.0ms
-Field-Agents: 1
+Agents: 1
 
 Sent flush to agent_template
-[19:28:17] INFO     [ERR] +- \U0001f680 Field-Agent Starting -+
+[19:28:17] INFO     [ERR] +- \U0001f680 Agent Starting -+
            DEBUG     RECV: {"type": "handshake", "timestamp": "2026-01-29T03:28:17.678399+00:00", "agent_id": "template_agent-001",
                     "agent_label": "template_agent", "protocol_version": "0.3", "agent_version": "1.0.0", "min_app_version": "0.3.0",       
                     "capabilities": ["summary", "heartbeat", "status", "error"], "data": {}}
@@ -145,7 +145,7 @@ Shutting down...
 Shutting down...
            INFO     [EVENT] 03:28:44 | orchestrator.shutdown_initiated | Data: {'agent_count': 1, 'expected_shutdown_messages': 2, 'note': 'Following entries are   
                     agent shutdown/flush messages'}
-Sending shutdown sequence to Field-Agents...
+Sending shutdown sequence to Agents...
 Sent shutdown SEQUENCE to agent_template
            INFO     [ERR] | Agent stopped cleanly |
  ⚠️  KeyboardInterrupt - shutting down
@@ -179,7 +179,7 @@ Sent shutdown SEQUENCE to agent_template
  🛑 Summarizer thread shutting down
 Agent agent_template did not ACK STOP (timeout)
 Agent agent_template did not send summary after FLUSH (timeout)
-Waiting for Field-Agent processes to exit...
+Waiting for Agent processes to exit...
 [19:28:48] INFO     [EVENT] 03:28:48 | orchestrator.shutdown_complete | Data: {'agent_count_final': 0, 'timestamp': '2026-01-29T03:28:48.865607+00:00', 'note': 'All
                     agents shutdown and sinks closed', 'summaries_written_during_shutdown': 0, 'logs_written_during_shutdown': 5, 'acks_received_during_shutdown':  
                     0}
@@ -192,7 +192,7 @@ spawned process output in separate powershell window:
 # MiMoLo Agent Log: agent_template
 # Started at 2026-01-29T03:28:15.976417+00:00
 
-+- \U0001f680 Field-Agent Starting -+
++- \U0001f680 Agent Starting -+
 | template_agent            |
 | ID: template_agent-001    |
 | Version: 1.0.0            |

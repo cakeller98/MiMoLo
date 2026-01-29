@@ -46,7 +46,7 @@ We do not provide TCP fallback because it would compromise the core design princ
 
 # MiMoLo IPC Architecture and Platform Requirements
 
-Field-Agent ↔ Orchestrator: Agent JLP (stdin/stdout subprocess pipes)
+Agent ↔ Orchestrator: Agent JLP (stdin/stdout subprocess pipes)
   - Zero overhead
   - Scales to 1000s of agents
   - Already implemented
@@ -70,3 +70,4 @@ Platform Requirements:
   ❌ NO support for old platforms*
 
 * If you need to support legacy platforms (e.g., Windows 7/8, old macOS), see the SLOWPOKE module as a last-resort fallback option. It will function but with significant performance degradation and limitations.
+

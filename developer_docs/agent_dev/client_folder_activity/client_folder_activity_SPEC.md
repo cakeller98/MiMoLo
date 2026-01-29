@@ -1,8 +1,8 @@
-# Client Folder Activity Field-Agent Spec
+# Client Folder Activity Agent Spec
 
 > Agent: client_folder_activity
 > Version: 0.1 (draft)
-> Protocol: MiMoLo Field-Agent Protocol v0.3 (see AGENT_PROTOCOL_SPEC.md)
+> Protocol: MiMoLo Agent Protocol v0.3 (see AGENT_PROTOCOL_SPEC.md)
 
 ## Purpose
 Tracks file activity within a client folder to attribute work to a client/project. Multiple instances can run concurrently, one per client.
@@ -60,3 +60,4 @@ args = [
 ]
 heartbeat_interval_s = 30.0
 agent_flush_interval_s = 120.0
+

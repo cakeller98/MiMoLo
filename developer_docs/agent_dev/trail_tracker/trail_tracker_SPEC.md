@@ -1,8 +1,8 @@
-# Trail Tracker Field-Agent Spec
+# Trail Tracker Agent Spec
 
 > Agent: trail_tracker
 > Version: 0.1 (draft)
-> Protocol: MiMoLo Field-Agent Protocol v0.3 (see AGENT_PROTOCOL_SPEC.md)
+> Protocol: MiMoLo Agent Protocol v0.3 (see AGENT_PROTOCOL_SPEC.md)
 
 ## Purpose
 Monitors the PTC Creo trail folder for activity and emits debounced activity pings with low-resolution screenshots. Trail file writes indicate user interaction with Creo.
@@ -69,3 +69,4 @@ executable = "python"
 args = ["trail_tracker.py", "--trail-folder", "C:/path/to/trail"]
 heartbeat_interval_s = 15.0
 agent_flush_interval_s = 60.0
+

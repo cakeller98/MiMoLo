@@ -110,7 +110,7 @@ Successfully implemented a comprehensive Agent JLP-based logging infrastructure 
 
 ```
 ┌─────────────────┐
-│  Field-Agent    │
+│  Agent    │
 │                 │
 │  logger.info()  │──┐
 │  logger.error() │  │
@@ -138,7 +138,7 @@ Successfully implemented a comprehensive Agent JLP-based logging infrastructure 
 
 ### Logging Strategy
 
-1. **Field-Agents:** Use `AgentLogger` → sends log packets via Agent JLP
+1. **Agents:** Use `AgentLogger` → sends log packets via Agent JLP
 2. **Orchestrator:** Uses Python `logging` module with `RichHandler`
 3. **Verbosity Control:** Centralized in `mimolo.toml` config
 4. **Output:** All logs flow through orchestrator console (Rich-formatted)
@@ -195,7 +195,7 @@ logger.info("Batch processed", count=100, duration=1.23, status="success")
 
 ## Usage for Developers
 
-### In Field-Agents
+### In Agents
 
 ```python
 from mimolo.core.agent_logging import AgentLogger
@@ -334,7 +334,7 @@ poetry run mimolo monitor
 3. ✅ Orchestrator receives and renders logs with Rich formatting
 4. ✅ Verbosity filtering works at orchestrator level
 5. ✅ print() statements replaced in orchestrator code
-6. ✅ Field-agents use Agent JLP logging, not stderr
+6. ✅ Agents use Agent JLP logging, not stderr
 7. ✅ Backward compatibility maintained (protocol messages preserved)
 8. ✅ Code compiles and syntax-checks pass
 9. ✅ Documentation and examples provided
@@ -351,4 +351,5 @@ The implementation is production-ready pending full integration testing with dep
 **Date:** 2025-01-11
 **Implementation Status:** ✅ Complete
 **Ready for:** Integration testing with live orchestrator + agents
+
 

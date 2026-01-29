@@ -2,7 +2,7 @@
 
 MiMoLo enforces lightweight, predictable behavior across all components to guarantee scalability, stability, and zero interference with user workloads.  
 Its agents are designed to be *polite citizens*—able to observe and report continuously without ever consuming noticeable resources.  
-These limits ensure the system remains deterministic and safe even when hundreds or thousands of Field-Agents operate concurrently.
+These limits ensure the system remains deterministic and safe even when hundreds or thousands of Agents operate concurrently.
 
 ---
 

@@ -8,8 +8,8 @@
 ---
 
 > **⚠️ Architectural Notice**  
-> Beginning with **MiMoLo v0.3**, the only supported plugin model is the **asynchronous Field-Agent architecture**.  
-> All development must target **Field-Agent** standards.
+> Beginning with **MiMoLo v0.3**, the only supported plugin model is the **asynchronous Agent architecture** (formerly “Field-Agent”).  
+> All development must target **Agent** standards.
 
 ---
 
@@ -28,10 +28,10 @@ The orchestrator (the “collector”) aggregates these events into human-readab
 
 ---
 
-## 2  Field-Agent Architecture (v0.3+)
+## 2  Agent Architecture (v0.3+)
 
 ### 2.1 Philosophy
-Field-Agents are **self-contained executables**.  
+Agents are **self-contained executables**.  
 They may be written in Python, Node.js, Go, Rust — any language — as long as they:
 
 - Read **commands** from **stdin** (Agent JLP)  
@@ -93,7 +93,7 @@ Your agent could:
 
 ## 3  Adaptive and Self-Healing Agents
 
-A professional-grade Field-Agent is **self-monitoring**:
+A professional-grade Agent is **self-monitoring**:
 
 ### 3.1 Dynamic Self-Tuning
 - Track queue size, flush latency, CPU usage.  
@@ -183,11 +183,11 @@ Even this whimsical plugin is valid *if* it:
 ## 8  Summary
 
 MiMoLo v0.3+ defines a **polite, asynchronous, self-aware ecosystem** of modular monitors.  
-Each Field-Agent is expected to:
+Each Agent is expected to:
 
 > *Observe lightly, report cleanly, adapt gracefully, and never steal headroom.*
 
-MiMoLo v0.3+ is a **Field-Agent-only** ecosystem.
+MiMoLo v0.3+ is a **Agent-only** ecosystem.
 
 ## 9  Documentation Map
 
@@ -205,3 +205,4 @@ For implementation details, see:
 ---
 
 **Note**: Legacy synchronous plugins are not supported in v0.3+.
+
