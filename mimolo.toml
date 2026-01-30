@@ -17,10 +17,10 @@
   # Console verbosity: debug, info, warning, error
   console_verbosity = "debug"
 
-# Field-Agent Configuration
+# Agent Configuration
 [plugins.agent_template]
   enabled = true
-  plugin_type = "field_agent"
+  plugin_type = "agent"
   executable = "poetry"
   args = ["run", "python", "agent_template/agent_template.py"]
   heartbeat_interval_s = 15.0
@@ -29,7 +29,7 @@
 
 [plugins.agent_example]
   enabled = true
-  plugin_type = "field_agent"
+  plugin_type = "agent"
   executable = "poetry"
   args = ["run", "python", "agent_example/agent_example.py"]
   heartbeat_interval_s = 5.0
@@ -38,7 +38,7 @@
 
 [plugins.scheming_agent]
   enabled = true
-  plugin_type = "field_agent"
+  plugin_type = "agent"
   executable = "poetry"
   args = ["run", "python", "agent_template/agent_template.py"]
   heartbeat_interval_s = 15.0

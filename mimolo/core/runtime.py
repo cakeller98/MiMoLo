@@ -2,7 +2,7 @@
 
 The orchestrator:
 - Loads configuration
-- Spawns and manages Field-Agent processes
+- Spawns and manages Agent processes
 - Runs main event loop
 - Handles agent JLP messages (heartbeats, summaries, logs)
 - Sends flush commands to agents
@@ -56,7 +56,7 @@ class Runtime:
         self._tick_count = 0
         self._shutting_down = False
 
-        # Field-Agent support
+        # Agent support
         from mimolo.core.agent_process import AgentProcessManager
 
         self.agent_manager = AgentProcessManager(config)
@@ -66,7 +66,7 @@ class Runtime:
         self._shutdown_phase: dict[str, str] = {}
 
     def _start_agents(self) -> None:
-        """Spawn Field-Agent plugins from config."""
+        """Spawn Agent plugins from config."""
         if self._agents_started:
             return
         self._agents_started = True
@@ -86,7 +86,7 @@ class Runtime:
                     from mimolo.core.agent_debug import open_tail_window
 
                     open_tail_window(handle.stderr_log)
-                self.console.print(f"[green]Spawned Field-Agent: {label}[/green]")
+                self.console.print(f"[green]Spawned Agent: {label}[/green]")
             except Exception as e:
                 self.console.print(f"[red]Failed to spawn agent {label}: {e}[/red]")
                 import traceback
@@ -106,11 +106,11 @@ class Runtime:
         self.console.print(f"Poll tick: {self.config.monitor.poll_tick_ms}ms")
 
         agent_count = len(self.agent_manager.agents)
-        self.console.print(f"Field-Agents: {agent_count}")
+        self.console.print(f"Agents: {agent_count}")
         self.console.print()
 
         if agent_count == 0:
-            self.console.print("[yellow]No Field-Agents configured. Nothing to monitor.[/yellow]")
+            self.console.print("[yellow]No Agents configured. Nothing to monitor.[/yellow]")
             return
 
         try:
@@ -177,13 +177,13 @@ class Runtime:
         if self.cooldown.check_expiration(now):
             self._close_segment()
 
-        # Poll Field-Agent messages
+        # Poll Agent messages
         from mimolo.core.protocol import CommandType, OrchestratorCommand
 
         for label, handle in list(self.agent_manager.agents.items()):
             # Check if it's time to send flush command
             plugin_config = self.config.plugins.get(label)
-            if plugin_config and plugin_config.plugin_type == "field_agent":
+            if plugin_config and plugin_config.plugin_type == "agent":
                 last_flush = self.agent_last_flush.get(label)
                 flush_interval = plugin_config.agent_flush_interval_s
 
@@ -244,9 +244,9 @@ class Runtime:
         return timestamp
 
     def _handle_agent_summary(self, label: str, msg: object) -> None:
-        """Write Field-Agent summary directly to file.
+        """Write Agent summary directly to file.
 
-        Field-Agents pre-aggregate their own data, so we don't re-aggregate.
+        Agents pre-aggregate their own data, so we don't re-aggregate.
         Just log the summary event directly.
 
         Args:
@@ -289,7 +289,7 @@ class Runtime:
             self.console.print(f"[red]Error handling agent summary {label}: {e}[/red]")
 
     def _handle_heartbeat(self, label: str, msg: object) -> None:
-        """Handle a heartbeat message from a Field-Agent.
+        """Handle a heartbeat message from a Agent.
 
         Updates agent health state and optionally logs to console.
         Heartbeats are NOT written to file - they're for health monitoring only.
@@ -319,7 +319,7 @@ class Runtime:
             self.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
 
     def _handle_agent_log(self, label: str, msg: object) -> None:
-        """Handle a structured log message from a Field-Agent.
+        """Handle a structured log message from a Agent.
 
         Log messages flow through Agent JLP and are rendered on the
         orchestrator console with Rich formatting. The orchestrator respects
@@ -394,7 +394,7 @@ class Runtime:
             )
 
     def _flush_all_agents(self) -> None:
-        """Send flush command to all active Field-Agents."""
+        """Send flush command to all active Agents."""
         from mimolo.core.protocol import CommandType, OrchestratorCommand
 
         flush_cmd = OrchestratorCommand(cmd=CommandType.FLUSH)
@@ -409,9 +409,9 @@ class Runtime:
     def _close_segment(self) -> None:
         """Close current segment and flush all agents.
 
-        Field-Agents handle their own aggregation, so this just sends flush commands.
+        Agents handle their own aggregation, so this just sends flush commands.
         """
-        # Send flush command to all Field-Agents
+        # Send flush command to all Agents
         self._flush_all_agents()
 
         # Close cooldown segment
@@ -479,7 +479,7 @@ class Runtime:
 
         # Announce shutdown wait before sending sequence to avoid confusing ordering.
         self.console.print(
-            "[yellow]Waiting for Field-Agent processes to exit...[/yellow]"
+            "[yellow]Waiting for Agent processes to exit...[/yellow]"
         )
 
         agents_in_shutdown = set(self.agent_manager.agents.keys())

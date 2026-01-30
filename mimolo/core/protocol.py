@@ -1,4 +1,4 @@
-"""Field-Agent protocol message types and validation."""
+"""Agent protocol message types and validation."""
 
 from __future__ import annotations
 

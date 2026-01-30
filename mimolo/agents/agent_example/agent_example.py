@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example Field-Agent demonstrating the v0.3 protocol.
+"""Example Agent demonstrating the v0.3 protocol.
 
 This agent generates synthetic events with fake items and aggregates them internally.
 When flushed, it returns a summary with item counts.
@@ -23,7 +23,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 # Local application imports (alphabetical within group)
-from mimolo.field_agents.base_agent import BaseFieldAgent
+from mimolo.agents.base_agent import BaseAgent
 
 # =============================================================================
 # CUSTOMIZE THESE VALUES FOR YOUR AGENT
@@ -39,8 +39,8 @@ MIN_APP_VERSION = "0.3.0"
 DEBUG_MODE = True  # Shows rich debugging output to stderr
 
 
-class AgentExample(BaseFieldAgent):
-    """Field-Agent that generates synthetic monitoring events."""
+class AgentExample(BaseAgent):
+    """Agent that generates synthetic monitoring events."""
 
     def __init__(
         self,

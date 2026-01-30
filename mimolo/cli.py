@@ -13,12 +13,12 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated
 
 import typer
 from rich.console import Console
 
-from mimolo.core.config import Config, load_config_or_default
+from mimolo.core.config import load_config_or_default
 from mimolo.core.errors import ConfigError
 from mimolo.core.event import Event
 from mimolo.core.ipc import check_platform_support
@@ -104,11 +104,11 @@ def monitor(
             console.print(json.dumps(config.model_dump(), indent=2))
             return
 
-        # Check for Field-Agent plugins in config
-        field_agent_count = sum(1 for pc in config.plugins.values() if pc.enabled and pc.plugin_type == "field_agent")
+        # Check for Agent plugins in config
+        agent_count = sum(1 for pc in config.plugins.values() if pc.enabled and pc.plugin_type == "agent")
 
-        if field_agent_count == 0:
-            console.print("[red]No Field-Agents configured. Nothing to monitor.[/red]")
+        if agent_count == 0:
+            console.print("[red]No Agents configured. Nothing to monitor.[/red]")
             sys.exit(1)
 
         # Create and run runtime

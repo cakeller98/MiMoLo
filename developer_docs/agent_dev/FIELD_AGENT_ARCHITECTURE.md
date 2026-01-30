@@ -97,9 +97,9 @@ Orchestrator → Logs error to console
 ### Agent Plugin Config
 
 ```toml
-[plugins.my_field_agent]
+[plugins.my_agent]
 enabled = true
-plugin_type = "field_agent"           # Required
+plugin_type = "agent"           # Required
 executable = "python"                 # Command to execute
 args = ["agents/my_agent.py"]         # Arguments passed to executable
 heartbeat_interval_s = 15.0           # How often agent sends heartbeat
@@ -111,7 +111,7 @@ agent_flush_interval_s = 60.0         # How often orchestrator sends flush
 ### Orchestrator Startup
 1. Load config
 2. For each plugin:
-   - If `plugin_type == "field_agent"` → spawn subprocess via `agent_manager.spawn_agent()`
+   - If `plugin_type == "agent"` → spawn subprocess via `agent_manager.spawn_agent()`
 3. Start main event loop
 
 ### During Operation

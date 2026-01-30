@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 import pytest
@@ -13,9 +12,9 @@ class DummyPluginConfig:
 
 
 def test_spawn_agent_rejects_path_traversal(tmp_path) -> None:
-    # Create a file outside field_agents to ensure exists() would be true
-    field_agents_root = Path(__file__).resolve().parents[1] / "mimolo" / "field_agents"
-    outside_path = (field_agents_root / ".." / "evil.py").resolve()
+    # Create a file outside agents to ensure exists() would be true
+    agents_root = Path(__file__).resolve().parents[1] / "mimolo" / "agents"
+    outside_path = (agents_root / ".." / "evil.py").resolve()
     outside_path.write_text("# test\n", encoding="utf-8")
 
     try:
@@ -29,5 +28,5 @@ def test_spawn_agent_rejects_path_traversal(tmp_path) -> None:
         except FileNotFoundError:
             pass
 
-    # Ensure we did not accidentally create or resolve inside field_agents
-    assert not (field_agents_root / "evil.py").exists()
+    # Ensure we did not accidentally create or resolve inside agents
+    assert not (agents_root / "evil.py").exists()

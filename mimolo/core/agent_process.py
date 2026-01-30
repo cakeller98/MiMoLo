@@ -1,4 +1,4 @@
-"""Field-Agent subprocess management and communication."""
+"""Agent subprocess management and communication."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AgentHandle:
-    """Runtime handle for a Field-Agent subprocess."""
+    """Runtime handle for a Agent subprocess."""
 
     label: str
     process: subprocess.Popen[str]
@@ -162,7 +162,7 @@ class AgentHandle:
 
 
 class AgentProcessManager:
-    """Spawns and manages Field-Agent subprocesses."""
+    """Spawns and manages Agent subprocesses."""
 
     def __init__(self, config: Any):  # Config type
         """Initialize manager.
@@ -174,7 +174,7 @@ class AgentProcessManager:
         self.agents: dict[str, AgentHandle] = {}
 
     def spawn_agent(self, label: str, plugin_config: Any) -> AgentHandle:
-        """Spawn a Field-Agent subprocess.
+        """Spawn a Agent subprocess.
 
         Args:
             label: Plugin label
@@ -183,19 +183,19 @@ class AgentProcessManager:
         Returns:
             AgentHandle for managing the subprocess
         """
-        # Resolve agent script path - only allow from field_agents directory
+        # Resolve agent script path - only allow from agents directory
         args_with_resolved_path: list[str] = []
         for arg in plugin_config.args:
             if arg.endswith(".py"):
-                # Resolve within field_agents
-                field_agents_root = Path(__file__).parent.parent / "field_agents"
-                field_agents_path = (field_agents_root / arg).resolve()
+                # Resolve within agents
+                agents_root = Path(__file__).parent.parent / "agents"
+                agents_path = (agents_root / arg).resolve()
 
-                if field_agents_path.exists() and field_agents_path.is_relative_to(field_agents_root.resolve()):
-                    args_with_resolved_path.append(str(field_agents_path))
+                if agents_path.exists() and agents_path.is_relative_to(agents_root.resolve()):
+                    args_with_resolved_path.append(str(agents_path))
                 else:
                     raise FileNotFoundError(
-                        f"Field-Agent script not found: {arg} (searched field_agents)"
+                        f"Agent script not found: {arg} (searched agents)"
                     )
             else:
                 args_with_resolved_path.append(arg)

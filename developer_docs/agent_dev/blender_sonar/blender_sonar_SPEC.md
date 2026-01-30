@@ -46,7 +46,7 @@ Store artifacts in the per-user app data directory:
 ## Config Example (mimolo.toml)
 [plugins.blender_sonar]
 enabled = true
-plugin_type = "field_agent"
+plugin_type = "agent"
 executable = "blender"
 args = ["--background", "--python", "blender_sonar.py"]
 heartbeat_interval_s = 15.0

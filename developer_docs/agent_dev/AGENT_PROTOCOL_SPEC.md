@@ -1,4 +1,4 @@
-# MiMoLo Agent Protocol Specification (formerly Field-Agent)
+# MiMoLo Agent Protocol Specification (formerly Agent)
 
 > **Protocol Version:** 0.3  
 > **Status:** Current (since MiMoLo v0.3.0)  
@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-**MiMoLo-LSP-lite** defines the lightweight, language-agnostic communication protocol between the **MiMoLo Orchestrator** (collector) and its **Agent** subprocesses (formerly Field-Agent).
+**MiMoLo-LSP-lite** defines the lightweight, language-agnostic communication protocol between the **MiMoLo Orchestrator** (collector) and its **Agent** subprocesses (formerly Agent).
 
 It provides:
 

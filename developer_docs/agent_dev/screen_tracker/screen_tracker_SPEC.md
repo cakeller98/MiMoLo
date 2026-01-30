@@ -42,7 +42,7 @@ Store artifacts in the per-user app data directory:
 ## Config Example (mimolo.toml)
 [plugins.screen_tracker]
 enabled = true
-plugin_type = "field_agent"
+plugin_type = "agent"
 executable = "python"
 args = ["screen_tracker.py", "--interval", "60"]
 heartbeat_interval_s = 30.0

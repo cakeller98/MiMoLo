@@ -8,7 +8,7 @@
 ---
 
 > **⚠️ Architectural Notice**  
-> Beginning with **MiMoLo v0.3**, the only supported plugin model is the **asynchronous Agent architecture** (formerly “Field-Agent”).  
+> Beginning with **MiMoLo v0.3**, the only supported plugin model is the **asynchronous Agent architecture** (formerly “Agent”).  
 > All development must target **Agent** standards.
 
 ---
@@ -199,7 +199,7 @@ For implementation details, see:
 - **Architectural Deep-Dive**: `developer_docs/1_Core_Overview.md` through `8_Future_Roadmap_and_Summary.md`  
   Comprehensive conceptual framework covering design philosophy, data flow, and constraints.
 
-- **Working Examples**: `mimolo/field_agents/`  
+- **Working Examples**: `mimolo/agents/`  
   Reference implementations including `agent_template.py` (starter scaffold).
 
 ---

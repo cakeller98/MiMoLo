@@ -35,7 +35,7 @@ class PluginConfig(BaseModel):
     enabled: bool = True
     
     # NEW: Agent specific
-    plugin_type: Literal["field_agent"] = "field_agent"
+    plugin_type: Literal["agent"] = "agent"
     executable: str | None = None  # For Agents: python path or script
     args: list[str] = Field(default_factory=list)  # CLI args for agent
     heartbeat_interval_s: float = 15.0  # Expected heartbeat frequency
@@ -332,19 +332,19 @@ class AgentProcessManager:
 
 ---
 
-### Step 2.3: Discover and Load field_agents (`core/registry.py`)
+### Step 2.3: Discover and Load agents (`core/registry.py`)
 **Status:** Extend existing plugin discovery
 
 **Add to `PluginRegistry`:**
 ```python
-def discover_field_agents(self, field_agents_dir: Path) -> None:
-    """Discover Agent plugins in field_agents directory.
+def discover_agents(self, agents_dir: Path) -> None:
+    """Discover Agent plugins in agents directory.
     
     Args:
-        field_agents_dir: Path to field_agents directory
+        agents_dir: Path to agents directory
     """
     # Scan for agent_*.py files
-    for agent_file in field_agents_dir.glob("agent_*.py"):
+    for agent_file in agents_dir.glob("agent_*.py"):
         if agent_file.name.startswith("agent_"):
             # Extract label from filename: agent_folderwatch.py → folderwatch
             label = agent_file.stem.replace("agent_", "")
@@ -361,7 +361,7 @@ def discover_field_agents(self, field_agents_dir: Path) -> None:
 ## Phase 3: First Agent Plugins (Days 8-12)
 **Goal:** Create three working Agent examples
 
-### Step 3.1: Create BaseFieldAgent Template (`field_agents/base_agent.py`)
+### Step 3.1: Create BaseAgent Template (`agents/base_agent.py`)
 
 ```python
 """Base class for Agent plugins."""
@@ -376,7 +376,7 @@ from queue import Empty, Queue
 from typing import Any
 
 
-class BaseFieldAgent(ABC):
+class BaseAgent(ABC):
     """Base class for MiMoLo Agent plugins.
     
     Subclasses must implement:
@@ -552,7 +552,7 @@ class BaseFieldAgent(ABC):
 
 ---
 
-### Step 3.2: Port FolderWatch to Agent (`field_agents/agent_folderwatch.py`)
+### Step 3.2: Port FolderWatch to Agent (`agents/agent_folderwatch.py`)
 
 ```python
 #!/usr/bin/env python
@@ -564,10 +564,10 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from mimolo.field_agents.base_agent import BaseFieldAgent
+from mimolo.agents.base_agent import BaseAgent
 
 
-class FolderWatchAgent(BaseFieldAgent):
+class FolderWatchAgent(BaseAgent):
     """Watches folders for file modifications."""
     
     def __init__(self, watch_dirs: list[str], extensions: list[str]):
@@ -655,9 +655,9 @@ journal_dir = "./journals"
 
 [plugins.folderwatch]
 enabled = true
-plugin_type = "field_agent"
+plugin_type = "agent"
 executable = "python"
-args = ["-m", "mimolo.field_agents.agent_folderwatch", "--watch-dirs", "/projects"]
+args = ["-m", "mimolo.agents.agent_folderwatch", "--watch-dirs", "/projects"]
 ```
 
 ---
@@ -665,7 +665,7 @@ args = ["-m", "mimolo.field_agents.agent_folderwatch", "--watch-dirs", "/project
 ## Success Criteria for Phase 1-3:
 
 - [ ] `mimolo monitor` starts successfully
-- [ ] Agent plugins in `mimolo/field_agents/` spawn as subprocesses
+- [ ] Agent plugins in `mimolo/agents/` spawn as subprocesses
 - [ ] Summaries and logs appear in sinks
 - [ ] Shutdown is clean for all Agent plugins
 

@@ -29,7 +29,7 @@ def test_protocol_extension():
     assert LogLevel.INFO == "info"
     assert LogLevel.WARNING == "warning"
     assert LogLevel.ERROR == "error"
-    print(f"✓ LogLevel enum defined: {[l.value for l in LogLevel]}")
+    print(f"✓ LogLevel enum defined: {[level.value for level in LogLevel]}")
 
     # Test LogMessage model
     msg = LogMessage(

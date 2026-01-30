@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Field-Agent Template for MiMoLo v0.3+
+"""Agent Template for MiMoLo v0.3+
 
-This template demonstrates the BaseFieldAgent hook pattern and
+This template demonstrates the BaseAgent hook pattern and
 Agent JLP-based logging that preserves Rich formatting.
 
 Key sections to modify:
@@ -49,7 +49,7 @@ To use:
 4. Configure in mimolo.toml:
    [plugins.my_agent]
    enabled = true
-   plugin_type = "field_agent"
+   plugin_type = "agent"
    executable = "python"
    args = ["my_agent.py"]
    heartbeat_interval_s = 15.0
@@ -78,9 +78,10 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 
+from mimolo.agents.base_agent import BaseAgent
+
 # Import AgentLogger for Agent JLP-based logging
 from mimolo.core.agent_logging import AgentLogger
-from mimolo.field_agents.base_agent import BaseFieldAgent
 
 # =============================================================================
 # CUSTOMIZE THESE VALUES FOR YOUR AGENT
@@ -96,12 +97,12 @@ MIN_APP_VERSION = "0.3.0"
 DEBUG_MODE = True  # Shows rich debugging output to stderr
 
 # =============================================================================
-# Field-Agent Implementation
+# Agent Implementation
 # =============================================================================
 
 
-class FieldAgentTemplate(BaseFieldAgent):
-    """Template Field-Agent showing the BaseFieldAgent hook pattern."""
+class AgentTemplate(BaseAgent):
+    """Template Agent showing the BaseAgent hook pattern."""
 
     def __init__(
         self,
@@ -254,7 +255,7 @@ class FieldAgentTemplate(BaseFieldAgent):
         return metrics
 
     def run(self) -> None:
-        """Run the agent with optional pre/post hooks around BaseFieldAgent.run()."""
+        """Run the agent with optional pre/post hooks around BaseAgent.run()."""
         if self.debug:
             self.debug.print(Panel.fit(
                 f"[bold cyan]{self.agent_label}[/bold cyan]\n"
@@ -263,15 +264,15 @@ class FieldAgentTemplate(BaseFieldAgent):
                 f"Protocol: {PROTOCOL_VERSION}\n"
                 f"Sample Interval: {self.sample_interval}s\n"
                 f"Heartbeat Interval: {self.heartbeat_interval}s",
-                title="[bold green]🚀 Field-Agent Starting[/bold green]",
+                title="[bold green]🚀 Agent Starting[/bold green]",
                 border_style="green"
             ))
 
-        # after our pre-run hook, start the BaseFieldAgent main loop
+        # after our pre-run hook, start the BaseAgent main loop
 
         super().run()
 
-        # the following runs after clean shutdown of BaseFieldAgent
+        # the following runs after clean shutdown of BaseAgent
 
         if self.debug:
             self.debug.print(Panel.fit(
@@ -293,7 +294,7 @@ def main(
 ) -> None:
     """Entry point using Typer for CLI parsing."""
 
-    agent = FieldAgentTemplate(
+    agent = AgentTemplate(
         agent_id=AGENT_ID,
         agent_label=AGENT_LABEL,
         sample_interval=sample_interval,

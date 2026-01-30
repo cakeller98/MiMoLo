@@ -1,4 +1,4 @@
-# Field-Agent Repository Layout
+# Agent Repository Layout
 
 This folder stores versioned agent zip files.
 

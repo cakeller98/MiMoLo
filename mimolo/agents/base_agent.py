@@ -1,4 +1,4 @@
-"""Base class for Field-Agent plugins (Python reference implementation)."""
+"""Base class for Agent plugins (Python reference implementation)."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from queue import Empty, Queue
 from typing import Any
 
 
-class BaseFieldAgent(ABC):
-    """Reference base class for Field-Agent plugins.
+class BaseAgent(ABC):
+    """Reference base class for Agent plugins.
 
     Subclasses implement data accumulation and summary formatting.
     """

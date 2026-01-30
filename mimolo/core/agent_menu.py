@@ -1,6 +1,6 @@
 """Interactive agent selection menu for MiMoLo orchestrator.
 
-Provides a keyboard-driven menu to view and interact with Field-Agents:
+Provides a keyboard-driven menu to view and interact with Agents:
 - Ctrl+A or 'a' command: Show agent list
 - Number keys (1-9): Select agent from current page
 - 'n'/'>': Next page
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 class AgentMenu:
-    """Interactive menu for viewing and selecting Field-Agents."""
+    """Interactive menu for viewing and selecting Agents."""
 
     def __init__(self, console: Console | None = None):
         """Initialize agent menu.
@@ -36,7 +36,7 @@ class AgentMenu:
         self.current_page = 0
 
     def show_agent_list(
-        self, agents: dict[str, "AgentHandle"], interactive: bool = False
+        self, agents: dict[str, AgentHandle], interactive: bool = False
     ) -> str | None:
         """Display list of agents with pagination.
 
@@ -64,7 +64,7 @@ class AgentMenu:
         page_agents = agent_list[start_idx:end_idx]
 
         # Build table
-        table = Table(title=f"Field-Agents (Page {self.current_page + 1}/{total_pages})")
+        table = Table(title=f"Agents (Page {self.current_page + 1}/{total_pages})")
         table.add_column("#", style="cyan", justify="right", width=3)
         table.add_column("Label", style="green", width=20)
         table.add_column("Status", style="yellow", width=10)
@@ -73,7 +73,7 @@ class AgentMenu:
 
         for idx, (label, handle) in enumerate(page_agents, start=1):
             # Calculate uptime
-            from datetime import datetime, UTC
+            from datetime import UTC, datetime
 
             uptime = datetime.now(UTC) - handle.started_at
             uptime_str = self._format_duration(uptime.total_seconds())
@@ -130,12 +130,12 @@ class AgentMenu:
 
         return None
 
-    def next_page(self, agents: dict[str, "AgentHandle"]) -> None:
+    def next_page(self, agents: dict[str, AgentHandle]) -> None:
         """Navigate to next page (wraps to first page after last)."""
         total_pages = math.ceil(len(agents) / self.page_size)
         self.current_page = (self.current_page + 1) % total_pages
 
-    def prev_page(self, agents: dict[str, "AgentHandle"]) -> None:
+    def prev_page(self, agents: dict[str, AgentHandle]) -> None:
         """Navigate to previous page (wraps to last page before first)."""
         total_pages = math.ceil(len(agents) / self.page_size)
         self.current_page = (self.current_page - 1) % total_pages
@@ -161,7 +161,7 @@ class AgentMenu:
             return f"{hours}h {mins}m"
 
 
-def format_agent_list_compact(agents: dict[str, "AgentHandle"]) -> str:
+def format_agent_list_compact(agents: dict[str, AgentHandle]) -> str:
     """Format agent list as compact string for status display.
 
     Args:

@@ -10,7 +10,7 @@ while keeping the docs consistent going forward.
 - **Orchestrator** → **Operations** (future rename; not implemented yet)
 
 ## Notes
-- **Code identifiers** remain unchanged for now (e.g., `field_agent` in config).
+- **Code identifiers** remain unchanged for now (e.g., `agent` in config).
 - **Docs/UI** should use the current terms above, and mention deprecated terms
   once when introducing a concept.
 

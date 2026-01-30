@@ -18,7 +18,7 @@ from mimolo.core.errors import ConfigError
 class MonitorConfig(BaseModel):
     """Monitor runtime configuration."""
 
-    # NEW: Field-Agent support
+    # NEW: Agent support
     journal_dir: str = "./journals"  # Event stream storage
     cache_dir: str = "./cache"  # Agent state cache
     main_system_max_cpu_per_plugin: float = 0.1  # CPU limit per agent
@@ -44,15 +44,15 @@ class MonitorConfig(BaseModel):
 
 
 class PluginConfig(BaseModel):
-    """Per-plugin configuration (Field-Agent only)."""
+    """Per-plugin configuration (Agent only)."""
 
     enabled: bool = Field(default=True)
 
     # Plugin-specific fields (stored as extra)
     model_config = {"extra": "allow"}
 
-    # Field-Agent specific
-    plugin_type: Literal["field_agent"] = "field_agent"
+    # Agent specific
+    plugin_type: Literal["agent"] = "agent"
     executable: str | None = None  # Python path or executable
     args: list[str] = Field(default_factory=list)  # CLI args for agent
     heartbeat_interval_s: float = Field(default=15.0)  # Expected heartbeat frequency

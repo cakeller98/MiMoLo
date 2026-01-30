@@ -18,7 +18,7 @@ npm run start
 
 ## Release Pack Agent
 
-Builds a versioned zip from a field-agent folder that contains a build manifest.
+Builds a versioned zip from a agent folder that contains a build manifest.
 
 ```bash
 npm run build

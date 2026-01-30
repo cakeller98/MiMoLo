@@ -1,6 +1,6 @@
-"""Logging helper for Field-Agents that sends structured log packets via Agent JLP.
+"""Logging helper for Agents that sends structured log packets via Agent JLP.
 
-This module provides AgentLogger, which allows Field-Agents to emit structured
+This module provides AgentLogger, which allows Agents to emit structured
 log messages that are routed through the orchestrator and rendered with Rich
 formatting on the orchestrator console.
 
@@ -11,7 +11,7 @@ Key features:
 - Works across process boundaries and in separate terminals
 - Simple, familiar logging API
 
-Example usage in a Field-Agent:
+Example usage in a Agent:
     from mimolo.core.agent_logging import AgentLogger
 
     logger = AgentLogger(agent_id="my_agent-001", agent_label="my_agent")
@@ -31,7 +31,7 @@ from typing import Any
 
 
 class AgentLogger:
-    """Logger for Field-Agents that sends structured log packets via stdout protocol.
+    """Logger for Agents that sends structured log packets via stdout protocol.
 
     This logger emits JSON log messages on stdout that are parsed by the orchestrator
     and rendered with Rich console formatting. Log messages can contain Rich markup

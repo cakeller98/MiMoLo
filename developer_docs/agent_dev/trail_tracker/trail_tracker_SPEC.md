@@ -64,7 +64,7 @@ Store artifacts in the per-user app data directory:
 ## Config Example (mimolo.toml)
 [plugins.trail_tracker]
 enabled = true
-plugin_type = "field_agent"
+plugin_type = "agent"
 executable = "python"
 args = ["trail_tracker.py", "--trail-folder", "C:/path/to/trail"]
 heartbeat_interval_s = 15.0

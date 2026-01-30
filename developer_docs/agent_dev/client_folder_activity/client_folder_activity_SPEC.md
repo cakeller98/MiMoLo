@@ -50,7 +50,7 @@ store them in the per-user app data directory:
 ## Config Example (mimolo.toml)
 [plugins.client_acme]
 enabled = true
-plugin_type = "field_agent"
+plugin_type = "agent"
 executable = "python"
 args = [
   "client_folder_activity.py",

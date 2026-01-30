@@ -79,7 +79,7 @@ class BaseMonitor(ABC):
 **Impact:** Every plugin must be rewritten as a Agent subprocess.
 
 **Migration Path:**
-1. Create `BaseFieldAgent` class with Agent JLP
+1. Create `BaseAgent` class with Agent JLP
 2. Create legacy adapter that wraps v0.2 plugins in Agent interface
 3. Rewrite plugins one-by-one as true Agents
 
@@ -231,7 +231,7 @@ class BaseMonitor(ABC):
 
 1. **Create `core/protocol.py`:**
    ```python
-   class FieldAgentProtocol:
+   class AgentProtocol:
        """Handles Agent JLP communication with Agents."""
        
        def __init__(self, process: subprocess.Popen):
@@ -258,10 +258,10 @@ class BaseMonitor(ABC):
 
 2. **Create `core/agent_manager.py`:**
    ```python
-   class FieldAgentManager:
+   class AgentManager:
        """Manages Agent subprocess lifecycle."""
        
-       def spawn_agent(self, config: PluginConfig) -> FieldAgentHandle:
+       def spawn_agent(self, config: PluginConfig) -> AgentHandle:
            """Spawn agent as subprocess."""
            proc = subprocess.Popen(
                [config.executable, *config.args],
@@ -271,14 +271,14 @@ class BaseMonitor(ABC):
                text=True,
                bufsize=1  # Line-buffered
            )
-           return FieldAgentHandle(proc, config)
+           return AgentHandle(proc, config)
        
-       def perform_handshake(self, handle: FieldAgentHandle) -> bool:
+       def perform_handshake(self, handle: AgentHandle) -> bool:
            """Execute handshake protocol."""
            # Read handshake message, send ack/reject
            ...
        
-       def monitor_health(self, handle: FieldAgentHandle) -> AgentHealth:
+       def monitor_health(self, handle: AgentHandle) -> AgentHealth:
            """Check heartbeat freshness."""
            ...
    ```
@@ -294,8 +294,8 @@ class BaseMonitor(ABC):
    class Orchestrator:
        def __init__(self, config: Config):
            self.config = config
-           self.agent_manager = FieldAgentManager()
-           self.agents: dict[str, FieldAgentHandle] = {}
+           self.agent_manager = AgentManager()
+           self.agents: dict[str, AgentHandle] = {}
            self.journal_writer = DailyJournalWriter(config.journal_dir)
            self.cooldown = CooldownTimer(config.cooldown_seconds)
        
@@ -383,9 +383,9 @@ class BaseMonitor(ABC):
 
 **Goal:** Convert existing plugins to Agent architecture
 
-1. **Create `BaseFieldAgent` wrapper:**
+1. **Create `BaseAgent` wrapper:**
    ```python
-   class BaseFieldAgent(ABC):
+   class BaseAgent(ABC):
        """Base class for Agent implementations."""
        
        def __init__(self):
@@ -453,7 +453,7 @@ class BaseMonitor(ABC):
 2. **Convert existing plugins:**
    ```python
    # Example: FolderWatchMonitor → FolderWatchAgent
-   class FolderWatchAgent(BaseFieldAgent):
+   class FolderWatchAgent(BaseAgent):
        def __init__(self, watch_dirs, extensions):
            super().__init__()
            self.watch_dirs = watch_dirs
@@ -509,7 +509,7 @@ class BaseMonitor(ABC):
 - [ ] Delete `core/aggregate.py` (obsolete)
 
 ### Plugin Migration (Week 3-4)
-- [ ] Create `BaseFieldAgent` class
+- [ ] Create `BaseAgent` class
 - [ ] Convert FolderWatchMonitor → FolderWatchAgent
 - [ ] Convert ExampleMonitor → ExampleAgent
 - [ ] Build Creo Trail Watcher, Screenshot plugins (new)

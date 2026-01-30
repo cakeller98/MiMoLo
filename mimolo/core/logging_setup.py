@@ -1,7 +1,7 @@
 """Logging configuration for the MiMoLo orchestrator process.
 
 This module provides logging setup for the orchestrator (runtime) process
-itself, NOT for Field-Agents. Field-Agents use the AgentLogger which sends
+itself, NOT for Agents. Agents use the AgentLogger which sends
 structured log packets via Agent JLP.
 
 The orchestrator logging is used for:
@@ -16,7 +16,6 @@ All orchestrator logs are written to stderr with Rich formatting.
 from __future__ import annotations
 
 import logging
-import sys
 from typing import Literal
 
 from rich.logging import RichHandler
@@ -32,7 +31,7 @@ def setup_logging(
     Sets up logging with Rich handler for colorful stderr output. The verbosity
     level controls what orchestrator-internal logs are displayed.
 
-    Note: This does NOT affect Field-Agent logging, which flows through the
+    Note: This does NOT affect Agent logging, which flows through the
     Agent JLP via AgentLogger.
 
     Args:

@@ -28,7 +28,7 @@ Successfully removed all legacy plugin code from the MiMoLo codebase.
 
 ### config.py
 - Removed legacy plugin fields: poll_interval_s, resets_cooldown, infrequent
-- Changed plugin_type to only accept "field_agent" (removed "legacy")
+- Changed plugin_type to only accept "agent" (removed "legacy")
 - Added launch_in_separate_terminal field
 
 ### mimolo.toml

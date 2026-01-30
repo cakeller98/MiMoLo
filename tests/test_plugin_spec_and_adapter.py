@@ -2,10 +2,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from mimolo.core.plugin_adapter import LegacyPluginAdapter
 
 from mimolo.core.event import Event
 from mimolo.core.plugin import BaseMonitor, PluginSpec
-from mimolo.core.plugin_adapter import LegacyPluginAdapter
 
 
 def test_plugin_spec_validation() -> None:
