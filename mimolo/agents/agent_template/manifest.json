@@ -1,7 +1,0 @@
-{
-  "plugin_id": "agent_template",
-  "name": "Agent Template",
-  "version": "0.2.0",
-  "entry": "files/agent_template.py",
-  "params": []
-}
