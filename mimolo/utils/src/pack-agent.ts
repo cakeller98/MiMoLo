@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
 import toml from "toml";
 import semver from "semver";
 
@@ -298,6 +299,18 @@ function formatTimestamp(date: Date = new Date()): string {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
+async function readPackageVersion(): Promise<string> {
+  try {
+    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+    const pkgPath = path.resolve(moduleDir, "..", "package.json");
+    const raw = await fs.readFile(pkgPath, "utf8");
+    const data = JSON.parse(raw) as { version?: string };
+    return typeof data.version === "string" ? data.version : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 async function resolveDefaultSourcesCandidates(): Promise<string[]> {
   const candidates: string[] = [];
   const localList = path.resolve(process.cwd(), "sources.json");
@@ -426,10 +439,6 @@ async function processSourceList(args: ArgMap): Promise<void> {
   let skippedCount = 0;
   let backupWritten = false;
   const sourcesCreated = args.sourcesCreated ?? false;
-  const startedAt = formatTimestamp();
-  console.log("");
-  console.log(`started: ${startedAt}`);
-  console.log("");
   console.log("building agent packs:");
 
   for (let i = 0; i < updated.length; i += 1) {
@@ -508,7 +517,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
     await fs.mkdir(outDir, { recursive: true });
 
     const bmForBuild: BuildManifest = { ...bm, version: buildVersion };
-    if (args.release || args.prerelease) {
+    if (bmForBuild.version !== bm.version) {
       const updatedToml = [
         `plugin_id = \"${bmForBuild.plugin_id}\"`,
         `name = \"${bmForBuild.name}\"`,
@@ -634,6 +643,11 @@ async function main(): Promise<void> {
     console.error("use either --source or --source-list, not both");
     process.exit(1);
   }
+  const version = await readPackageVersion();
+  console.log("");
+  console.log(`Pack Agent v${version}`);
+  console.log(`started: ${formatTimestamp()}`);
+  console.log("");
   if (!args.source && !args.sourceList && !args.createSourceList) {
     defaultCandidates = await resolveDefaultSourcesCandidates();
     if (defaultCandidates.length > 0) {
