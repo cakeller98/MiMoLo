@@ -411,7 +411,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
   let updatedSources = false;
   let hadErrors = false;
   console.log("");
-  console.log("building any missing agent packs:");
+  console.log("building agent packs:");
 
   for (let i = 0; i < updated.length; i += 1) {
     const entry = updated[i];
@@ -468,7 +468,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
     if (repoVer && semver.gt(repoVer, desiredVersion)) {
       desiredVersion = repoVer;
       console.log(
-        `    [${entry.id}] repository version ${repoVer} supersedes build version`
+        `    [${entry.id}] repository version ${repoVer} supersedes build version (skipped)`
       );
     }
     if (entry.ver !== desiredVersion) {
@@ -477,9 +477,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
     }
 
     if (repoVer && semver.gte(repoVer, buildVersion)) {
-      console.log(
-        `    [${entry.id}] ${repoVer} already exists in repository, skipping build`
-      );
+      console.log(`    [${entry.id}] ${repoVer} already exists in repository (skipped)`);
       continue;
     }
 
@@ -510,7 +508,9 @@ async function processSourceList(args: ArgMap): Promise<void> {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
 
-    console.log(`    [${entry.id}] packed ${bmForBuild.plugin_id} v${bmForBuild.version}`);
+    console.log(
+      `    [${entry.id}] packed ${bmForBuild.plugin_id} v${bmForBuild.version} (packed)`
+    );
     if (entry.ver !== bmForBuild.version) {
       entry.ver = bmForBuild.version;
       updatedSources = true;
@@ -611,7 +611,7 @@ async function main(): Promise<void> {
   }
   if (args.createSourceList) {
     if (!args.source) {
-      console.error("usage: release-pack-agent --source <agents_dir> --create-source-list");
+      console.error("usage: pack-agent --source <agents_dir> --create-source-list");
       process.exit(1);
     }
     const agentRoot = path.resolve(args.source);
@@ -626,7 +626,7 @@ async function main(): Promise<void> {
 
   if (!args.source) {
     console.error(
-      "usage: release-pack-agent --source <agent_dir> | --source-list <sources.json> [--out <out_dir>] [--major|--minor|--patch] [--alpha|--beta|--rc]"
+      "usage: pack-agent --source <agent_dir> | --source-list <sources.json> [--out <out_dir>] [--major|--minor|--patch] [--alpha|--beta|--rc]"
     );
     process.exit(1);
   }

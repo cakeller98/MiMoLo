@@ -9,8 +9,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "release-pack-agent": "node dist/release-pack-agent.js",
-    "release-pack-agent:tsx": "tsx src/release-pack-agent.ts"
+    "pack-agent": "node dist/pack-agent.js",
+    "pack-agent:tsx": "tsx src/pack-agent.ts"
   },
   "devDependencies": {
     "@types/archiver": "^7.0.0",

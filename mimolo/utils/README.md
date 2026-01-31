@@ -16,7 +16,7 @@ npm run build
 npm run start
 ```
 
-## Release Pack Agent
+## Pack Agent
 
 Builds a versioned zip from a agent folder that contains a build manifest.
 
@@ -25,14 +25,14 @@ Run with a build step (type-checked):
 ```bash
 npm install
 npm run build
-node dist/release-pack-agent.js --source <agent_dir> [--out <out_dir>]
+node dist/pack-agent.js --source <agent_dir> [--out <out_dir>]
 ```
 
 Development only (no type check):
 
 ```bash
 npm install
-npx tsx src/release-pack-agent.ts --source <agent_dir> [--out <out_dir>]
+npx tsx src/pack-agent.ts --source <agent_dir> [--out <out_dir>]
 ```
 
 `npx tsx` runs TypeScript directly without type checking, so prefer the build path above for strictness.
@@ -57,14 +57,14 @@ Build with a list:
 
 ```bash
 npm run build
-node dist/release-pack-agent.js --source-list sources.json [--out <out_dir>]
+node dist/pack-agent.js --source-list sources.json [--out <out_dir>]
 ```
 
 Default behavior (when `sources.json` exists in the current directory or `../agents/sources.json`):
 
 ```bash
 npm run build
-node dist/release-pack-agent.js
+node dist/pack-agent.js
 ```
 
 If no `sources.json` exists, it will prompt to create one from `../agents` and then build. Use `--silent` to auto-accept.
@@ -72,7 +72,7 @@ If no `sources.json` exists, it will prompt to create one from `../agents` and t
 Development only:
 
 ```bash
-npx tsx src/release-pack-agent.ts --source-list sources.json [--out <out_dir>]
+npx tsx src/pack-agent.ts --source-list sources.json [--out <out_dir>]
 ```
 
 Notes:
@@ -83,7 +83,7 @@ Notes:
 Create a sources list from an agents directory (skips folders without `build-manifest.toml`):
 
 ```bash
-node dist/release-pack-agent.js --source <agents_dir> --create-source-list
+node dist/pack-agent.js --source <agents_dir> --create-source-list
 ```
 
 Use `--force` to overwrite an existing `sources.json`.
