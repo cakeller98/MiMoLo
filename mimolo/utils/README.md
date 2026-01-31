@@ -18,7 +18,7 @@ npm run start
 
 ## Release Pack Agent
 
-Builds a versioned zip from a agent folder that contains a build manifest. Use tsx directly to avoid the extra build/run steps.
+Builds a versioned zip from a agent folder that contains a build manifest.
 
 Run with a build step (type-checked):
 
@@ -36,6 +36,57 @@ npx tsx src/release-pack-agent.ts --source <agent_dir> [--out <out_dir>]
 ```
 
 `npx tsx` runs TypeScript directly without type checking, so prefer the build path above for strictness.
+
+### Source list (multiple agents)
+
+Use `--source-list` with a `sources.json` file:
+
+```json
+{
+  "sources": [
+    {
+      "id": "agent_example",
+      "path": "../agents/agent_example",
+      "ver": "0.2.0"
+    }
+  ]
+}
+```
+
+Build with a list:
+
+```bash
+npm run build
+node dist/release-pack-agent.js --source-list sources.json [--out <out_dir>]
+```
+
+Default behavior (when `sources.json` exists in the current directory or `../agents/sources.json`):
+
+```bash
+npm run build
+node dist/release-pack-agent.js
+```
+
+If no `sources.json` exists, it will prompt to create one from `../agents` and then build. Use `--silent` to auto-accept.
+
+Development only:
+
+```bash
+npx tsx src/release-pack-agent.ts --source-list sources.json [--out <out_dir>]
+```
+
+Notes:
+- `ver` must be strict semver (no leading `v`).
+- `path` is resolved relative to the `sources.json` location.
+- When changes occur, `sources-v####.json` is written as a backup and `sources.json` is updated.
+
+Create a sources list from an agents directory (skips folders without `build-manifest.toml`):
+
+```bash
+node dist/release-pack-agent.js --source <agents_dir> --create-source-list
+```
+
+Use `--force` to overwrite an existing `sources.json`.
 
 ### Version bump flags
 
@@ -87,6 +138,6 @@ Output zip layout:
 ```
 
 Notes:
-- If `--out` is a relative path, it is resolved relative to `--source`.
+- If `--out` is a relative path, it is resolved relative to each agent directory.
 - If `--out` is omitted, the default is `<source>/../repository`.
 - `manifest.json` and `payload_hashes.json` are generated in a temp folder and are not retained in the source agent directory.

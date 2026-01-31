@@ -3,6 +3,7 @@ import { createWriteStream, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { createInterface } from "node:readline/promises";
 import toml from "toml";
 import semver from "semver";
 
@@ -21,6 +22,16 @@ type BuildManifest = {
   params?: ParamSpec[];
 };
 
+type SourceEntry = {
+  id: string;
+  path: string;
+  ver: string;
+};
+
+type SourcesFile = {
+  sources: SourceEntry[];
+};
+
 async function readBuildManifest(agentDir: string): Promise<BuildManifest> {
   const manifestPath = path.join(agentDir, "build-manifest.toml");
   const raw = await fs.readFile(manifestPath, "utf8");
@@ -34,6 +45,86 @@ async function readBuildManifest(agentDir: string): Promise<BuildManifest> {
 async function hashFile(absPath: string): Promise<string> {
   const buf = await fs.readFile(absPath);
   return createHash("sha256").update(buf).digest("hex");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeSemver(raw: string, label: string): string {
+  const trimmed = raw.trim();
+  const valid = semver.valid(trimmed);
+  if (!valid || semver.clean(trimmed) !== trimmed) {
+    throw new Error(`${label} must be strict semver (e.g. 1.2.3), got: ${raw}`);
+  }
+  return trimmed;
+}
+
+async function readSourcesFile(listPath: string): Promise<SourceEntry[]> {
+  const raw = await fs.readFile(listPath, "utf8");
+  const data = JSON.parse(raw) as SourcesFile;
+  if (!data || !Array.isArray(data.sources)) {
+    throw new Error("sources.json must be an object with a 'sources' array");
+  }
+  return data.sources.map((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      throw new Error(`sources[${index}] must be an object`);
+    }
+    if (typeof entry.id !== "string" || !entry.id.trim()) {
+      throw new Error(`sources[${index}].id must be a non-empty string`);
+    }
+    if (typeof entry.path !== "string" || !entry.path.trim()) {
+      throw new Error(`sources[${index}].path must be a non-empty string`);
+    }
+    if (typeof entry.ver !== "string" || !entry.ver.trim()) {
+      throw new Error(`sources[${index}].ver must be a non-empty string`);
+    }
+    return {
+      id: entry.id.trim(),
+      path: entry.path.trim(),
+      ver: entry.ver.trim()
+    };
+  });
+}
+
+async function findHighestRepoVersion(
+  outDir: string,
+  pluginId: string
+): Promise<string | null> {
+  try {
+    const items = await fs.readdir(outDir, { withFileTypes: true });
+    const pattern = new RegExp(`^${escapeRegExp(pluginId)}_v(.+)\\.zip$`);
+    const versions: string[] = [];
+    for (const item of items) {
+      if (!item.isFile()) {
+        continue;
+      }
+      const match = item.name.match(pattern);
+      if (!match) {
+        continue;
+      }
+      const ver = match[1];
+      if (semver.valid(ver) && semver.clean(ver) === ver) {
+        versions.push(ver);
+      }
+    }
+    if (versions.length === 0) {
+      return null;
+    }
+    versions.sort(semver.rcompare);
+    return versions[0];
+  } catch (err) {
+    const error = err as NodeJS.ErrnoException;
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw err;
+  }
+}
+
+function resolveOutDir(agentDir: string, out?: string): string {
+  const outDirRaw = out ?? path.join(agentDir, "..", "repository");
+  return path.isAbsolute(outDirRaw) ? outDirRaw : path.resolve(agentDir, outDirRaw);
 }
 
 async function writeManifest(outDir: string, bm: BuildManifest): Promise<string> {
@@ -107,6 +198,10 @@ async function packZip(
 
 type ArgMap = {
   source?: string;
+  sourceList?: string;
+  createSourceList?: boolean;
+  force?: boolean;
+  silent?: boolean;
   out?: string;
   release?: "major" | "minor" | "patch";
   prerelease?: "alpha" | "beta" | "rc";
@@ -121,6 +216,15 @@ function parseArgs(argv: string[]): ArgMap {
     if (arg === "--source") {
       args.source = argv[i + 1];
       i += 1;
+    } else if (arg === "--source-list") {
+      args.sourceList = argv[i + 1];
+      i += 1;
+    } else if (arg === "--create-source-list") {
+      args.createSourceList = true;
+    } else if (arg === "--force") {
+      args.force = true;
+    } else if (arg === "--silent") {
+      args.silent = true;
     } else if (arg === "--out") {
       args.out = argv[i + 1];
       i += 1;
@@ -172,25 +276,331 @@ function bumpVersion(
   return current;
 }
 
+function formatDisplayPath(targetPath: string): string {
+  const rel = path.relative(process.cwd(), targetPath);
+  if (!rel) {
+    return ".";
+  }
+  return rel;
+}
+
+async function resolveDefaultSourcesList(): Promise<string | null> {
+  const localList = path.resolve(process.cwd(), "sources.json");
+  try {
+    await fs.access(localList);
+    return localList;
+  } catch {
+    // try agents/sources.json relative to cwd
+  }
+  const agentsList = path.resolve(process.cwd(), "..", "agents", "sources.json");
+  try {
+    await fs.access(agentsList);
+    return agentsList;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveDefaultAgentsDir(): Promise<string | null> {
+  const agentsDir = path.resolve(process.cwd(), "..", "agents");
+  try {
+    const stat = await fs.stat(agentsDir);
+    return stat.isDirectory() ? agentsDir : null;
+  } catch {
+    return null;
+  }
+}
+
+async function confirmAutoCreate(agentsDir: string, silent?: boolean): Promise<boolean> {
+  if (silent) {
+    console.log("");
+    console.log("auto-creating sources.json");
+    console.log("");
+    console.log("from:");
+    console.log(`    ${formatDisplayPath(agentsDir)} (--silent)`);
+    return true;
+  }
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+  try {
+    const answer = await rl.question(
+      `sources.json not found. Create one from ${formatDisplayPath(agentsDir)}? (y/N) `
+    );
+    const normalized = answer.trim().toLowerCase();
+    const ok = normalized === "y" || normalized === "yes";
+    if (ok) {
+      console.log("");
+      console.log("auto-creating sources.json");
+      console.log("");
+      console.log("from:");
+      console.log(`    ${formatDisplayPath(agentsDir)}`);
+    } else {
+      console.log("aborting (no sources.json created)");
+    }
+    return ok;
+  } finally {
+    rl.close();
+  }
+}
+
+function nextSourcesVersionLabel(existing: string[]): string {
+  let max = 0;
+  for (const name of existing) {
+    const match = name.match(/^sources-v(\d{4})\.json$/);
+    if (!match) {
+      continue;
+    }
+    const value = Number.parseInt(match[1], 10);
+    if (value > max) {
+      max = value;
+    }
+  }
+  const next = max + 1;
+  return `sources-v${String(next).padStart(4, "0")}.json`;
+}
+
+async function writeSourcesVersioned(
+  listPath: string,
+  sources: SourceEntry[]
+): Promise<string> {
+  const dir = path.dirname(listPath);
+  const files = await fs.readdir(dir);
+  const name = nextSourcesVersionLabel(files);
+  const outPath = path.join(dir, name);
+  const payload: SourcesFile = { sources };
+  await fs.writeFile(outPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+  return outPath;
+}
+
+async function processSourceList(args: ArgMap): Promise<void> {
+  const listPath = args.sourceList ? path.resolve(args.sourceList) : "";
+  const entries = await readSourcesFile(listPath);
+  const updated: SourceEntry[] = entries.map((entry) => ({ ...entry }));
+  const listDir = path.dirname(listPath);
+  let updatedSources = false;
+  let hadErrors = false;
+  console.log("");
+  console.log("building any missing agent packs:");
+
+  for (let i = 0; i < updated.length; i += 1) {
+    const entry = updated[i];
+    const agentDir = path.resolve(listDir, entry.path);
+    try {
+      const stat = await fs.stat(agentDir);
+      if (!stat.isDirectory()) {
+        throw new Error("path is not a directory");
+      }
+    } catch (err) {
+      console.error(`[${entry.id}] missing path: ${formatDisplayPath(agentDir)}`);
+      hadErrors = true;
+      continue;
+    }
+
+    let bm: BuildManifest;
+    try {
+      bm = await readBuildManifest(agentDir);
+    } catch (err) {
+      console.error(`[${entry.id}] failed to read build-manifest.toml: ${(err as Error).message}`);
+      hadErrors = true;
+      continue;
+    }
+
+    let sourceVer: string;
+    let bmVer: string;
+    try {
+      sourceVer = normalizeSemver(entry.ver, `${entry.id} sources.ver`);
+      bmVer = normalizeSemver(bm.version, `${entry.id} build-manifest.toml version`);
+    } catch (err) {
+      console.error(`[${entry.id}] ${(err as Error).message}`);
+      hadErrors = true;
+      continue;
+    }
+
+    const baseVersion = semver.gte(bmVer, sourceVer) ? bmVer : sourceVer;
+    const buildVersion = bumpVersion(baseVersion, args.release, args.prerelease);
+    const outDir = resolveOutDir(agentDir, args.out);
+    let repoVer: string | null = null;
+
+    try {
+      repoVer = await findHighestRepoVersion(outDir, bm.plugin_id);
+    } catch (err) {
+      console.error(`[${entry.id}] failed to read repository: ${(err as Error).message}`);
+      hadErrors = true;
+      continue;
+    }
+
+    let desiredVersion = buildVersion;
+    if (repoVer && semver.gt(repoVer, desiredVersion)) {
+      desiredVersion = repoVer;
+      console.log(`[${entry.id}] repository version ${repoVer} supersedes build version`);
+    }
+    if (entry.ver !== desiredVersion) {
+      entry.ver = desiredVersion;
+      updatedSources = true;
+    }
+
+    if (repoVer && semver.gte(repoVer, buildVersion)) {
+      console.log(
+        `[${entry.id}] ${repoVer} already exists in repository, skipping build`
+      );
+      continue;
+    }
+
+    await fs.mkdir(outDir, { recursive: true });
+
+    const bmForBuild: BuildManifest = { ...bm, version: buildVersion };
+    if (args.release || args.prerelease) {
+      const updatedToml = [
+        `plugin_id = \"${bmForBuild.plugin_id}\"`,
+        `name = \"${bmForBuild.name}\"`,
+        `version = \"${bmForBuild.version}\"`,
+        `entry = \"${bmForBuild.entry}\"`,
+        `files = [${bmForBuild.files.map((f) => `\"${f}\"`).join(", ")}]`
+      ];
+      await fs.writeFile(
+        path.join(agentDir, "build-manifest.toml"),
+        updatedToml.join("\n") + "\n",
+        "utf8"
+      );
+    }
+
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mimolo-pack-"));
+    try {
+      const manifestPath = await writeManifest(tmpDir, bmForBuild);
+      const hashesPath = await writePayloadHashes(agentDir, tmpDir, bmForBuild);
+      await packZip(agentDir, bmForBuild, outDir, manifestPath, hashesPath);
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+    }
+
+    console.log(`[${entry.id}] packed ${bmForBuild.plugin_id} v${bmForBuild.version}`);
+    if (entry.ver !== bmForBuild.version) {
+      entry.ver = bmForBuild.version;
+      updatedSources = true;
+    }
+  }
+
+  if (updatedSources) {
+    const backupPath = await writeSourcesVersioned(listPath, updated);
+    await fs.writeFile(listPath, JSON.stringify({ sources: updated }, null, 2) + "\n", "utf8");
+    console.log(`updated sources list -> ${formatDisplayPath(listPath)}`);
+    console.log(`backup sources list -> ${formatDisplayPath(backupPath)}`);
+  }
+
+  if (hadErrors) {
+    process.exitCode = 1;
+  }
+}
+
+async function createSourceListFromDir(agentRoot: string, force?: boolean): Promise<void> {
+  const sourcesPath = path.join(agentRoot, "sources.json");
+  try {
+    await fs.access(sourcesPath);
+    if (!force) {
+      console.error(
+        `sources.json already exists at ${formatDisplayPath(
+          sourcesPath
+        )} (use --force to overwrite)`
+      );
+      process.exitCode = 1;
+      return;
+    }
+  } catch {
+    // OK - file does not exist.
+  }
+
+  const items = await fs.readdir(agentRoot, { withFileTypes: true });
+  const sources: SourceEntry[] = [];
+
+  for (const item of items) {
+    if (!item.isDirectory()) {
+      continue;
+    }
+    const agentDir = path.join(agentRoot, item.name);
+    const manifestPath = path.join(agentDir, "build-manifest.toml");
+    try {
+      await fs.access(manifestPath);
+    } catch {
+      continue;
+    }
+
+    try {
+      const bm = await readBuildManifest(agentDir);
+      const ver = normalizeSemver(bm.version, `${item.name} build-manifest.toml version`);
+      sources.push({
+        id: item.name,
+        path: item.name,
+        ver
+      });
+    } catch (err) {
+      console.error(`[${item.name}] ${(err as Error).message}`);
+      process.exitCode = 1;
+    }
+  }
+
+  const payload: SourcesFile = { sources };
+  await fs.writeFile(sourcesPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+  console.log("");
+  console.log("created:");
+  console.log(`    ${formatDisplayPath(sourcesPath)}`);
+}
+
 async function main(): Promise<void> {
-  const { source, out, release, prerelease } = parseArgs(process.argv.slice(2));
-  if (!source) {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.sourceList && args.createSourceList) {
+    console.error("use either --source-list or --create-source-list, not both");
+    process.exit(1);
+  }
+  if (args.source && args.sourceList) {
+    console.error("use either --source or --source-list, not both");
+    process.exit(1);
+  }
+  if (!args.source && !args.sourceList && !args.createSourceList) {
+    const defaultList = await resolveDefaultSourcesList();
+    if (defaultList) {
+      args.sourceList = defaultList;
+    } else {
+      const agentsDir = await resolveDefaultAgentsDir();
+      if (agentsDir) {
+        const confirmed = await confirmAutoCreate(agentsDir, args.silent);
+        if (confirmed) {
+          await createSourceListFromDir(agentsDir, false);
+          const createdList = path.join(agentsDir, "sources.json");
+          args.sourceList = createdList;
+        }
+      }
+    }
+  }
+  if (args.createSourceList) {
+    if (!args.source) {
+      console.error("usage: release-pack-agent --source <agents_dir> --create-source-list");
+      process.exit(1);
+    }
+    const agentRoot = path.resolve(args.source);
+    await createSourceListFromDir(agentRoot, args.force);
+    return;
+  }
+  if (args.sourceList) {
+    await processSourceList(args);
+    return;
+  }
+
+  if (!args.source) {
     console.error(
-      "usage: release-pack-agent --source <agent_dir> [--out <out_dir>] [--major|--minor|--patch] [--alpha|--beta|--rc]"
+      "usage: release-pack-agent --source <agent_dir> | --source-list <sources.json> [--out <out_dir>] [--major|--minor|--patch] [--alpha|--beta|--rc]"
     );
     process.exit(1);
   }
 
-  const agentDir = path.resolve(source);
+  const agentDir = path.resolve(args.source);
   // Default output is ../repository relative to the source agent folder.
-  const outDirRaw = out ?? path.join(agentDir, "..", "repository");
-  const outDir = path.isAbsolute(outDirRaw)
-    ? outDirRaw
-    : path.resolve(agentDir, outDirRaw);
+  const outDir = resolveOutDir(agentDir, args.out);
 
   const bm = await readBuildManifest(agentDir);
-  if (release || prerelease) {
-    bm.version = bumpVersion(bm.version, release, prerelease);
+  if (args.release || args.prerelease) {
+    bm.version = bumpVersion(bm.version, args.release, args.prerelease);
     const updated = [
       `plugin_id = \"${bm.plugin_id}\"`,
       `name = \"${bm.name}\"`,
