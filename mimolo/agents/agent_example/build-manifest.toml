@@ -1,5 +1,5 @@
 plugin_id = "agent_example"
 name = "Agent Example"
-version = "0.2.0"
+version = "0.3.0"
 entry = "files/agent_example.py"
 files = ["agent_example.py"]
