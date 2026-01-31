@@ -281,24 +281,29 @@ function formatDisplayPath(targetPath: string): string {
   if (!rel) {
     return ".";
   }
+  if (!rel.startsWith(".") && !rel.startsWith("..")) {
+    return `./${rel}`;
+  }
   return rel;
 }
 
-async function resolveDefaultSourcesList(): Promise<string | null> {
+async function resolveDefaultSourcesCandidates(): Promise<string[]> {
+  const candidates: string[] = [];
   const localList = path.resolve(process.cwd(), "sources.json");
   try {
     await fs.access(localList);
-    return localList;
+    candidates.push(localList);
   } catch {
     // try agents/sources.json relative to cwd
   }
   const agentsList = path.resolve(process.cwd(), "..", "agents", "sources.json");
   try {
     await fs.access(agentsList);
-    return agentsList;
+    candidates.push(agentsList);
   } catch {
-    return null;
+    return candidates;
   }
+  return candidates;
 }
 
 async function resolveDefaultAgentsDir(): Promise<string | null> {
@@ -345,6 +350,20 @@ async function confirmAutoCreate(agentsDir: string, silent?: boolean): Promise<b
   }
 }
 
+function logSourcesSelection(selected: string, candidates?: string[]): void {
+  if (candidates && candidates.length > 1) {
+    console.log("");
+    console.log("found sources:");
+    for (const candidate of candidates) {
+      const marker = candidate === selected ? "* " : "  ";
+      console.log(`    ${marker}${formatDisplayPath(candidate)}`);
+    }
+  }
+  console.log("");
+  console.log("using sources:");
+  console.log(`    ${formatDisplayPath(selected)}`);
+}
+
 function nextSourcesVersionLabel(existing: string[]): string {
   let max = 0;
   for (const name of existing) {
@@ -374,8 +393,18 @@ async function writeSourcesVersioned(
   return outPath;
 }
 
+async function writeSourcesBackup(listPath: string, raw: string): Promise<string> {
+  const dir = path.dirname(listPath);
+  const files = await fs.readdir(dir);
+  const name = nextSourcesVersionLabel(files);
+  const outPath = path.join(dir, name);
+  await fs.writeFile(outPath, raw, "utf8");
+  return outPath;
+}
+
 async function processSourceList(args: ArgMap): Promise<void> {
   const listPath = args.sourceList ? path.resolve(args.sourceList) : "";
+  const rawList = await fs.readFile(listPath, "utf8");
   const entries = await readSourcesFile(listPath);
   const updated: SourceEntry[] = entries.map((entry) => ({ ...entry }));
   const listDir = path.dirname(listPath);
@@ -393,7 +422,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
         throw new Error("path is not a directory");
       }
     } catch (err) {
-      console.error(`[${entry.id}] missing path: ${formatDisplayPath(agentDir)}`);
+      console.error(`    [${entry.id}] missing path: ${formatDisplayPath(agentDir)}`);
       hadErrors = true;
       continue;
     }
@@ -402,7 +431,9 @@ async function processSourceList(args: ArgMap): Promise<void> {
     try {
       bm = await readBuildManifest(agentDir);
     } catch (err) {
-      console.error(`[${entry.id}] failed to read build-manifest.toml: ${(err as Error).message}`);
+      console.error(
+        `    [${entry.id}] failed to read build-manifest.toml: ${(err as Error).message}`
+      );
       hadErrors = true;
       continue;
     }
@@ -413,7 +444,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
       sourceVer = normalizeSemver(entry.ver, `${entry.id} sources.ver`);
       bmVer = normalizeSemver(bm.version, `${entry.id} build-manifest.toml version`);
     } catch (err) {
-      console.error(`[${entry.id}] ${(err as Error).message}`);
+      console.error(`    [${entry.id}] ${(err as Error).message}`);
       hadErrors = true;
       continue;
     }
@@ -426,7 +457,9 @@ async function processSourceList(args: ArgMap): Promise<void> {
     try {
       repoVer = await findHighestRepoVersion(outDir, bm.plugin_id);
     } catch (err) {
-      console.error(`[${entry.id}] failed to read repository: ${(err as Error).message}`);
+      console.error(
+        `    [${entry.id}] failed to read repository: ${(err as Error).message}`
+      );
       hadErrors = true;
       continue;
     }
@@ -434,7 +467,9 @@ async function processSourceList(args: ArgMap): Promise<void> {
     let desiredVersion = buildVersion;
     if (repoVer && semver.gt(repoVer, desiredVersion)) {
       desiredVersion = repoVer;
-      console.log(`[${entry.id}] repository version ${repoVer} supersedes build version`);
+      console.log(
+        `    [${entry.id}] repository version ${repoVer} supersedes build version`
+      );
     }
     if (entry.ver !== desiredVersion) {
       entry.ver = desiredVersion;
@@ -443,7 +478,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
 
     if (repoVer && semver.gte(repoVer, buildVersion)) {
       console.log(
-        `[${entry.id}] ${repoVer} already exists in repository, skipping build`
+        `    [${entry.id}] ${repoVer} already exists in repository, skipping build`
       );
       continue;
     }
@@ -475,7 +510,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
 
-    console.log(`[${entry.id}] packed ${bmForBuild.plugin_id} v${bmForBuild.version}`);
+    console.log(`    [${entry.id}] packed ${bmForBuild.plugin_id} v${bmForBuild.version}`);
     if (entry.ver !== bmForBuild.version) {
       entry.ver = bmForBuild.version;
       updatedSources = true;
@@ -483,7 +518,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
   }
 
   if (updatedSources) {
-    const backupPath = await writeSourcesVersioned(listPath, updated);
+    const backupPath = await writeSourcesBackup(listPath, rawList);
     await fs.writeFile(listPath, JSON.stringify({ sources: updated }, null, 2) + "\n", "utf8");
     console.log(`updated sources list -> ${formatDisplayPath(listPath)}`);
     console.log(`backup sources list -> ${formatDisplayPath(backupPath)}`);
@@ -549,6 +584,7 @@ async function createSourceListFromDir(agentRoot: string, force?: boolean): Prom
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  let defaultCandidates: string[] | undefined;
   if (args.sourceList && args.createSourceList) {
     console.error("use either --source-list or --create-source-list, not both");
     process.exit(1);
@@ -558,9 +594,9 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   if (!args.source && !args.sourceList && !args.createSourceList) {
-    const defaultList = await resolveDefaultSourcesList();
-    if (defaultList) {
-      args.sourceList = defaultList;
+    defaultCandidates = await resolveDefaultSourcesCandidates();
+    if (defaultCandidates.length > 0) {
+      args.sourceList = defaultCandidates[0];
     } else {
       const agentsDir = await resolveDefaultAgentsDir();
       if (agentsDir) {
@@ -583,6 +619,7 @@ async function main(): Promise<void> {
     return;
   }
   if (args.sourceList) {
+    logSourcesSelection(args.sourceList, defaultCandidates);
     await processSourceList(args);
     return;
   }
