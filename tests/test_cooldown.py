@@ -7,7 +7,7 @@ import pytest
 from mimolo.core.cooldown import CooldownState, CooldownTimer
 
 
-def test_cooldown_initialization():
+def test_cooldown_initialization() -> None:
     """Test cooldown timer initialization."""
     timer = CooldownTimer(cooldown_seconds=10.0)
     assert timer.cooldown_seconds == 10.0
@@ -15,7 +15,7 @@ def test_cooldown_initialization():
     assert timer.segment_state is None
 
 
-def test_cooldown_invalid_duration():
+def test_cooldown_invalid_duration() -> None:
     """Test that invalid duration raises ValueError."""
     with pytest.raises(ValueError, match="must be positive"):
         CooldownTimer(cooldown_seconds=-1.0)
@@ -24,7 +24,7 @@ def test_cooldown_invalid_duration():
         CooldownTimer(cooldown_seconds=0.0)
 
 
-def test_cooldown_resetting_event_opens_segment():
+def test_cooldown_resetting_event_opens_segment() -> None:
     """Test that resetting event opens segment from IDLE."""
     timer = CooldownTimer(cooldown_seconds=10.0)
     now = datetime.now(UTC)
@@ -39,7 +39,7 @@ def test_cooldown_resetting_event_opens_segment():
     assert timer.segment_state.resets_count == 0
 
 
-def test_cooldown_resetting_event_resets_timer():
+def test_cooldown_resetting_event_resets_timer() -> None:
     """Test that resetting event resets timer in ACTIVE state."""
     timer = CooldownTimer(cooldown_seconds=10.0)
     now = datetime.now(UTC)
@@ -55,7 +55,7 @@ def test_cooldown_resetting_event_resets_timer():
     assert timer.segment_state.resets_count == 1
 
 
-def test_cooldown_non_resetting_event():
+def test_cooldown_non_resetting_event() -> None:
     """Test that non-resetting event updates timestamp but doesn't reset timer."""
     timer = CooldownTimer(cooldown_seconds=10.0)
     start = datetime.now(UTC)
@@ -73,8 +73,8 @@ def test_cooldown_non_resetting_event():
     assert timer.segment_state.resets_count == 0
 
 
-def test_cooldown_expiration():
-    """Test cooldown expiration detection."""
+def test_cooldown_expiration_before_timeout() -> None:
+    """Test cooldown does not expire before timeout."""
     timer = CooldownTimer(cooldown_seconds=10.0)
     start = datetime.now(UTC)
 
@@ -86,14 +86,21 @@ def test_cooldown_expiration():
     assert expired is False
     assert timer.state == CooldownState.ACTIVE
 
-    # Check after expiration
+def test_cooldown_expiration_after_timeout() -> None:
+    """Test cooldown expires after timeout."""
+    timer = CooldownTimer(cooldown_seconds=10.0)
+    start = datetime.now(UTC)
+
+    timer.on_resetting_event(start)
+
     check_time = start + timedelta(seconds=11)
     expired = timer.check_expiration(check_time)
     assert expired is True
     assert timer.state == CooldownState.CLOSING
 
 
-def test_cooldown_close_segment():
+
+def test_cooldown_close_segment() -> None:
     """Test segment closing."""
     timer = CooldownTimer(cooldown_seconds=10.0)
     now = datetime.now(UTC)
@@ -107,7 +114,7 @@ def test_cooldown_close_segment():
     assert timer.segment_state is None
 
 
-def test_cooldown_close_segment_no_segment():
+def test_cooldown_close_segment_no_segment() -> None:
     """Test that closing without segment raises RuntimeError."""
     timer = CooldownTimer(cooldown_seconds=10.0)
 
@@ -115,7 +122,7 @@ def test_cooldown_close_segment_no_segment():
         timer.close_segment()
 
 
-def test_cooldown_time_until_expiration():
+def test_cooldown_time_until_expiration() -> None:
     """Test time until expiration calculation."""
     timer = CooldownTimer(cooldown_seconds=10.0)
     start = datetime.now(UTC)
@@ -132,7 +139,7 @@ def test_cooldown_time_until_expiration():
     assert 6.9 < remaining < 7.1  # Should be ~7 seconds
 
 
-def test_cooldown_reset():
+def test_cooldown_reset() -> None:
     """Test timer reset."""
     timer = CooldownTimer(cooldown_seconds=10.0)
     now = datetime.now(UTC)

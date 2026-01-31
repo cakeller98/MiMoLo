@@ -12,7 +12,7 @@ def test_cli_test_command_outputs_expected_lines() -> None:
     assert len(lines) == 3
 
 
-def test_cli_monitor_dry_run(tmp_path) -> None:
+def test_cli_monitor_dry_run() -> None:
     # Use a temp config file that exists but empty -> load_config should fail,
     # so prefer passing no file and rely on default via --dry-run
     runner = CliRunner()

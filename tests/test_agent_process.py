@@ -11,7 +11,7 @@ class DummyPluginConfig:
         self.executable = "python"
 
 
-def test_spawn_agent_rejects_path_traversal(tmp_path) -> None:
+def test_spawn_agent_rejects_path_traversal() -> None:
     # Create a file outside agents to ensure exists() would be true
     agents_root = Path(__file__).resolve().parents[1] / "mimolo" / "agents"
     outside_path = (agents_root / ".." / "evil.py").resolve()

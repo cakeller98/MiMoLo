@@ -17,21 +17,21 @@ from mimolo.core.agent_logging import AgentLogger
 from mimolo.core.protocol import LogLevel, LogMessage, MessageType, parse_agent_message
 
 
-def test_log_message_type_exists():
+def test_log_message_type_exists() -> None:
     """Test that LOG message type is defined in protocol."""
-    assert MessageType.LOG == "log"
+    assert MessageType.LOG.value == "log"
     assert "log" in [mt.value for mt in MessageType]
 
 
-def test_log_level_enum():
+def test_log_level_enum() -> None:
     """Test LogLevel enum is properly defined."""
-    assert LogLevel.DEBUG == "debug"
-    assert LogLevel.INFO == "info"
-    assert LogLevel.WARNING == "warning"
-    assert LogLevel.ERROR == "error"
+    assert LogLevel.DEBUG.value == "debug"
+    assert LogLevel.INFO.value == "info"
+    assert LogLevel.WARNING.value == "warning"
+    assert LogLevel.ERROR.value == "error"
 
 
-def test_log_message_model():
+def test_log_message_model() -> None:
     """Test LogMessage model validation."""
     msg = LogMessage(
         type=MessageType.LOG,
@@ -53,7 +53,7 @@ def test_log_message_model():
     assert msg.extra["context"] == "value"
 
 
-def test_agent_logger_basic_output(capsys):
+def test_agent_logger_basic_output(capsys: pytest.CaptureFixture[str]) -> None:
     """Test AgentLogger emits valid JSON log packets."""
     logger = AgentLogger(agent_id="test-001", agent_label="test_agent")
 
@@ -80,7 +80,7 @@ def test_agent_logger_basic_output(capsys):
     assert "timestamp" in packet
 
 
-def test_agent_logger_with_rich_markup(capsys):
+def test_agent_logger_with_rich_markup(capsys: pytest.CaptureFixture[str]) -> None:
     """Test AgentLogger preserves Rich markup in messages."""
     logger = AgentLogger(agent_id="test-001", agent_label="test_agent")
 
@@ -95,7 +95,7 @@ def test_agent_logger_with_rich_markup(capsys):
     assert packet["markup"] is True
 
 
-def test_agent_logger_all_levels(capsys):
+def test_agent_logger_all_levels(capsys: pytest.CaptureFixture[str]) -> None:
     """Test AgentLogger emits all log levels correctly."""
     logger = AgentLogger(agent_id="test-001", agent_label="test_agent")
 
@@ -113,7 +113,7 @@ def test_agent_logger_all_levels(capsys):
     assert levels == ["debug", "info", "warning", "error"]
 
 
-def test_agent_logger_with_extra_context(capsys):
+def test_agent_logger_with_extra_context(capsys: pytest.CaptureFixture[str]) -> None:
     """Test AgentLogger includes extra context data."""
     logger = AgentLogger(agent_id="test-001", agent_label="test_agent")
 
@@ -128,7 +128,7 @@ def test_agent_logger_with_extra_context(capsys):
     assert packet["extra"]["status"] == "success"
 
 
-def test_parse_agent_log_message():
+def test_parse_agent_log_message() -> None:
     """Test protocol parser handles LOG messages."""
     log_json = {
         "type": "log",
@@ -150,11 +150,11 @@ def test_parse_agent_log_message():
     # Should parse as LogMessage
     assert isinstance(msg, LogMessage)
     assert msg.type == MessageType.LOG
-    assert msg.level == "info"
+    assert msg.level == LogLevel.INFO
     assert msg.message == "Test message"
 
 
-def test_agent_logger_no_markup_mode(capsys):
+def test_agent_logger_no_markup_mode(capsys: pytest.CaptureFixture[str]) -> None:
     """Test AgentLogger with markup disabled."""
     logger = AgentLogger(agent_id="test-001", agent_label="test_agent")
 
@@ -168,7 +168,7 @@ def test_agent_logger_no_markup_mode(capsys):
     assert packet["markup"] is False
 
 
-def test_agent_logger_error_handling(capsys):
+def test_agent_logger_error_handling(capsys: pytest.CaptureFixture[str]) -> None:
     """Test AgentLogger handles errors gracefully."""
     logger = AgentLogger(agent_id="test-001", agent_label="test_agent")
 

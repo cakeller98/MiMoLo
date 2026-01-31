@@ -17,16 +17,16 @@ class TestMonitor(BaseMonitor):
 
     spec = PluginSpec(label="test", data_header="items", resets_cooldown=True)
 
-    def emit_event(self):
+    def emit_event(self) -> Event | None:
         return None
 
     @staticmethod
-    def filter_method(items):
+    def filter_method(items: list[str]) -> list[str]:
         """Deduplicate and sort."""
         return sorted(set(items))
 
 
-def test_aggregator_initialization():
+def test_aggregator_initialization() -> None:
     """Test aggregator initialization."""
     registry = PluginRegistry()
     aggregator = SegmentAggregator(registry)
@@ -35,7 +35,7 @@ def test_aggregator_initialization():
     assert not aggregator.has_events
 
 
-def test_aggregator_add_event():
+def test_aggregator_add_event() -> None:
     """Test adding events to aggregator."""
     registry = PluginRegistry()
     registry.add(TestMonitor.spec, TestMonitor())
@@ -56,7 +56,7 @@ def test_aggregator_add_event():
     assert aggregator.has_events
 
 
-def test_aggregator_build_segment():
+def test_aggregator_build_segment() -> None:
     """Test building segment with aggregation."""
     registry = PluginRegistry()
     registry.add(TestMonitor.spec, TestMonitor())
@@ -89,7 +89,7 @@ def test_aggregator_build_segment():
     assert segment.resets_count == 3
 
 
-def test_aggregator_clear():
+def test_aggregator_clear() -> None:
     """Test clearing aggregator buffers."""
     registry = PluginRegistry()
     registry.add(TestMonitor.spec, TestMonitor())
@@ -100,25 +100,24 @@ def test_aggregator_clear():
     event = Event(timestamp=now, label="test", event="test_event", data={"items": "item1"})
     aggregator.add_event(event)
 
-    assert aggregator.has_events
+    assert aggregator.event_count == 1
 
     aggregator.clear()
 
-    assert not aggregator.has_events
     assert aggregator.event_count == 0
 
 
-def test_aggregator_filter_error():
+def test_aggregator_filter_error() -> None:
     """Test aggregation error handling."""
 
     class BrokenMonitor(BaseMonitor):
         spec = PluginSpec(label="broken", data_header="items")
 
-        def emit_event(self):
+        def emit_event(self) -> Event | None:
             return None
 
         @staticmethod
-        def filter_method(items):
+        def filter_method(items: list[str]) -> list[str]:
             raise ValueError("Filter failed!")
 
     registry = PluginRegistry()

@@ -1,15 +1,17 @@
-# Legacy Plugin Removal Complete!
+# Legacy Plugin Removal (Runtime) Complete
 
-Successfully removed all legacy plugin code from the MiMoLo codebase.
+Legacy in-process plugins are removed from the runtime execution path.
+Some legacy scaffolding may remain in code/docs for migration reference
+until the transition is fully complete.
 
-## Files Deleted
+## Files Deleted (Legacy Runtime)
 
 1. **mimolo/plugins/** - entire directory (ExampleMonitor, FolderWatchMonitor, __init__.py)
 2. **mimolo/user_plugins/example.py** - ExampleMonitor class
 3. **mimolo/user_plugins/template.py** - TemplateMonitor template
 4. **mimolo/core/plugin_adapter.py** - LegacyPluginAdapter wrapper class
 
-## Files Modified
+## Files Modified (Legacy Runtime)
 
 ### runtime.py
 - Removed registry parameter from __init__
@@ -36,7 +38,7 @@ Successfully removed all legacy plugin code from the MiMoLo codebase.
 - Removed [plugins.folderwatch] section
 - Kept only Agent configurations (agent_template, agent_example)
 
-## Files Preserved
+## Files Preserved (Migration Reference)
 
 - **plugin.py** - Kept for backward compatibility (exported from __init__.py)
 - **registry.py** - Kept for backward compatibility (exported from __init__.py)
@@ -45,7 +47,7 @@ Successfully removed all legacy plugin code from the MiMoLo codebase.
 - **agent_template.py** - Agent ✅
 - **agent_example.py** - Agent ✅
 
-## Test Results
+## Test Results (Legacy Runtime Removal)
 
 ```
 ✅ Agent system works perfectly!
@@ -55,5 +57,6 @@ Successfully removed all legacy plugin code from the MiMoLo codebase.
 ✅ Shutdown clean
 ```
 
-The codebase is now 100% Agent architecture - no more legacy BaseMonitor plugins! MiMoLo is now streamlined and focused on the superior Agent JLP-based Agent system.
-
+MiMoLo is now agent-only at runtime; legacy BaseMonitor plugins are deprecated and
+not executed by Operations. Legacy artifacts may persist temporarily for reference
+until full migration is complete.

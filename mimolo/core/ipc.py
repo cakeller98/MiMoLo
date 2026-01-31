@@ -179,7 +179,7 @@ class MessageChannel:
             self.buffer += chunk.decode("utf-8")
         except BlockingIOError:
             return None
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             logger.warning(f"Socket read failed for {self.socket_path}: {e}")
             return None
 
@@ -212,7 +212,7 @@ class MessageChannel:
         if self.conn is not None:
             try:
                 self.conn.close()
-            except Exception as e:
+            except OSError as e:
                 logger.warning(
                     f"Failed to close IPC connection {self.socket_path}: {e}"
                 )
@@ -221,7 +221,7 @@ class MessageChannel:
         if self.sock is not None:
             try:
                 self.sock.close()
-            except Exception as e:
+            except OSError as e:
                 logger.warning(
                     f"Failed to close IPC server socket {self.socket_path}: {e}"
                 )
@@ -232,7 +232,7 @@ class MessageChannel:
                 os.unlink(self.socket_path)
             except FileNotFoundError:
                 pass
-            except Exception as e:
+            except OSError as e:
                 logger.warning(
                     f"Failed to remove IPC socket file {self.socket_path}: {e}"
                 )
@@ -250,10 +250,10 @@ def check_platform_support() -> tuple[bool, str]:
 
     if sys.platform == "win32":
         # Windows 10 build 17063+ required
-        version = plat.version()  # type: ignore[attr-defined]
+        version = plat.version()
         try:
             build = int(version.split(".")[-1]) if "." in version else 0
-        except Exception as e:
+        except (ValueError, TypeError) as e:
             logger.warning(
                 f"Failed to parse Windows build from version '{version}': {e}"
             )
@@ -267,13 +267,12 @@ def check_platform_support() -> tuple[bool, str]:
 
     elif sys.platform == "darwin":
         # macOS 10.13+ recommended
-        version = (plat.mac_ver()[0]  # type: ignore[attr-defined]
-                   if hasattr(plat, "mac_ver") else "0.0")
+        version = (plat.mac_ver()[0] if hasattr(plat, "mac_ver") else "0.0")
         parts = version.split(".")
         try:
             major = int(parts[0]) if len(parts) > 0 and parts[0] else 0
             minor = int(parts[1]) if len(parts) > 1 and parts[1] else 0
-        except Exception as e:
+        except (ValueError, TypeError) as e:
             logger.warning(
                 f"Failed to parse macOS version '{version}': {e}"
             )

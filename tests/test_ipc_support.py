@@ -1,9 +1,11 @@
 import sys
 
+import pytest
+
 from mimolo.core.ipc import check_platform_support
 
 
-def test_check_platform_support_windows(monkeypatch) -> None:
+def test_check_platform_support_windows(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "platform", "win32", raising=False)
 
     class P:
@@ -19,7 +21,9 @@ def test_check_platform_support_windows(monkeypatch) -> None:
     assert supported and "Windows 10+" in reason
 
 
-def test_check_platform_support_windows_old_build(monkeypatch) -> None:
+def test_check_platform_support_windows_old_build(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(sys, "platform", "win32", raising=False)
 
     class P:
@@ -35,12 +39,12 @@ def test_check_platform_support_windows_old_build(monkeypatch) -> None:
     assert not supported and "< 17063" in reason
 
 
-def test_check_platform_support_macos(monkeypatch) -> None:
+def test_check_platform_support_macos(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "platform", "darwin", raising=False)
 
     class P:
         @staticmethod
-        def mac_ver():
+        def mac_ver() -> tuple[str, tuple[int, int, int], str]:
             return ("10.13.6", (0, 0, 0), "")
 
     import mimolo.core.ipc as ipc_mod
@@ -50,7 +54,7 @@ def test_check_platform_support_macos(monkeypatch) -> None:
     assert supported and "macOS" in reason
 
 
-def test_check_platform_support_linux(monkeypatch) -> None:
+def test_check_platform_support_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "platform", "linux", raising=False)
 
     class P:

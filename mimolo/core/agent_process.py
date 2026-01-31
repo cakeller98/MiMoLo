@@ -13,6 +13,8 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
+from pydantic import ValidationError
+
 from mimolo.common.paths import get_mimolo_data_dir
 from mimolo.core.protocol import (
     AgentMessage,
@@ -69,12 +71,7 @@ class AgentHandle:
                     continue
 
                 # Log raw line for diagnostics then parse and enqueue message
-                try:
-                    logger.debug(f"[{self.label}] RECV: {line.rstrip()}")
-                except Exception as e:
-                    logger.debug(
-                        f"[{self.label}] Failed to log raw line: {e}"
-                    )
+                logger.debug(f"[{self.label}] RECV: {line.rstrip()}")
 
                 msg = parse_agent_message(line)
                 self.outbound_queue.put(msg)
@@ -83,7 +80,7 @@ class AgentHandle:
                 if msg.type == "heartbeat":
                     self.last_heartbeat = msg.timestamp
 
-            except Exception as e:
+            except (OSError, ValueError, ValidationError) as e:
                 # Log error but keep reading
                 logger.error(f"[{self.label}] Parse error: {e}")
 
@@ -101,10 +98,18 @@ class AgentHandle:
 
         try:
             json_line = cmd.model_dump_json() + "\n"
+        except ValueError as e:
+            pid = self.process.pid
+            logger.error(
+                f"Agent {self.label} (pid={pid}) command serialization error: {e}"
+            )
+            return False
+
+        try:
             self.process.stdin.write(json_line)
             self.process.stdin.flush()
             return True
-        except Exception as e:
+        except OSError as e:
             pid = self.process.pid
             logger.error(
                 f"Agent {self.label} (pid={pid}) command send error: {e}"
@@ -143,7 +148,7 @@ class AgentHandle:
         except subprocess.TimeoutExpired:
             try:
                 self.process.kill()
-            except Exception as e:
+            except OSError as e:
                 logger.warning(
                     f"[{self.label}] Failed to kill agent after timeout: {e}"
                 )
@@ -155,7 +160,7 @@ class AgentHandle:
         if self._stdout_thread is not None and self._stdout_thread.is_alive():
             try:
                 self._stdout_thread.join(timeout=1.0)
-            except Exception as e:
+            except RuntimeError as e:
                 logger.warning(
                     f"[{self.label}] Failed to join stdout reader thread: {e}"
                 )
@@ -214,9 +219,12 @@ class AgentProcessManager:
             "bufsize": 1,  # Line buffered
         }
         if os.name == "nt":
-            popen_kwargs["creationflags"] = (
-                subprocess.CREATE_NEW_PROCESS_GROUP
-            )
+            creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", None)
+            if creationflags is None:
+                raise RuntimeError(
+                    "CREATE_NEW_PROCESS_GROUP flag unavailable on this Windows build."
+                )
+            popen_kwargs["creationflags"] = creationflags
         else:
             popen_kwargs["start_new_session"] = True
 
@@ -251,7 +259,7 @@ class AgentProcessManager:
                 with open(stderr_log_path, "w", encoding="utf-8") as f:
                     f.write(f"# MiMoLo Agent Log: {label}\n")
                     f.write(f"# Started at {datetime.now(UTC).isoformat()}\n\n")
-            except Exception as e:
+            except OSError as e:
                 logger.warning(
                     f"[{label}] Failed to initialize stderr log at {stderr_log_path}: {e}"
                 )
@@ -275,11 +283,11 @@ class AgentProcessManager:
                                 errors="ignore",
                             ) as f:
                                 f.write(raw)
-                        except Exception as e:
+                        except OSError as e:
                             logger.warning(
                                 f"[{lbl}] Failed to append stderr log to {log_path}: {e}"
                             )
-            except Exception as e:
+            except OSError as e:
                 logger.warning(
                     f"[{lbl}] Stderr forwarder crashed: {e}"
                 )

@@ -14,21 +14,21 @@ from io import StringIO
 sys.path.insert(0, ".")
 
 
-def test_protocol_extension():
+def test_protocol_extension() -> None:
     """Test that LOG message type is defined in protocol."""
     from mimolo.core.protocol import LogLevel, LogMessage, MessageType
 
     print("✓ Protocol imports successful")
 
     # Test MessageType
-    assert MessageType.LOG == "log", "LOG message type should equal 'log'"
+    assert MessageType.LOG.value == "log", "LOG message type should equal 'log'"
     print(f"✓ MessageType.LOG = {MessageType.LOG}")
 
     # Test LogLevel
-    assert LogLevel.DEBUG == "debug"
-    assert LogLevel.INFO == "info"
-    assert LogLevel.WARNING == "warning"
-    assert LogLevel.ERROR == "error"
+    assert LogLevel.DEBUG.value == "debug"
+    assert LogLevel.INFO.value == "info"
+    assert LogLevel.WARNING.value == "warning"
+    assert LogLevel.ERROR.value == "error"
     print(f"✓ LogLevel enum defined: {[level.value for level in LogLevel]}")
 
     # Test LogMessage model
@@ -49,7 +49,7 @@ def test_protocol_extension():
     print("✓ LogMessage model validation works")
 
 
-def test_agent_logger():
+def test_agent_logger() -> None:
     """Test AgentLogger emits valid JSON log packets."""
     from mimolo.core.agent_logging import AgentLogger
 
@@ -103,9 +103,9 @@ def test_agent_logger():
         sys.stdout = old_stdout
 
 
-def test_protocol_parsing():
+def test_protocol_parsing() -> None:
     """Test protocol parser handles LOG messages."""
-    from mimolo.core.protocol import LogMessage, MessageType, parse_agent_message
+    from mimolo.core.protocol import LogLevel, LogMessage, MessageType, parse_agent_message
 
     print("\n✓ Testing protocol parsing")
 
@@ -128,13 +128,13 @@ def test_protocol_parsing():
 
     assert isinstance(msg, LogMessage), "Should parse as LogMessage"
     assert msg.type == MessageType.LOG
-    assert msg.level == "info"
+    assert msg.level == LogLevel.INFO
     assert msg.message == "Test message with [bold]markup[/bold]"
     assert msg.extra["key"] == "value"
     print("✓ Protocol parser handles LOG messages correctly")
 
 
-def test_agent_logger_with_context():
+def test_agent_logger_with_context() -> None:
     """Test AgentLogger with extra context data."""
     from mimolo.core.agent_logging import AgentLogger
 
@@ -159,7 +159,7 @@ def test_agent_logger_with_context():
         sys.stdout = old_stdout
 
 
-def main():
+def main() -> int:
     """Run all tests."""
     print("=" * 60)
     print("MiMoLo Logging System Integration Test")
@@ -176,12 +176,10 @@ def main():
         print("=" * 60)
         return 0
 
-    except Exception as e:
+    except AssertionError as e:
         print("\n" + "=" * 60)
         print(f"❌ Test failed: {e}")
         print("=" * 60)
-        import traceback
-        traceback.print_exc()
         return 1
 
 

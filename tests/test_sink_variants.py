@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from mimolo.core.event import Event, EventRef, Segment
 from mimolo.core.sink import (
     ConsoleSink,
@@ -72,7 +74,7 @@ def test_markdown_sink(tmp_path: Path) -> None:
     assert "Standalone Events" in text
 
 
-def test_console_sink(capsys) -> None:
+def test_console_sink(capsys: pytest.CaptureFixture[str]) -> None:
     sink = ConsoleSink("debug")
     now = datetime.now(UTC)
     seg = make_segment(now)
