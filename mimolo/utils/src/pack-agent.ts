@@ -202,6 +202,7 @@ type ArgMap = {
   createSourceList?: boolean;
   force?: boolean;
   silent?: boolean;
+  sourcesCreated?: boolean;
   out?: string;
   release?: "major" | "minor" | "patch";
   prerelease?: "alpha" | "beta" | "rc";
@@ -285,6 +286,16 @@ function formatDisplayPath(targetPath: string): string {
     return `./${rel}`;
   }
   return rel;
+}
+
+function formatTimestamp(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
 
 async function resolveDefaultSourcesCandidates(): Promise<string[]> {
@@ -410,6 +421,14 @@ async function processSourceList(args: ArgMap): Promise<void> {
   const listDir = path.dirname(listPath);
   let updatedSources = false;
   let hadErrors = false;
+  let errorCount = 0;
+  let packedCount = 0;
+  let skippedCount = 0;
+  let backupWritten = false;
+  const sourcesCreated = args.sourcesCreated ?? false;
+  const startedAt = formatTimestamp();
+  console.log("");
+  console.log(`started: ${startedAt}`);
   console.log("");
   console.log("building agent packs:");
 
@@ -424,6 +443,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
     } catch (err) {
       console.error(`    [${entry.id}] missing path: ${formatDisplayPath(agentDir)}`);
       hadErrors = true;
+      errorCount += 1;
       continue;
     }
 
@@ -435,6 +455,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
         `    [${entry.id}] failed to read build-manifest.toml: ${(err as Error).message}`
       );
       hadErrors = true;
+      errorCount += 1;
       continue;
     }
 
@@ -446,6 +467,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
     } catch (err) {
       console.error(`    [${entry.id}] ${(err as Error).message}`);
       hadErrors = true;
+      errorCount += 1;
       continue;
     }
 
@@ -461,6 +483,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
         `    [${entry.id}] failed to read repository: ${(err as Error).message}`
       );
       hadErrors = true;
+      errorCount += 1;
       continue;
     }
 
@@ -478,6 +501,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
 
     if (repoVer && semver.gte(repoVer, buildVersion)) {
       console.log(`    [${entry.id}] ${repoVer} already exists in repository (skipped)`);
+      skippedCount += 1;
       continue;
     }
 
@@ -511,6 +535,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
     console.log(
       `    [${entry.id}] packed ${bmForBuild.plugin_id} v${bmForBuild.version} (packed)`
     );
+    packedCount += 1;
     if (entry.ver !== bmForBuild.version) {
       entry.ver = bmForBuild.version;
       updatedSources = true;
@@ -520,10 +545,26 @@ async function processSourceList(args: ArgMap): Promise<void> {
   if (updatedSources) {
     const backupPath = await writeSourcesBackup(listPath, rawList);
     await fs.writeFile(listPath, JSON.stringify({ sources: updated }, null, 2) + "\n", "utf8");
-    console.log(`updated sources list -> ${formatDisplayPath(listPath)}`);
-    console.log(`backup sources list -> ${formatDisplayPath(backupPath)}`);
+    backupWritten = true;
+    console.log("");
+    console.log("source list:");
+    console.log(`    updated sources list -> ${formatDisplayPath(listPath)}`);
+    console.log(`    backup sources list -> ${formatDisplayPath(backupPath)}`);
   }
 
+  console.log("");
+  const sourceListStatus = sourcesCreated
+    ? "created"
+    : updatedSources
+      ? "updated"
+      : "unchanged";
+  console.log(
+    `summary: packed ${packedCount}, skipped ${skippedCount}, errors ${errorCount}, source list ${sourceListStatus}`
+  );
+  console.log("");
+  console.log(`completed: ${formatTimestamp()}`);
+  console.log("");
+  
   if (hadErrors) {
     process.exitCode = 1;
   }
@@ -605,6 +646,7 @@ async function main(): Promise<void> {
           await createSourceListFromDir(agentsDir, false);
           const createdList = path.join(agentsDir, "sources.json");
           args.sourceList = createdList;
+          args.sourcesCreated = true;
         }
       }
     }
