@@ -13,8 +13,11 @@
     "release-pack-agent:tsx": "tsx src/release-pack-agent.ts"
   },
   "devDependencies": {
-    "typescript": "^5.6.3",
-    "tsx": "^4.19.2"
+    "@types/archiver": "^7.0.0",
+    "@types/node": "^25.1.0",
+    "@types/semver": "^7.7.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
   },
   "dependencies": {
     "archiver": "^7.0.1",

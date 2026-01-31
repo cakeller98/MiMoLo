@@ -1,5 +1,6 @@
 import archiver from "archiver";
 import { createWriteStream, promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import toml from "toml";
@@ -35,7 +36,7 @@ async function hashFile(absPath: string): Promise<string> {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-async function writeManifest(agentDir: string, bm: BuildManifest): Promise<void> {
+async function writeManifest(outDir: string, bm: BuildManifest): Promise<string> {
   const manifest = {
     plugin_id: bm.plugin_id,
     name: bm.name,
@@ -43,11 +44,16 @@ async function writeManifest(agentDir: string, bm: BuildManifest): Promise<void>
     entry: bm.entry,
     params: bm.params ?? []
   };
-  const outPath = path.join(agentDir, "manifest.json");
+  const outPath = path.join(outDir, "manifest.json");
   await fs.writeFile(outPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  return outPath;
 }
 
-async function writePayloadHashes(agentDir: string, bm: BuildManifest): Promise<Record<string, string>> {
+async function writePayloadHashes(
+  agentDir: string,
+  outDir: string,
+  bm: BuildManifest
+): Promise<string> {
   const hashes: Record<string, string> = {};
   for (const rel of bm.files) {
     const abs = path.join(agentDir, rel);
@@ -61,12 +67,18 @@ async function writePayloadHashes(agentDir: string, bm: BuildManifest): Promise<
     files: hashes
   };
 
-  const outPath = path.join(agentDir, "payload_hashes.json");
+  const outPath = path.join(outDir, "payload_hashes.json");
   await fs.writeFile(outPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
-  return hashes;
+  return outPath;
 }
 
-async function packZip(agentDir: string, bm: BuildManifest, outDir: string): Promise<void> {
+async function packZip(
+  agentDir: string,
+  bm: BuildManifest,
+  outDir: string,
+  manifestPath: string,
+  hashesPath: string
+): Promise<void> {
   const zipName = `${bm.plugin_id}_v${bm.version}.zip`;
   const zipPath = path.join(outDir, zipName);
   const output = createWriteStream(zipPath);
@@ -80,9 +92,6 @@ async function packZip(agentDir: string, bm: BuildManifest, outDir: string): Pro
     archive.pipe(output);
 
     const prefix = `${bm.plugin_id}/`;
-    const manifestPath = path.join(agentDir, "manifest.json");
-    const hashesPath = path.join(agentDir, "payload_hashes.json");
-
     archive.file(manifestPath, { name: path.posix.join(prefix, "manifest.json") });
     archive.file(hashesPath, { name: path.posix.join(prefix, "payload_hashes.json") });
 
@@ -191,9 +200,14 @@ async function main(): Promise<void> {
     ];
     await fs.writeFile(path.join(agentDir, "build-manifest.toml"), updated.join("\n") + "\n", "utf8");
   }
-  await writeManifest(agentDir, bm);
-  await writePayloadHashes(agentDir, bm);
-  await packZip(agentDir, bm, outDir);
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mimolo-pack-"));
+  try {
+    const manifestPath = await writeManifest(tmpDir, bm);
+    const hashesPath = await writePayloadHashes(agentDir, tmpDir, bm);
+    await packZip(agentDir, bm, outDir, manifestPath, hashesPath);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
 
   console.log(`packed ${bm.plugin_id} v${bm.version}`);
 }

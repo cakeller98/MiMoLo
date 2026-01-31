@@ -18,19 +18,24 @@ npm run start
 
 ## Release Pack Agent
 
-Builds a versioned zip from a agent folder that contains a build manifest.
+Builds a versioned zip from a agent folder that contains a build manifest. Use tsx directly to avoid the extra build/run steps.
+
+Run with a build step (type-checked):
 
 ```bash
+npm install
 npm run build
 node dist/release-pack-agent.js --source <agent_dir> [--out <out_dir>]
 ```
 
-Or run directly with tsx:
+Development only (no type check):
 
 ```bash
 npm install
-npm run release-pack-agent:tsx -- --source <agent_dir> [--out <out_dir>]
+npx tsx src/release-pack-agent.ts --source <agent_dir> [--out <out_dir>]
 ```
+
+`npx tsx` runs TypeScript directly without type checking, so prefer the build path above for strictness.
 
 ### Version bump flags
 
@@ -84,3 +89,4 @@ Output zip layout:
 Notes:
 - If `--out` is a relative path, it is resolved relative to `--source`.
 - If `--out` is omitted, the default is `<source>/../repository`.
+- `manifest.json` and `payload_hashes.json` are generated in a temp folder and are not retained in the source agent directory.
