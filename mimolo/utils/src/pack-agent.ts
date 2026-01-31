@@ -141,6 +141,21 @@ async function writeManifest(outDir: string, bm: BuildManifest): Promise<string>
   return outPath;
 }
 
+async function writeBuildManifest(agentDir: string, bm: BuildManifest): Promise<void> {
+  const updatedToml = [
+    `plugin_id = \"${bm.plugin_id}\"`,
+    `name = \"${bm.name}\"`,
+    `version = \"${bm.version}\"`,
+    `entry = \"${bm.entry}\"`,
+    `files = [${bm.files.map((f) => `\"${f}\"`).join(", ")}]`
+  ];
+  await fs.writeFile(
+    path.join(agentDir, "build-manifest.toml"),
+    updatedToml.join("\n") + "\n",
+    "utf8"
+  );
+}
+
 async function writePayloadHashes(
   agentDir: string,
   outDir: string,
@@ -508,6 +523,10 @@ async function processSourceList(args: ArgMap): Promise<void> {
       updatedSources = true;
     }
 
+    if (bm.version !== buildVersion) {
+      await writeBuildManifest(agentDir, { ...bm, version: buildVersion });
+    }
+
     if (repoVer && semver.gte(repoVer, buildVersion)) {
       console.log(`    [${entry.id}] ${repoVer} already exists in repository (skipped)`);
       skippedCount += 1;
@@ -517,20 +536,6 @@ async function processSourceList(args: ArgMap): Promise<void> {
     await fs.mkdir(outDir, { recursive: true });
 
     const bmForBuild: BuildManifest = { ...bm, version: buildVersion };
-    if (bmForBuild.version !== bm.version) {
-      const updatedToml = [
-        `plugin_id = \"${bmForBuild.plugin_id}\"`,
-        `name = \"${bmForBuild.name}\"`,
-        `version = \"${bmForBuild.version}\"`,
-        `entry = \"${bmForBuild.entry}\"`,
-        `files = [${bmForBuild.files.map((f) => `\"${f}\"`).join(", ")}]`
-      ];
-      await fs.writeFile(
-        path.join(agentDir, "build-manifest.toml"),
-        updatedToml.join("\n") + "\n",
-        "utf8"
-      );
-    }
 
     const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mimolo-pack-"));
     try {
