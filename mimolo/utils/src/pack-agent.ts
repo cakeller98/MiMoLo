@@ -88,14 +88,19 @@ async function readSourcesFile(listPath: string): Promise<SourceEntry[]> {
   });
 }
 
+type RepoVersion = {
+  version: string;
+  path: string;
+};
+
 async function findHighestRepoVersion(
   outDir: string,
   pluginId: string
-): Promise<string | null> {
+): Promise<RepoVersion | null> {
   try {
     const items = await fs.readdir(outDir, { withFileTypes: true });
     const pattern = new RegExp(`^${escapeRegExp(pluginId)}_v(.+)\\.zip$`);
-    const versions: string[] = [];
+    const versions: RepoVersion[] = [];
     for (const item of items) {
       if (!item.isFile()) {
         continue;
@@ -106,13 +111,13 @@ async function findHighestRepoVersion(
       }
       const ver = match[1];
       if (semver.valid(ver) && semver.clean(ver) === ver) {
-        versions.push(ver);
+        versions.push({ version: ver, path: path.join(outDir, item.name) });
       }
     }
     if (versions.length === 0) {
       return null;
     }
-    versions.sort(semver.rcompare);
+    versions.sort((a, b) => semver.rcompare(a.version, b.version));
     return versions[0];
   } catch (err) {
     const error = err as NodeJS.ErrnoException;
@@ -141,19 +146,35 @@ async function writeManifest(outDir: string, bm: BuildManifest): Promise<string>
   return outPath;
 }
 
-async function writeBuildManifest(agentDir: string, bm: BuildManifest): Promise<void> {
-  const updatedToml = [
-    `plugin_id = \"${bm.plugin_id}\"`,
-    `name = \"${bm.name}\"`,
-    `version = \"${bm.version}\"`,
-    `entry = \"${bm.entry}\"`,
-    `files = [${bm.files.map((f) => `\"${f}\"`).join(", ")}]`
-  ];
-  await fs.writeFile(
-    path.join(agentDir, "build-manifest.toml"),
-    updatedToml.join("\n") + "\n",
-    "utf8"
-  );
+function formatTomlString(value: string): string {
+  const escaped = value.replace(/\\/g, "\\\\").replace(/\"/g, '\\"');
+  return `"${escaped}"`;
+}
+
+function formatTomlStringArray(values: string[]): string {
+  return `[${values.map((v) => formatTomlString(v)).join(", ")}]`;
+}
+
+function replaceTomlKey(raw: string, key: string, value: string): string {
+  const pattern = new RegExp(`^\\s*${key}\\s*=.*$`, "m");
+  const line = `${key} = ${value}`;
+  if (pattern.test(raw)) {
+    return raw.replace(pattern, line);
+  }
+  const trimmed = raw.trimEnd();
+  return `${trimmed}\n${line}\n`;
+}
+
+async function updateBuildManifest(agentDir: string, bm: BuildManifest): Promise<void> {
+  const manifestPath = path.join(agentDir, "build-manifest.toml");
+  const raw = await fs.readFile(manifestPath, "utf8");
+  let updated = raw;
+  updated = replaceTomlKey(updated, "plugin_id", formatTomlString(bm.plugin_id));
+  updated = replaceTomlKey(updated, "name", formatTomlString(bm.name));
+  updated = replaceTomlKey(updated, "version", formatTomlString(bm.version));
+  updated = replaceTomlKey(updated, "entry", formatTomlString(bm.entry));
+  updated = replaceTomlKey(updated, "files", formatTomlStringArray(bm.files));
+  await fs.writeFile(manifestPath, updated, "utf8");
 }
 
 async function writePayloadHashes(
@@ -453,6 +474,14 @@ async function processSourceList(args: ArgMap): Promise<void> {
   let packedCount = 0;
   let skippedCount = 0;
   let backupWritten = false;
+  const conflicts: Array<{
+    id: string;
+    path: string;
+    buildManifest: string;
+    sourceList: string;
+    repo: RepoVersion;
+  }> = [];
+  const hasBump = Boolean(args.release || args.prerelease);
   const sourcesCreated = args.sourcesCreated ?? false;
   console.log("building agent packs:");
 
@@ -498,7 +527,7 @@ async function processSourceList(args: ArgMap): Promise<void> {
     const baseVersion = semver.gte(bmVer, sourceVer) ? bmVer : sourceVer;
     const buildVersion = bumpVersion(baseVersion, args.release, args.prerelease);
     const outDir = resolveOutDir(agentDir, args.out);
-    let repoVer: string | null = null;
+    let repoVer: RepoVersion | null = null;
 
     try {
       repoVer = await findHighestRepoVersion(outDir, bm.plugin_id);
@@ -511,26 +540,36 @@ async function processSourceList(args: ArgMap): Promise<void> {
       continue;
     }
 
-    let desiredVersion = buildVersion;
-    if (repoVer && semver.gt(repoVer, desiredVersion)) {
-      desiredVersion = repoVer;
-      console.log(
-        `    [${entry.id}] repository version ${repoVer} supersedes build version (skipped)`
-      );
+    if (
+      repoVer
+      && (semver.gt(repoVer.version, buildVersion)
+        || (hasBump && semver.gte(repoVer.version, buildVersion)))
+    ) {
+      conflicts.push({
+        id: entry.id,
+        path: entry.path,
+        buildManifest: bm.version,
+        sourceList: sourceVer,
+        repo: repoVer
+      });
+      hadErrors = true;
+      errorCount += 1;
+      continue;
     }
-    if (entry.ver !== desiredVersion) {
-      entry.ver = desiredVersion;
+
+    if (repoVer && semver.gte(repoVer.version, buildVersion)) {
+      console.log(`    [${entry.id}] ${repoVer.version} already exists in repository (skipped)`);
+      skippedCount += 1;
+      continue;
+    }
+
+    if (entry.ver !== buildVersion) {
+      entry.ver = buildVersion;
       updatedSources = true;
     }
 
     if (bm.version !== buildVersion) {
-      await writeBuildManifest(agentDir, { ...bm, version: buildVersion });
-    }
-
-    if (repoVer && semver.gte(repoVer, buildVersion)) {
-      console.log(`    [${entry.id}] ${repoVer} already exists in repository (skipped)`);
-      skippedCount += 1;
-      continue;
+      await updateBuildManifest(agentDir, { ...bm, version: buildVersion });
     }
 
     await fs.mkdir(outDir, { recursive: true });
@@ -564,6 +603,25 @@ async function processSourceList(args: ArgMap): Promise<void> {
     console.log("source list:");
     console.log(`    updated sources list -> ${formatDisplayPath(listPath)}`);
     console.log(`    backup sources list -> ${formatDisplayPath(backupPath)}`);
+  }
+
+  if (conflicts.length > 0) {
+    console.log("");
+    console.log("conflicts:");
+    for (const conflict of conflicts) {
+      const agentDir = path.resolve(listDir, conflict.path);
+      const manifestPath = path.join(agentDir, "build-manifest.toml");
+      console.log(`    [${conflict.id}]`);
+      console.log(`        build-manifest.toml: v${conflict.buildManifest} (${formatDisplayPath(manifestPath)})`);
+      console.log(`        sources.json: v${conflict.sourceList} (${formatDisplayPath(listPath)})`);
+      console.log(
+        `        repository: v${conflict.repo.version} (${formatDisplayPath(conflict.repo.path)})`
+      );
+      console.log(
+        `        message: something's not write, you have output (v${conflict.repo.version}) that supersedes the build-manifest.toml (v${conflict.buildManifest}) and the sources.json (v${conflict.sourceList}). Resolve this manually before packing can continue.`
+      );
+      console.log("");
+    }
   }
 
   console.log("");
@@ -699,14 +757,7 @@ async function main(): Promise<void> {
   const bm = await readBuildManifest(agentDir);
   if (args.release || args.prerelease) {
     bm.version = bumpVersion(bm.version, args.release, args.prerelease);
-    const updated = [
-      `plugin_id = \"${bm.plugin_id}\"`,
-      `name = \"${bm.name}\"`,
-      `version = \"${bm.version}\"`,
-      `entry = \"${bm.entry}\"`,
-      `files = [${bm.files.map((f) => `\"${f}\"`).join(", ")}]`
-    ];
-    await fs.writeFile(path.join(agentDir, "build-manifest.toml"), updated.join("\n") + "\n", "utf8");
+    await updateBuildManifest(agentDir, bm);
   }
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mimolo-pack-"));
   try {
