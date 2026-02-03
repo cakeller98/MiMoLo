@@ -33,6 +33,8 @@ type SourcesFile = {
   sources: SourceEntry[];
 };
 
+type ConflictReason = "repo-newer" | "repo-exists-bump" | "hash-mismatch";
+
 async function readBuildManifest(agentDir: string): Promise<BuildManifest> {
   const manifestPath = path.join(agentDir, "build-manifest.toml");
   const raw = await fs.readFile(manifestPath, "utf8");
@@ -233,11 +235,35 @@ async function packZip(
   });
 }
 
+async function verifyExistingArchive(
+  agentDir: string,
+  bm: BuildManifest,
+  repoZipPath: string
+): Promise<boolean> {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mimolo-verify-"));
+  try {
+    const manifestPath = await writeManifest(tmpDir, bm);
+    const hashesPath = await writePayloadHashes(agentDir, tmpDir, bm);
+    await packZip(agentDir, bm, tmpDir, manifestPath, hashesPath);
+    const tmpZip = path.join(tmpDir, `${bm.plugin_id}_v${bm.version}.zip`);
+    const [repoHash, tmpHash] = await Promise.all([
+      hashFile(repoZipPath),
+      hashFile(tmpZip)
+    ]);
+    return repoHash === tmpHash;
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
 type ArgMap = {
   source?: string;
   sourceList?: string;
   createSourceList?: boolean;
   force?: boolean;
+  forcePack?: boolean;
+  verifyExisting?: boolean;
+  help?: boolean;
   silent?: boolean;
   sourcesCreated?: boolean;
   out?: string;
@@ -251,6 +277,10 @@ function parseArgs(argv: string[]): ArgMap {
   const prereleaseFlags: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+    if (arg === "--help" || arg === "-h") {
+      args.help = true;
+      continue;
+    }
     if (arg === "--source") {
       args.source = argv[i + 1];
       i += 1;
@@ -263,6 +293,10 @@ function parseArgs(argv: string[]): ArgMap {
       args.force = true;
     } else if (arg === "--silent") {
       args.silent = true;
+    } else if (arg === "--force-pack") {
+      args.forcePack = true;
+    } else if (arg === "--verify-existing") {
+      args.verifyExisting = true;
     } else if (arg === "--out") {
       args.out = argv[i + 1];
       i += 1;
@@ -293,6 +327,40 @@ function parseArgs(argv: string[]): ArgMap {
     throw new Error(`prerelease flags are mutually exclusive: ${prereleaseFlags.join(", ")}`);
   }
   return args;
+}
+
+function printHelp(): void {
+  console.log("");
+  console.log("pack-agent");
+  console.log("");
+  console.log("usage:");
+  console.log(
+    "  pack-agent --source <agent_dir> | --source-list <sources.json> [--out <out_dir>]"
+  );
+  console.log(
+    "           [--major|--minor|--patch] [--alpha|--beta|--rc] [--verify-existing] [--force-pack]"
+  );
+  console.log("  pack-agent --source <agents_dir> --create-source-list [--force]");
+  console.log("");
+  console.log("options:");
+  console.log("  --source <agent_dir>         Pack a single agent directory");
+  console.log("  --source-list <sources.json> Pack multiple agents from a sources list");
+  console.log("  --create-source-list         Generate sources.json from an agents directory");
+  console.log("  --out <out_dir>              Output directory for packed zips");
+  console.log("  --major|--minor|--patch       Bump version (mutually exclusive)");
+  console.log("  --alpha|--beta|--rc           Prerelease bump (mutually exclusive)");
+  console.log("  --verify-existing             Hash-verify if desired version already exists");
+  console.log("  --force-pack                  Overwrite existing artifact for same version");
+  console.log("  --force                       Overwrite existing sources.json when creating");
+  console.log("  --silent                      Auto-accept prompts when creating sources.json");
+  console.log("  --help, -h                    Show this help");
+  console.log("");
+  console.log("notes:");
+  console.log("  - If a version bump is requested and the desired version already exists,");
+  console.log("    pack-agent will fail that agent unless --force-pack is used.");
+  console.log("  - If no bump is requested and the desired version exists, pack-agent will");
+  console.log("    skip by default, or verify hashes with --verify-existing.");
+  console.log("");
 }
 
 function bumpVersion(
@@ -480,8 +548,11 @@ async function processSourceList(args: ArgMap): Promise<void> {
     buildManifest: string;
     sourceList: string;
     repo: RepoVersion;
+    reason: ConflictReason;
   }> = [];
   const hasBump = Boolean(args.release || args.prerelease);
+  const verifyExisting = Boolean(args.verifyExisting);
+  const forcePack = Boolean(args.forcePack);
   const sourcesCreated = args.sourcesCreated ?? false;
   console.log("building agent packs:");
 
@@ -540,27 +611,72 @@ async function processSourceList(args: ArgMap): Promise<void> {
       continue;
     }
 
-    if (
-      repoVer
-      && (semver.gt(repoVer.version, buildVersion)
-        || (hasBump && semver.gte(repoVer.version, buildVersion)))
-    ) {
-      conflicts.push({
-        id: entry.id,
-        path: entry.path,
-        buildManifest: bm.version,
-        sourceList: sourceVer,
-        repo: repoVer
-      });
-      hadErrors = true;
-      errorCount += 1;
-      continue;
-    }
+    if (repoVer) {
+      if (semver.gt(repoVer.version, buildVersion)) {
+        conflicts.push({
+          id: entry.id,
+          path: entry.path,
+          buildManifest: bm.version,
+          sourceList: sourceVer,
+          repo: repoVer,
+          reason: "repo-newer"
+        });
+        hadErrors = true;
+        errorCount += 1;
+        continue;
+      }
 
-    if (repoVer && semver.gte(repoVer.version, buildVersion)) {
-      console.log(`    [${entry.id}] ${repoVer.version} already exists in repository (skipped)`);
-      skippedCount += 1;
-      continue;
+      if (semver.eq(repoVer.version, buildVersion)) {
+        if (hasBump && !forcePack) {
+          conflicts.push({
+            id: entry.id,
+            path: entry.path,
+            buildManifest: bm.version,
+            sourceList: sourceVer,
+            repo: repoVer,
+            reason: "repo-exists-bump"
+          });
+          hadErrors = true;
+          errorCount += 1;
+          continue;
+        }
+
+        if (!hasBump && !forcePack) {
+          if (verifyExisting) {
+            const bmForBuild: BuildManifest = { ...bm, version: buildVersion };
+            const matches = await verifyExistingArchive(agentDir, bmForBuild, repoVer.path);
+            if (!matches) {
+              conflicts.push({
+                id: entry.id,
+                path: entry.path,
+                buildManifest: bm.version,
+                sourceList: sourceVer,
+                repo: repoVer,
+                reason: "hash-mismatch"
+              });
+              hadErrors = true;
+              errorCount += 1;
+              continue;
+            }
+            console.log(
+              `    [${entry.id}] ${repoVer.version} already exists in repository (verified, skipped)`
+            );
+            skippedCount += 1;
+            continue;
+          }
+          console.log(
+            `    [${entry.id}] ${repoVer.version} already exists in repository (skipped, assumed current revision)`
+          );
+          skippedCount += 1;
+          continue;
+        }
+
+        if (forcePack) {
+          console.log(
+            `    [${entry.id}] ${repoVer.version} exists in repository (force-pack overwriting)`
+          );
+        }
+      }
     }
 
     if (entry.ver !== buildVersion) {
@@ -617,9 +733,22 @@ async function processSourceList(args: ArgMap): Promise<void> {
       console.log(
         `        repository: v${conflict.repo.version} (${formatDisplayPath(conflict.repo.path)})`
       );
-      console.log(
-        `        message: something's not write, you have output (v${conflict.repo.version}) that supersedes the build-manifest.toml (v${conflict.buildManifest}) and the sources.json (v${conflict.sourceList}). Resolve this manually before packing can continue.`
-      );
+      let message: string;
+      if (conflict.reason === "repo-exists-bump") {
+        message =
+          `something's not write, you requested a version bump but output ` +
+          `(v${conflict.repo.version}) already exists. Resolve this manually before packing can continue.`;
+      } else if (conflict.reason === "hash-mismatch") {
+        message =
+          `something's not write, repository output (v${conflict.repo.version}) does not ` +
+          `match current sources for the same version. Resolve this manually before packing can continue.`;
+      } else {
+        message =
+          `something's not write, you have output (v${conflict.repo.version}) that supersedes ` +
+          `the build-manifest.toml (v${conflict.buildManifest}) and the sources.json ` +
+          `(v${conflict.sourceList}). Resolve this manually before packing can continue.`;
+      }
+      console.log(`        message: ${message}`);
       console.log("");
     }
   }
@@ -634,6 +763,16 @@ async function processSourceList(args: ArgMap): Promise<void> {
     `summary: packed ${packedCount}, skipped ${skippedCount}, errors ${errorCount}, source list ${sourceListStatus}`
   );
   console.log("");
+  if (skippedCount > 0) {
+    console.log(
+      "note: if you did not expect repo to be skipped, it is a good idea to periodically run the " +
+      "--verify-existing flag to confirm the hashes of all current agents before public release to ensure " +
+      "that the released artifact is the version that was expected. --force-pack can also be used but this " +
+      "will overwrite artifacts and if you are not careful it is possible that a version mismatch could occur. " +
+      "best to use --verify-existing unless you know what you're doing."
+    );
+    console.log("");
+  }
   console.log(`completed: ${formatTimestamp()}`);
   console.log("");
   
@@ -697,6 +836,10 @@ async function createSourceListFromDir(agentRoot: string, force?: boolean): Prom
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    printHelp();
+    return;
+  }
   let defaultCandidates: string[] | undefined;
   if (args.sourceList && args.createSourceList) {
     console.error("use either --source-list or --create-source-list, not both");
@@ -745,7 +888,7 @@ async function main(): Promise<void> {
 
   if (!args.source) {
     console.error(
-      "usage: pack-agent --source <agent_dir> | --source-list <sources.json> [--out <out_dir>] [--major|--minor|--patch] [--alpha|--beta|--rc]"
+      "usage: pack-agent --source <agent_dir> | --source-list <sources.json> [--out <out_dir>] [--major|--minor|--patch] [--alpha|--beta|--rc] [--verify-existing] [--force-pack]"
     );
     process.exit(1);
   }
@@ -755,8 +898,120 @@ async function main(): Promise<void> {
   const outDir = resolveOutDir(agentDir, args.out);
 
   const bm = await readBuildManifest(agentDir);
-  if (args.release || args.prerelease) {
-    bm.version = bumpVersion(bm.version, args.release, args.prerelease);
+  const hasBump = Boolean(args.release || args.prerelease);
+  const verifyExisting = Boolean(args.verifyExisting);
+  const forcePack = Boolean(args.forcePack);
+  const desiredVersion = bumpVersion(bm.version, args.release, args.prerelease);
+  let skipped = false;
+
+  let repoVer: RepoVersion | null = null;
+  try {
+    repoVer = await findHighestRepoVersion(outDir, bm.plugin_id);
+  } catch (err) {
+    console.error(`failed to read repository: ${(err as Error).message}`);
+    process.exit(1);
+  }
+
+  if (repoVer) {
+    if (semver.gt(repoVer.version, desiredVersion)) {
+      console.log("");
+      console.log("conflicts:");
+      console.log(`    [${bm.plugin_id}]`);
+      console.log(
+        `        build-manifest.toml: v${bm.version} (${formatDisplayPath(
+          path.join(agentDir, "build-manifest.toml")
+        )})`
+      );
+      console.log(
+        `        repository: v${repoVer.version} (${formatDisplayPath(repoVer.path)})`
+      );
+      console.log(
+        `        message: something's not write, you have output (v${repoVer.version}) that supersedes the build-manifest.toml (v${bm.version}). Resolve this manually before packing can continue.`
+      );
+      console.log("");
+      process.exitCode = 1;
+      return;
+    }
+
+    if (semver.eq(repoVer.version, desiredVersion)) {
+      if (hasBump && !forcePack) {
+        console.log("");
+        console.log("conflicts:");
+        console.log(`    [${bm.plugin_id}]`);
+        console.log(
+          `        build-manifest.toml: v${bm.version} (${formatDisplayPath(
+            path.join(agentDir, "build-manifest.toml")
+          )})`
+        );
+        console.log(
+          `        repository: v${repoVer.version} (${formatDisplayPath(repoVer.path)})`
+        );
+        console.log(
+          `        message: something's not write, you requested a version bump but output (v${repoVer.version}) already exists. Resolve this manually before packing can continue.`
+        );
+        console.log("");
+        process.exitCode = 1;
+        return;
+      }
+
+      if (!hasBump && !forcePack) {
+        if (verifyExisting) {
+          const bmForBuild: BuildManifest = { ...bm, version: desiredVersion };
+          const matches = await verifyExistingArchive(agentDir, bmForBuild, repoVer.path);
+          if (!matches) {
+            console.log("");
+            console.log("conflicts:");
+            console.log(`    [${bm.plugin_id}]`);
+            console.log(
+              `        build-manifest.toml: v${bm.version} (${formatDisplayPath(
+                path.join(agentDir, "build-manifest.toml")
+              )})`
+            );
+            console.log(
+              `        repository: v${repoVer.version} (${formatDisplayPath(repoVer.path)})`
+            );
+            console.log(
+              `        message: something's not write, repository output (v${repoVer.version}) does not match current sources for the same version. Resolve this manually before packing can continue.`
+            );
+            console.log("");
+            process.exitCode = 1;
+            return;
+          }
+          console.log(
+            `skipped: ${repoVer.version} already exists in repository (verified, assumed current revision)`
+          );
+          skipped = true;
+        } else {
+          console.log(
+            `skipped: ${repoVer.version} already exists in repository (assumed current revision)`
+          );
+          skipped = true;
+        }
+      }
+
+      if (forcePack) {
+        console.log(
+          `${repoVer.version} exists in repository (force-pack overwriting)`
+        );
+      }
+    }
+  }
+
+  if (skipped) {
+    console.log("");
+    console.log(
+      "note: if you did not expect repo to be skipped, it is a good idea to periodically run the " +
+      "--verify-existing flag to confirm the hashes of all current agents before public release to ensure " +
+      "that the released artifact is the version that was expected. --force-pack can also be used but this " +
+      "will overwrite artifacts and if you are not careful it is possible that a version mismatch could occur. " +
+      "best to use --verify-existing unless you know what you're doing."
+    );
+    console.log("");
+    return;
+  }
+
+  if (bm.version !== desiredVersion) {
+    bm.version = desiredVersion;
     await updateBuildManifest(agentDir, bm);
   }
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mimolo-pack-"));

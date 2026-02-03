@@ -20,19 +20,35 @@ npm run start
 
 Builds a versioned zip from a agent folder that contains a build manifest.
 
+### CLI flags (summary)
+
+| Flag | Description |
+| --- | --- |
+| `--source <agent_dir>` | Pack a single agent directory |
+| `--source-list <sources.json>` | Pack multiple agents from a sources list |
+| `--create-source-list` | Generate sources.json from an agents directory |
+| `--out <out_dir>` | Output directory for packed zips |
+| `--major`, `--minor`, `--patch` | Version bump (mutually exclusive) |
+| `--alpha`, `--beta`, `--rc` | Prerelease bump (mutually exclusive) |
+| `--verify-existing` | Hash-verify if desired version already exists |
+| `--force-pack` | Overwrite existing artifact for same version |
+| `--force` | Overwrite existing sources.json when creating |
+| `--silent` | Auto-accept prompts when creating sources.json |
+| `--help`, `-h` | Show help |
+
 Run with a build step (type-checked):
 
 ```bash
 npm install
 npm run build
-node dist/pack-agent.js --source <agent_dir> [--out <out_dir>]
+node dist/pack-agent.js --source <agent_dir> [--out <out_dir>] [--verify-existing] [--force-pack]
 ```
 
 Development only (no type check):
 
 ```bash
 npm install
-npx tsx src/pack-agent.ts --source <agent_dir> [--out <out_dir>]
+npx tsx src/pack-agent.ts --source <agent_dir> [--out <out_dir>] [--verify-existing] [--force-pack]
 ```
 
 `npx tsx` runs TypeScript directly without type checking, so prefer the build path above for strictness.
@@ -57,14 +73,14 @@ Build with a list:
 
 ```bash
 npm run build
-node dist/pack-agent.js --source-list sources.json [--out <out_dir>]
+node dist/pack-agent.js --source-list sources.json [--out <out_dir>] [--verify-existing] [--force-pack]
 ```
 
 Default behavior (when `sources.json` exists in the current directory or `../agents/sources.json`):
 
 ```bash
 npm run build
-node dist/pack-agent.js
+node dist/pack-agent.js [--verify-existing] [--force-pack]
 ```
 
 If no `sources.json` exists, it will prompt to create one from `../agents` and then build. Use `--silent` to auto-accept.
@@ -72,7 +88,7 @@ If no `sources.json` exists, it will prompt to create one from `../agents` and t
 Development only:
 
 ```bash
-npx tsx src/pack-agent.ts --source-list sources.json [--out <out_dir>]
+npx tsx src/pack-agent.ts --source-list sources.json [--out <out_dir>] [--verify-existing] [--force-pack]
 ```
 
 Notes:
@@ -116,6 +132,28 @@ Combined example:
 Note:
 - Combined release + prerelease uses semver premajor/preminor/prepatch rules, so
   `1.0.1-beta.0` + `--major --beta` -> `2.0.0-beta.0`.
+
+### Repository collisions (existing artifacts)
+
+By default, if the desired version already exists in the repository, pack-agent skips that agent and assumes
+the repo artifact is the current revision.
+
+Optional safety flags:
+- `--verify-existing`: When a desired version already exists, build a temporary zip and compare its hash to the
+  repo artifact. If hashes differ, a conflict is raised.
+- `--force-pack`: Overwrite an existing artifact for the same version (use with care).
+
+If a version bump is requested and the desired version already exists in the repository, the run fails for that
+agent (unless `--force-pack` is used).
+
+If you need to force a build at a *lower* revision (to fix a versioning mistake or rerun tests), this is allowed,
+but it is not the expected path:
+1) Delete the conflicting artifact(s) from the repository directory.
+2) Remove or update the corresponding entries in `sources.json` (if using a source list).
+3) Update `build-manifest.toml` to the desired version.
+
+As long as the version passes validation, pack-agent will build at that version. Use this only to correct mistakes,
+not as a regular workflow.
 
 ### build-manifest.toml (required)
 
