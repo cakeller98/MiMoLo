@@ -10,6 +10,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+    throw "winget not found. Install App Installer (Microsoft Store) and re-run."
+}
+
 function Test-WingetInstalled {
     param([string]$Id)
     $result = winget list --id $Id 2>$null
@@ -75,3 +79,7 @@ Write-Host "Verifying installs..."
 & poetry --version
 & uv --version
 & nvm --version
+
+Write-Host ""
+Write-Host "Note: If Poetry or pipx are not on PATH in new shells, restart your terminal."
+Write-Host "pipx executable path: $pipxExe"
