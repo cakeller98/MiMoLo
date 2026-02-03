@@ -51,15 +51,48 @@ function Add-ToUserPath {
 }
 
 if (-not $Validate) {
-    Write-Host "Installing dev tools (per-user)..."
+Write-Host "Installing dev tools (per-user)..."
 
-    Ensure-WingetPackage "CoreyButler.NVMforWindows"
+    Write-Host "Installing nvm-windows (portable, per-user)..."
     Ensure-WingetPackage "Python.Python.$PythonVersion"
     Ensure-WingetPackage "astral-sh.uv"
 
-    Write-Host "Configuring nvm-windows environment variables..."
+    Write-Host "Configuring nvm-windows environment variables (per-user install)..."
     $nvmHome = Join-Path $env:LOCALAPPDATA "Programs\nvm"
     $nvmSymlink = Join-Path $env:LOCALAPPDATA "Programs\nodejs"
+
+    if (-not (Test-Path $nvmHome)) {
+        New-Item -ItemType Directory -Force -Path $nvmHome | Out-Null
+    }
+    if (-not (Test-Path $nvmSymlink)) {
+        New-Item -ItemType Directory -Force -Path $nvmSymlink | Out-Null
+    }
+
+    $nvmExe = Join-Path $nvmHome "nvm.exe"
+    if (-not (Test-Path $nvmExe)) {
+        $repo = "coreybutler/nvm-windows"
+        $latest = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
+        $asset = $latest.assets | Where-Object { $_.name -eq "nvm-noinstall.zip" } | Select-Object -First 1
+        if (-not $asset) {
+            throw "nvm-noinstall.zip not found in latest release assets."
+        }
+        $zipPath = Join-Path $env:TEMP "nvm-noinstall.zip"
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+        Expand-Archive -Path $zipPath -DestinationPath $nvmHome -Force
+    } else {
+        Write-Host "nvm.exe already present at $nvmExe"
+    }
+
+    $settingsPath = Join-Path $nvmHome "settings.txt"
+    if (-not (Test-Path $settingsPath)) {
+        @(
+            "root: $nvmHome",
+            "path: $nvmSymlink",
+            "arch: 64",
+            "proxy: none"
+        ) | Set-Content -Path $settingsPath -Encoding ASCII
+    }
+
     [Environment]::SetEnvironmentVariable("NVM_HOME", $nvmHome, "User")
     [Environment]::SetEnvironmentVariable("NVM_SYMLINK", $nvmSymlink, "User")
     Add-ToUserPath $nvmHome
@@ -107,3 +140,4 @@ Write-Host "Verifying installs..."
 Write-Host ""
 Write-Host "Note: If Poetry or pipx are not on PATH in new shells, restart your terminal."
 Write-Host "pipx executable path is under the user base Scripts directory."
+Write-Host "Note: nvm-windows installed as portable per-user under $nvmHome."
