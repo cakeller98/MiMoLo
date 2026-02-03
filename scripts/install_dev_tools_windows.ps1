@@ -2,6 +2,8 @@
 # - This script is per-user and intended to be run in a GUI session.
 # - Some installers (notably Python) may trigger UAC prompts and require
 #   approval from an admin account. Windows Hello prompts are GUI-only.
+# - nvm-windows creates symlinks. Either run `nvm use` as admin or enable
+#   Developer Mode to allow symlinks without elevation.
 
 param(
     [ValidateSet("3.11","3.12","3.13")]
@@ -10,10 +12,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-
-if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-    throw "winget not found. Install App Installer (Microsoft Store) and re-run."
-}
 
 function Test-WingetInstalled {
     param([string]$Id)
@@ -51,7 +49,10 @@ function Add-ToUserPath {
 }
 
 if (-not $Validate) {
-Write-Host "Installing dev tools (per-user)..."
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        throw "winget not found. Install App Installer (Microsoft Store) and re-run."
+    }
+    Write-Host "Installing dev tools (per-user)..."
 
     Write-Host "Installing nvm-windows (portable, per-user)..."
     Ensure-WingetPackage "Python.Python.$PythonVersion"
@@ -64,8 +65,9 @@ Write-Host "Installing dev tools (per-user)..."
     if (-not (Test-Path $nvmHome)) {
         New-Item -ItemType Directory -Force -Path $nvmHome | Out-Null
     }
-    if (-not (Test-Path $nvmSymlink)) {
-        New-Item -ItemType Directory -Force -Path $nvmSymlink | Out-Null
+    if (Test-Path $nvmSymlink) {
+        Write-Host "Removing existing NVM_SYMLINK path so nvm can create a symlink..."
+        Remove-Item -Recurse -Force $nvmSymlink
     }
 
     $nvmExe = Join-Path $nvmHome "nvm.exe"
@@ -122,6 +124,11 @@ Write-Host "Installing dev tools (per-user)..."
     } else {
         Write-Host "Poetry already installed via pipx."
     }
+
+    Write-Host "Installing Node.js 24 and TypeScript (tsc)..."
+    & nvm install 24
+    & nvm use 24
+    & npm install -g typescript
 } else {
     Write-Host "Validate mode: skipping installs; checking PATH and tool availability..."
 }
@@ -129,13 +136,31 @@ Write-Host "Installing dev tools (per-user)..."
 if (-not $pythonExe) {
     $pythonExe = "py"
 }
+if (-not $nvmHome) {
+    $nvmHome = Join-Path $env:LOCALAPPDATA "Programs\nvm"
+}
+
+function Test-Command {
+    param([string]$Name, [string]$Args = "")
+    $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+    if (-not $cmd) {
+        Write-Host "Missing: $Name"
+        return
+    }
+    if ($Args) {
+        & $Name $Args
+    } else {
+        & $Name --version
+    }
+}
 
 Write-Host "Verifying installs..."
 & $pythonExe -V
 & $pythonExe -m pipx --version
-& poetry --version
-& uv --version
-& nvm --version
+Test-Command "poetry"
+Test-Command "uv"
+Test-Command "nvm"
+Test-Command "tsc"
 
 Write-Host ""
 Write-Host "Note: If Poetry or pipx are not on PATH in new shells, restart your terminal."
