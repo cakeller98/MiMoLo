@@ -5,7 +5,8 @@
 
 param(
     [ValidateSet("3.11","3.12","3.13")]
-    [string]$PythonVersion = "3.11"
+    [string]$PythonVersion = "3.11",
+    [switch]$Validate
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,44 +50,51 @@ function Add-ToUserPath {
     }
 }
 
-Write-Host "Installing dev tools (per-user)..."
+if (-not $Validate) {
+    Write-Host "Installing dev tools (per-user)..."
 
-Ensure-WingetPackage "CoreyButler.NVMforWindows"
-Ensure-WingetPackage "Python.Python.$PythonVersion"
-Ensure-WingetPackage "astral-sh.uv"
+    Ensure-WingetPackage "CoreyButler.NVMforWindows"
+    Ensure-WingetPackage "Python.Python.$PythonVersion"
+    Ensure-WingetPackage "astral-sh.uv"
 
-Write-Host "Configuring nvm-windows environment variables..."
-$nvmHome = Join-Path $env:LOCALAPPDATA "Programs\nvm"
-$nvmSymlink = Join-Path $env:LOCALAPPDATA "Programs\nodejs"
-[Environment]::SetEnvironmentVariable("NVM_HOME", $nvmHome, "User")
-[Environment]::SetEnvironmentVariable("NVM_SYMLINK", $nvmSymlink, "User")
-Add-ToUserPath $nvmHome
-Add-ToUserPath $nvmSymlink
+    Write-Host "Configuring nvm-windows environment variables..."
+    $nvmHome = Join-Path $env:LOCALAPPDATA "Programs\nvm"
+    $nvmSymlink = Join-Path $env:LOCALAPPDATA "Programs\nodejs"
+    [Environment]::SetEnvironmentVariable("NVM_HOME", $nvmHome, "User")
+    [Environment]::SetEnvironmentVariable("NVM_SYMLINK", $nvmSymlink, "User")
+    Add-ToUserPath $nvmHome
+    Add-ToUserPath $nvmSymlink
 
-Write-Host "Installing pipx (per pipx Windows instructions)..."
-$pythonExe = "py"
-$null = & $pythonExe -V 2>$null
-if ($LASTEXITCODE -ne 0) {
-    throw "Python launcher 'py' not found. Ensure Python $PythonVersion is installed and on PATH."
+    Write-Host "Installing pipx (per pipx Windows instructions)..."
+    $pythonExe = "py"
+    $null = & $pythonExe -V 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Python launcher 'py' not found. Ensure Python $PythonVersion is installed and on PATH."
+    }
+
+    & $pythonExe -m pip show pipx 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        & $pythonExe -m pip install --user pipx
+    } else {
+        Write-Host "pipx already installed for this user."
+    }
+
+    Write-Host "Ensuring pipx path (using module invocation)..."
+    & $pythonExe -m pipx ensurepath | Out-Null
+
+    Write-Host "Installing Poetry via pipx (per Poetry docs)..."
+    $poetryInstalled = & $pythonExe -m pipx list | Select-String -Pattern "poetry" -SimpleMatch
+    if (-not $poetryInstalled) {
+        & $pythonExe -m pipx install poetry
+    } else {
+        Write-Host "Poetry already installed via pipx."
+    }
+} else {
+    Write-Host "Validate mode: skipping installs; checking PATH and tool availability..."
 }
 
-& $pythonExe -m pip show pipx 2>$null | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    & $pythonExe -m pip install --user pipx
-} else {
-    Write-Host "pipx already installed for this user."
-}
-
-Write-Host "Ensuring pipx path (using module invocation)..."
-& $pythonExe -m pipx ensurepath | Out-Null
-
-Write-Host "Installing Poetry via pipx (per Poetry docs)..."
-Write-Host "Installing Poetry via pipx (per Poetry docs)..."
-$poetryInstalled = & $pythonExe -m pipx list | Select-String -Pattern "poetry" -SimpleMatch
-if (-not $poetryInstalled) {
-    & $pythonExe -m pipx install poetry
-} else {
-    Write-Host "Poetry already installed via pipx."
+if (-not $pythonExe) {
+    $pythonExe = "py"
 }
 
 Write-Host "Verifying installs..."
