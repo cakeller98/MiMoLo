@@ -30,11 +30,38 @@ function Ensure-WingetPackage {
     winget install -e --id $Id --scope user --accept-package-agreements --accept-source-agreements
 }
 
+function Add-ToUserPath {
+    param([string]$Dir)
+    if (-not (Test-Path $Dir)) {
+        return
+    }
+    $userPath = [Environment]::GetEnvironmentVariable("Path","User")
+    if (-not $userPath) {
+        $userPath = ""
+    }
+    $parts = $userPath -split ';'
+    if ($parts -notcontains $Dir) {
+        $newPath = ($parts + $Dir) -join ';'
+        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+    }
+    if (-not ($env:Path -split ';' | Where-Object { $_ -eq $Dir })) {
+        $env:Path = "$Dir;$env:Path"
+    }
+}
+
 Write-Host "Installing dev tools (per-user)..."
 
 Ensure-WingetPackage "CoreyButler.NVMforWindows"
 Ensure-WingetPackage "Python.Python.$PythonVersion"
 Ensure-WingetPackage "astral-sh.uv"
+
+Write-Host "Configuring nvm-windows environment variables..."
+$nvmHome = Join-Path $env:LOCALAPPDATA "Programs\nvm"
+$nvmSymlink = Join-Path $env:LOCALAPPDATA "Programs\nodejs"
+[Environment]::SetEnvironmentVariable("NVM_HOME", $nvmHome, "User")
+[Environment]::SetEnvironmentVariable("NVM_SYMLINK", $nvmSymlink, "User")
+Add-ToUserPath $nvmHome
+Add-ToUserPath $nvmSymlink
 
 Write-Host "Installing pipx (per pipx Windows instructions)..."
 $pythonExe = "py"
