@@ -50,36 +50,25 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "pipx already installed for this user."
 }
 
-# Resolve pipx Scripts path and ensure it is on PATH for this session.
-$pipxUserBase = & $pythonExe -c "import site; print(site.getuserbase())"
-$pipxScripts = Join-Path $pipxUserBase "Scripts"
-$pipxExe = Join-Path $pipxScripts "pipx.exe"
-
-if (-not (Test-Path $pipxExe)) {
-    throw "pipx.exe not found at $pipxExe. Verify pipx installation succeeded."
-}
-
-if (-not ($env:Path -split ';' | Where-Object { $_ -eq $pipxScripts })) {
-    $env:Path = "$pipxScripts;$env:Path"
-}
-
-& $pipxExe ensurepath | Out-Null
+Write-Host "Ensuring pipx path (using module invocation)..."
+& $pythonExe -m pipx ensurepath | Out-Null
 
 Write-Host "Installing Poetry via pipx (per Poetry docs)..."
-$poetryInstalled = & $pipxExe list | Select-String -Pattern "poetry" -SimpleMatch
+Write-Host "Installing Poetry via pipx (per Poetry docs)..."
+$poetryInstalled = & $pythonExe -m pipx list | Select-String -Pattern "poetry" -SimpleMatch
 if (-not $poetryInstalled) {
-    & $pipxExe install poetry
+    & $pythonExe -m pipx install poetry
 } else {
     Write-Host "Poetry already installed via pipx."
 }
 
 Write-Host "Verifying installs..."
 & $pythonExe -V
-& $pipxExe --version
+& $pythonExe -m pipx --version
 & poetry --version
 & uv --version
 & nvm --version
 
 Write-Host ""
 Write-Host "Note: If Poetry or pipx are not on PATH in new shells, restart your terminal."
-Write-Host "pipx executable path: $pipxExe"
+Write-Host "pipx executable path is under the user base Scripts directory."
