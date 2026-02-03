@@ -4,7 +4,13 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1000,
     height: 700,
-    backgroundColor: "#111111"
+    backgroundColor: "#111111",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      enableRemoteModule: false,
+    },
   });
 
   win.loadURL("data:text/html,<h1>MiMoLo Dash Placeholder</h1>");

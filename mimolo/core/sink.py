@@ -10,9 +10,10 @@ Supports:
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TextIO
 
 import yaml
 
@@ -46,6 +47,19 @@ class BaseSink:
     def close(self) -> None:
         """Close resources."""
         pass
+
+
+def _open_log_file_restricted(path: Path) -> TextIO:
+    """Open log file with owner-only permissions."""
+    def opener(file_path: str, flags: int) -> int:
+        return os.open(file_path, flags, 0o600)
+
+    handle = open(path, "a", encoding="utf-8", opener=opener)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return handle
 
 
 class JSONLSink(BaseSink):
@@ -101,7 +115,7 @@ class JSONLSink(BaseSink):
 
         # Open new file
         try:
-            self._file_handle = open(target_file, "a", encoding="utf-8")
+            self._file_handle = _open_log_file_restricted(target_file)
             self._current_file = target_file
         except Exception as e:
             raise SinkError(
@@ -194,7 +208,7 @@ class YAMLSink(BaseSink):
             self._file_handle.close()
 
         try:
-            self._file_handle = open(target_file, "a", encoding="utf-8")
+            self._file_handle = _open_log_file_restricted(target_file)
             self._current_file = target_file
         except Exception as e:
             raise SinkError(

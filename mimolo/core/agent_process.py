@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import errno
 import logging
 import os
 import subprocess
+import tempfile
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -251,18 +253,31 @@ class AgentProcessManager:
         if launch_sep:
             # Prepare a temp log file for tailing
             logs_dir = get_mimolo_data_dir() / "logs"
-            logs_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                logs_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            except OSError as e:
+                if e.errno in {errno.EPERM, errno.EACCES}:
+                    logs_dir = Path(tempfile.gettempdir()) / "mimolo" / "logs"
+                    logs_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    logger.warning(
+                        f"[{label}] Data dir unavailable; using temp logs at {logs_dir}."
+                    )
+                else:
+                    raise
+
             tmp = logs_dir / f"mimolo_agent_{label}_{uuid.uuid4().hex[:8]}.log"
             stderr_log_path = str(tmp)
-            # Create the log file immediately so PowerShell can tail it
+            # Create the log file immediately so PowerShell can tail it.
             try:
-                with open(stderr_log_path, "w", encoding="utf-8") as f:
+                fd = os.open(stderr_log_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
                     f.write(f"# MiMoLo Agent Log: {label}\n")
                     f.write(f"# Started at {datetime.now(UTC).isoformat()}\n\n")
             except OSError as e:
                 logger.warning(
                     f"[{label}] Failed to initialize stderr log at {stderr_log_path}: {e}"
                 )
+                stderr_log_path = None
 
         def _stderr_forwarder(
             p: subprocess.Popen[str], lbl: str, log_path: str | None
@@ -287,6 +302,8 @@ class AgentProcessManager:
                             logger.warning(
                                 f"[{lbl}] Failed to append stderr log to {log_path}: {e}"
                             )
+                            # Disable further log file attempts after first failure.
+                            log_path = None
             except OSError as e:
                 logger.warning(
                     f"[{lbl}] Stderr forwarder crashed: {e}"
