@@ -24,3 +24,5 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 - Renamed the Electron Control app package path from `mimolo-dash` to `mimolo-control` and aligned package metadata.
 - Renamed the TypeScript IPC prototype package path from `mimolo/dashboard` to `mimolo/control_proto`.
 - Updated IPC prototype package metadata from `mimolo-dashboard-proto` to `mimolo-control-proto`.
+- Added local TypeScript shim declarations in `mimolo-control` and `mimolo/control_proto` so early bootstrap builds pass before full runtime dependencies are installed.
+- Removed deprecated `enableRemoteModule` BrowserWindow flag for Electron v40 compatibility.

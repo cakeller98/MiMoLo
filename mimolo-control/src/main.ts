@@ -1,5 +1,11 @@
 import { app, BrowserWindow } from "electron";
 
+interface RuntimeProcess {
+  platform?: string;
+}
+
+const runtimeProcess = (globalThis as { process?: RuntimeProcess }).process;
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1000,
@@ -9,11 +15,10 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      enableRemoteModule: false,
     },
   });
 
-  win.loadURL("data:text/html,<h1>MiMoLo Dash Placeholder</h1>");
+  win.loadURL("data:text/html,<h1>MiMoLo Control Placeholder</h1>");
 }
 
 app.whenReady().then(() => {
@@ -27,7 +32,7 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  if (runtimeProcess?.platform !== "darwin") {
     app.quit();
   }
 });
