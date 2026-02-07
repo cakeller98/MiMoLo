@@ -30,6 +30,11 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 - Added a right-side scrollable agent control panel in `mimolo/control_proto` with per-agent cards and `start/stop/restart` buttons.
 - Added lifecycle indicator lights in `mimolo/control_proto` with state mapping: green `running`, yellow `shutting-down`, dark-gray `inactive`, red `error`.
 - Added per-agent TX/RX indicator pulses in `mimolo/control_proto` (green on send, red on receive, dark-gray neutral idle).
+- Added agent template discovery in Operations runtime to support instance creation from available agent plugins.
+- Added Operations IPC commands for instance management: `list_agent_templates`, `get_agent_instances`, `add_agent_instance`, `duplicate_agent_instance`, `remove_agent_instance`, and `update_agent_instance`.
+- Added persistent config-save support in core config utilities via `save_config(...)`.
+- Added Control proto panel actions for agent-instance add, duplicate, remove, and configure workflows.
+- Added per-card top-right icon controls in Control proto: duplicate (`⧉`), delete (`−`), configure (`⚙`).
 
 ### Changed
 - Archived legacy `start_*.sh` and `start_*.ps1` scripts under `archive/start_scripts/`.
@@ -45,3 +50,5 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 - Updated `mimolo/control_proto` window layout from single-pane log view to split-pane log + control instrumentation panel.
 - Updated `get_registered_plugins` IPC response to include `agent_states` snapshots for Control panel hydration.
 - Updated control-proto Electron shim typings so IPC handlers/invokes accept payload arguments.
+- Updated runtime startup to accept config path context so IPC-driven instance/config mutations persist to the active Operations config file.
+- Updated Control proto to poll and render full agent instance snapshots (state/detail/config/template) instead of state-only data.

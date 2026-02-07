@@ -112,7 +112,7 @@ def monitor(
             sys.exit(1)
 
         # Create and run runtime
-        runtime = Runtime(config, console)
+        runtime = Runtime(config, console, config_path=config_path)
         runtime.run(max_iterations=1 if once else None)
 
     except ConfigError as e:

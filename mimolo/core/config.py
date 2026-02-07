@@ -148,13 +148,7 @@ def create_default_config(path: Path | str) -> None:
     config = Config()
 
     try:
-        if path.suffix == ".toml":
-            # Generate TOML manually (tomli doesn't support writing)
-            content = _config_to_toml(config)
-        elif path.suffix in (".yaml", ".yml"):
-            content = yaml.dump(config.model_dump(), default_flow_style=False, sort_keys=False)
-        else:
-            raise ConfigError(f"Unsupported config file extension: {path.suffix}")
+        content = _serialize_config(config, path)
 
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
@@ -163,6 +157,37 @@ def create_default_config(path: Path | str) -> None:
         if isinstance(e, ConfigError):
             raise
         raise ConfigError(f"Failed to write configuration file {path}: {e}") from e
+
+
+def save_config(config: Config, path: Path | str) -> None:
+    """Persist validated config to disk.
+
+    Args:
+        config: Config object to serialize.
+        path: Destination config path (.toml/.yaml/.yml).
+
+    Raises:
+        ConfigError: If serialization or write fails.
+    """
+    path = Path(path)
+
+    try:
+        content = _serialize_config(config, path)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception as e:
+        if isinstance(e, ConfigError):
+            raise
+        raise ConfigError(f"Failed to save configuration file {path}: {e}") from e
+
+
+def _serialize_config(config: Config, path: Path) -> str:
+    """Serialize config to text based on file extension."""
+    if path.suffix == ".toml":
+        return _config_to_toml(config)
+    if path.suffix in (".yaml", ".yml"):
+        return yaml.dump(config.model_dump(), default_flow_style=False, sort_keys=False)
+    raise ConfigError(f"Unsupported config file extension: {path.suffix}")
 
 
 def _config_to_toml(config: Config) -> str:
@@ -176,22 +201,31 @@ def _config_to_toml(config: Config) -> str:
     """
     lines = ["[monitor]"]
     for key, value in config.monitor.model_dump().items():
-        if isinstance(value, str):
-            lines.append(f'{key} = "{value}"')
-        else:
-            lines.append(f"{key} = {value}")
+        lines.append(f"{key} = {_toml_value(value)}")
 
     lines.append("")
 
     for plugin_name, plugin_config in config.plugins.items():
         lines.append(f"[plugins.{plugin_name}]")
         for key, value in plugin_config.model_dump().items():
-            if isinstance(value, str):
-                lines.append(f'{key} = "{value}"')
-            elif isinstance(value, list):
-                lines.append(f"{key} = {value}")
-            else:
-                lines.append(f"{key} = {value}")
+            lines.append(f"{key} = {_toml_value(value)}")
         lines.append("")
 
     return "\n".join(lines)
+
+
+def _toml_value(value: object) -> str:
+    """Serialize a primitive Python value to TOML literal syntax."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        inner = ", ".join(_toml_value(v) for v in value)
+        return f"[{inner}]"
+    if value is None:
+        return '""'
+    return _toml_value(str(value))

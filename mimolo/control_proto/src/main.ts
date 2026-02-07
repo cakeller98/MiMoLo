@@ -14,15 +14,35 @@ interface OpsStatusPayload {
 }
 
 type AgentLifecycleState = "running" | "shutting-down" | "inactive" | "error";
+type AgentCommandAction =
+  | "start_agent"
+  | "stop_agent"
+  | "restart_agent"
+  | "add_agent_instance"
+  | "duplicate_agent_instance"
+  | "remove_agent_instance"
+  | "update_agent_instance";
 
-interface AgentStateSnapshot {
+interface AgentInstanceSnapshot {
+  config: Record<string, unknown>;
   detail: string;
+  label: string;
   state: AgentLifecycleState;
+  template_id: string;
+}
+
+interface AgentTemplateSnapshot {
+  default_config: Record<string, unknown>;
+  script: string;
+  template_id: string;
 }
 
 interface ControlCommandPayload {
-  action: "start_agent" | "stop_agent" | "restart_agent";
-  label: string;
+  action: AgentCommandAction;
+  label?: string;
+  requested_label?: string;
+  template_id?: string;
+  updates?: Record<string, unknown>;
 }
 
 interface IpcResponsePayload {
@@ -53,7 +73,7 @@ let mainWindow: BrowserWindow | null = null;
 let logCursor = 0;
 let statusTimer: ReturnType<typeof setInterval> | null = null;
 let logTimer: ReturnType<typeof setInterval> | null = null;
-let agentTimer: ReturnType<typeof setInterval> | null = null;
+let instanceTimer: ReturnType<typeof setInterval> | null = null;
 
 let lastStatus: OpsStatusPayload = {
   state: "starting",
@@ -61,7 +81,7 @@ let lastStatus: OpsStatusPayload = {
   timestamp: new Date().toISOString(),
 };
 
-let lastAgentStates: Record<string, AgentStateSnapshot> = {};
+let lastAgentInstances: Record<string, AgentInstanceSnapshot> = {};
 
 function buildHtml(): string {
   return `<!doctype html>
@@ -109,7 +129,7 @@ function buildHtml(): string {
       #status { color: var(--accent); }
       .main {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 360px;
+        grid-template-columns: minmax(0, 1fr) 390px;
         min-height: 0;
       }
       .log-pane {
@@ -135,15 +155,33 @@ function buildHtml(): string {
         border-bottom: 1px solid var(--border);
         padding: 10px 12px;
       }
+      .controls-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
       .controls-title {
         font-size: 12px;
         font-weight: 700;
         color: var(--text);
       }
       .controls-sub {
+        margin-top: 4px;
         font-size: 11px;
         color: var(--muted);
       }
+      .add-btn {
+        background: #22324a;
+        color: var(--text);
+        border: 1px solid #344762;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 11px;
+        padding: 5px 8px;
+        cursor: pointer;
+      }
+      .add-btn:hover { background: #2a3d59; }
       .cards {
         padding: 10px;
         overflow-y: auto;
@@ -160,7 +198,7 @@ function buildHtml(): string {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
         gap: 8px;
-        align-items: center;
+        align-items: start;
       }
       .agent-label {
         font-size: 12px;
@@ -170,6 +208,24 @@ function buildHtml(): string {
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      .agent-icons {
+        display: flex;
+        gap: 4px;
+      }
+      .icon-btn {
+        width: 20px;
+        height: 20px;
+        border-radius: 5px;
+        border: 1px solid #344357;
+        background: #27354a;
+        color: #d6dce8;
+        font-family: inherit;
+        font-size: 11px;
+        line-height: 1;
+        padding: 0;
+        cursor: pointer;
+      }
+      .icon-btn:hover { background: #33445e; }
       .signal-group {
         display: flex;
         align-items: center;
@@ -193,14 +249,10 @@ function buildHtml(): string {
       .tx-flash { background: #2fcf70; box-shadow: 0 0 10px rgba(47, 207, 112, 0.8); }
       .rx-flash { background: #d94c4c; box-shadow: 0 0 10px rgba(217, 76, 76, 0.8); }
       .agent-meta {
-        margin-top: 8px;
+        margin-top: 7px;
         display: flex;
         justify-content: space-between;
         align-items: center;
-      }
-      .agent-state {
-        font-size: 11px;
-        color: var(--text);
       }
       .agent-detail {
         margin-top: 4px;
@@ -240,8 +292,11 @@ function buildHtml(): string {
         <div class="log-pane"><pre id="log"></pre></div>
         <div class="controls">
           <div class="controls-head">
-            <div class="controls-title">Agent Control Panel</div>
-            <div class="controls-sub">One card per configured instance</div>
+            <div class="controls-row">
+              <div class="controls-title">Agent Control Panel</div>
+              <button class="add-btn" id="addAgentBtn" title="Add agent instance">+ Add</button>
+            </div>
+            <div class="controls-sub">Per-instance controls and configuration</div>
           </div>
           <div class="cards" id="cards"></div>
         </div>
@@ -255,7 +310,10 @@ function buildHtml(): string {
       const ipcPathEl = document.getElementById("ipcPath");
       const opsLogPathEl = document.getElementById("opsLogPath");
       const cardsRoot = document.getElementById("cards");
+      const addAgentBtn = document.getElementById("addAgentBtn");
       const cards = new Map();
+      const instancesByLabel = new Map();
+      const templatesById = new Map();
 
       const lines = [];
       const maxLines = 1800;
@@ -269,44 +327,6 @@ function buildHtml(): string {
 
       function setStatus(text) {
         statusEl.textContent = text;
-      }
-
-      function ensureCard(label) {
-        if (cards.has(label)) return cards.get(label);
-        const el = document.createElement("div");
-        el.className = "agent-card";
-        el.dataset.label = label;
-        el.innerHTML = \`
-          <div class="agent-top">
-            <div class="agent-label">\${label}</div>
-            <div class="signal-group">
-              <div class="light light-inactive js-life"></div>
-              <div class="signal-text js-state-text">inactive</div>
-            </div>
-          </div>
-          <div class="agent-meta">
-            <div class="signal-group">
-              <div class="light light-inactive js-txrx"></div>
-              <div class="signal-text">tx/rx</div>
-            </div>
-          </div>
-          <div class="agent-detail js-detail">configured</div>
-          <div class="agent-actions">
-            <button data-action="start_agent">start</button>
-            <button data-action="stop_agent">stop</button>
-            <button data-action="restart_agent">restart</button>
-          </div>
-        \`;
-        el.querySelectorAll("button[data-action]").forEach((button) => {
-          button.addEventListener("click", () => {
-            const action = button.dataset.action;
-            if (!action) return;
-            void runAgentCommand(label, action);
-          });
-        });
-        cardsRoot.appendChild(el);
-        cards.set(label, el);
-        return el;
       }
 
       function applyLifeClass(light, state) {
@@ -327,16 +347,184 @@ function buildHtml(): string {
         }, 180);
       }
 
-      function renderAgentStates(agentStates) {
-        const labels = Object.keys(agentStates).sort();
+      async function sendCommand(payload) {
+        if (!ipcRenderer) {
+          append("[ui] ipc renderer unavailable");
+          return { ok: false, error: "ipc_renderer_unavailable" };
+        }
+        if (payload.label) pulseTxRx(payload.label, "tx");
+        try {
+          const response = await ipcRenderer.invoke("mml:agent-command", payload);
+          if (payload.label) pulseTxRx(payload.label, "rx");
+          return response;
+        } catch (err) {
+          if (payload.label) pulseTxRx(payload.label, "rx");
+          const detail = err instanceof Error ? err.message : "command_failed";
+          return { ok: false, error: detail };
+        }
+      }
+
+      async function configureLabel(label) {
+        const current = instancesByLabel.get(label);
+        if (!current) {
+          append("[ui] configure failed: unknown instance " + label);
+          return;
+        }
+        const editable = {
+          enabled: current.config.enabled,
+          executable: current.config.executable,
+          args: current.config.args,
+          heartbeat_interval_s: current.config.heartbeat_interval_s,
+          agent_flush_interval_s: current.config.agent_flush_interval_s,
+          launch_in_separate_terminal: current.config.launch_in_separate_terminal,
+        };
+        const input = window.prompt(
+          "Edit JSON for " + label + " (supported keys only)",
+          JSON.stringify(editable, null, 2)
+        );
+        if (input === null) return;
+        let parsed;
+        try {
+          parsed = JSON.parse(input);
+        } catch {
+          append("[ui] configure failed: invalid JSON");
+          return;
+        }
+        const response = await sendCommand({
+          action: "update_agent_instance",
+          label,
+          updates: parsed,
+        });
+        if (!response.ok) {
+          append("[ipc] update failed for " + label + ": " + (response.error || "unknown_error"));
+        }
+      }
+
+      async function showAddDialog() {
+        if (templatesById.size === 0) {
+          const refresh = await ipcRenderer.invoke("mml:list-agent-templates");
+          if (refresh && refresh.ok && refresh.templates) {
+            for (const [k, v] of Object.entries(refresh.templates)) {
+              templatesById.set(k, v);
+            }
+          }
+        }
+        const templateIds = Array.from(templatesById.keys()).sort();
+        if (templateIds.length === 0) {
+          append("[ui] no templates available");
+          return;
+        }
+        const selection = window.prompt(
+          "Add agent instance\\nAvailable templates:\\n" + templateIds.join("\\n"),
+          templateIds[0]
+        );
+        if (selection === null) return;
+        const templateId = selection.trim();
+        if (!templatesById.has(templateId)) {
+          append("[ui] unknown template: " + templateId);
+          return;
+        }
+        const requestedLabel = window.prompt(
+          "Optional instance label (leave blank for default)",
+          ""
+        );
+        const payload = {
+          action: "add_agent_instance",
+          template_id: templateId,
+        };
+        if (requestedLabel && requestedLabel.trim()) {
+          payload.requested_label = requestedLabel.trim();
+        }
+        const response = await sendCommand(payload);
+        if (!response.ok) {
+          append("[ipc] add failed: " + (response.error || "unknown_error"));
+        }
+      }
+
+      function ensureCard(label) {
+        if (cards.has(label)) return cards.get(label);
+        const el = document.createElement("div");
+        el.className = "agent-card";
+        el.dataset.label = label;
+        el.innerHTML = \`
+          <div class="agent-top">
+            <div class="agent-label">\${label}</div>
+            <div class="agent-icons">
+              <button class="icon-btn js-dup" title="Duplicate instance" aria-label="Duplicate instance">⧉</button>
+              <button class="icon-btn js-del" title="Remove instance" aria-label="Remove instance">−</button>
+              <button class="icon-btn js-cfg" title="Configure instance" aria-label="Configure instance">⚙</button>
+            </div>
+          </div>
+          <div class="agent-meta">
+            <div class="signal-group">
+              <div class="light light-inactive js-life"></div>
+              <div class="signal-text js-state-text">inactive</div>
+            </div>
+            <div class="signal-group">
+              <div class="light light-inactive js-txrx"></div>
+              <div class="signal-text">tx/rx</div>
+            </div>
+          </div>
+          <div class="agent-detail js-detail">configured</div>
+          <div class="agent-actions">
+            <button data-action="start_agent">start</button>
+            <button data-action="stop_agent">stop</button>
+            <button data-action="restart_agent">restart</button>
+          </div>
+        \`;
+        el.querySelectorAll("button[data-action]").forEach((button) => {
+          button.addEventListener("click", async () => {
+            const action = button.dataset.action;
+            if (!action) return;
+            const response = await sendCommand({ action, label });
+            if (!response.ok) {
+              append("[ipc] " + action + " failed for " + label + ": " + (response.error || "unknown_error"));
+            }
+          });
+        });
+        const dup = el.querySelector(".js-dup");
+        const del = el.querySelector(".js-del");
+        const cfg = el.querySelector(".js-cfg");
+        dup.addEventListener("click", async () => {
+          const response = await sendCommand({
+            action: "duplicate_agent_instance",
+            label,
+          });
+          if (!response.ok) {
+            append("[ipc] duplicate failed for " + label + ": " + (response.error || "unknown_error"));
+          }
+        });
+        del.addEventListener("click", async () => {
+          const ok = window.confirm("Remove instance '" + label + "'?");
+          if (!ok) return;
+          const response = await sendCommand({
+            action: "remove_agent_instance",
+            label,
+          });
+          if (!response.ok) {
+            append("[ipc] remove failed for " + label + ": " + (response.error || "unknown_error"));
+          }
+        });
+        cfg.addEventListener("click", () => {
+          void configureLabel(label);
+        });
+        cardsRoot.appendChild(el);
+        cards.set(label, el);
+        return el;
+      }
+
+      function renderInstances(instances) {
+        const labels = Object.keys(instances).sort();
+        instancesByLabel.clear();
         for (const label of labels) {
+          const instance = instances[label];
+          instancesByLabel.set(label, instance);
           const card = ensureCard(label);
           const life = card.querySelector(".js-life");
           const stateText = card.querySelector(".js-state-text");
           const detail = card.querySelector(".js-detail");
-          const snapshot = agentStates[label];
-          const state = snapshot && snapshot.state ? snapshot.state : "inactive";
-          const info = snapshot && snapshot.detail ? snapshot.detail : "configured";
+          const state = instance && instance.state ? instance.state : "inactive";
+          const info = instance && instance.detail ? instance.detail : "configured";
           applyLifeClass(life, state);
           stateText.textContent = state;
           detail.textContent = info;
@@ -346,6 +534,7 @@ function buildHtml(): string {
           if (labels.includes(label)) continue;
           card.remove();
           cards.delete(label);
+          instancesByLabel.delete(label);
         }
       }
 
@@ -359,29 +548,10 @@ function buildHtml(): string {
           ipcPathEl.textContent = state.ipcPath || "(unset)";
           opsLogPathEl.textContent = state.opsLogPath || "(unset)";
           setStatus(state.status.state + " - " + state.status.detail);
-          renderAgentStates(state.agents || {});
+          renderInstances(state.instances || {});
         } catch (err) {
           const detail = err instanceof Error ? err.message : "initial_state_failed";
           setStatus("disconnected - " + detail);
-        }
-      }
-
-      async function runAgentCommand(label, action) {
-        if (!ipcRenderer) {
-          append("[ui] ipc renderer unavailable");
-          return;
-        }
-        pulseTxRx(label, "tx");
-        try {
-          const response = await ipcRenderer.invoke("mml:agent-command", { label, action });
-          pulseTxRx(label, "rx");
-          if (!response.ok) {
-            append("[ipc] " + action + " failed for " + label + ": " + (response.error || "unknown_error"));
-          }
-        } catch (err) {
-          pulseTxRx(label, "rx");
-          const detail = err instanceof Error ? err.message : "command_failed";
-          append("[ipc] command error for " + label + ": " + detail);
         }
       }
 
@@ -393,6 +563,9 @@ function buildHtml(): string {
       if (!ipcRenderer) {
         append("[proto] electron ipcRenderer unavailable in renderer");
       } else {
+        addAgentBtn.addEventListener("click", () => {
+          void showAddDialog();
+        });
         ipcRenderer.on("ops:status", (_event, payload) => {
           setStatus(payload.state + " - " + payload.detail);
         });
@@ -401,8 +574,8 @@ function buildHtml(): string {
           append(line);
         });
 
-        ipcRenderer.on("ops:agents", (_event, payload) => {
-          renderAgentStates(payload.agents || {});
+        ipcRenderer.on("ops:instances", (_event, payload) => {
+          renderInstances(payload.instances || {});
         });
 
         ipcRenderer.on("ops:traffic", (_event, payload) => {
@@ -436,12 +609,14 @@ function publishTraffic(direction: "tx" | "rx", label?: string): void {
   mainWindow.webContents.send("ops:traffic", payload);
 }
 
-function publishAgentStates(agents: Record<string, AgentStateSnapshot>): void {
-  lastAgentStates = agents;
+function publishInstances(
+  instances: Record<string, AgentInstanceSnapshot>,
+): void {
+  lastAgentInstances = instances;
   if (!mainWindow) {
     return;
   }
-  mainWindow.webContents.send("ops:agents", { agents });
+  mainWindow.webContents.send("ops:instances", { instances });
 }
 
 function setStatus(state: OpsStatusPayload["state"], detail: string): void {
@@ -478,20 +653,23 @@ function parseIpcResponse(rawLine: string): IpcResponsePayload {
     cmd: typeof record.cmd === "string" ? record.cmd : undefined,
     timestamp: typeof record.timestamp === "string" ? record.timestamp : undefined,
     error: typeof record.error === "string" ? record.error : undefined,
-    data: record.data && typeof record.data === "object" ? (record.data as Record<string, unknown>) : undefined,
+    data:
+      record.data && typeof record.data === "object"
+        ? (record.data as Record<string, unknown>)
+        : undefined,
   };
 }
 
-function extractAgentStates(
+function extractAgentInstances(
   response: IpcResponsePayload,
-): Record<string, AgentStateSnapshot> {
-  const result: Record<string, AgentStateSnapshot> = {};
-  const agentStatesRaw = response.data?.agent_states;
-  if (!agentStatesRaw || typeof agentStatesRaw !== "object") {
+): Record<string, AgentInstanceSnapshot> {
+  const result: Record<string, AgentInstanceSnapshot> = {};
+  const instancesRaw = response.data?.instances;
+  if (!instancesRaw || typeof instancesRaw !== "object") {
     return result;
   }
 
-  const map = agentStatesRaw as Record<string, unknown>;
+  const map = instancesRaw as Record<string, unknown>;
   for (const [label, raw] of Object.entries(map)) {
     if (!raw || typeof raw !== "object") {
       continue;
@@ -499,6 +677,8 @@ function extractAgentStates(
     const entry = raw as Record<string, unknown>;
     const stateRaw = entry.state;
     const detailRaw = entry.detail;
+    const configRaw = entry.config;
+    const templateRaw = entry.template_id;
     const state =
       stateRaw === "running" ||
       stateRaw === "shutting-down" ||
@@ -507,9 +687,49 @@ function extractAgentStates(
         ? stateRaw
         : "inactive";
     const detail = typeof detailRaw === "string" ? detailRaw : "configured";
+    const config =
+      configRaw && typeof configRaw === "object"
+        ? (configRaw as Record<string, unknown>)
+        : {};
+    const template_id =
+      typeof templateRaw === "string" ? templateRaw : label;
     result[label] = {
+      label,
       state,
       detail,
+      config,
+      template_id,
+    };
+  }
+
+  return result;
+}
+
+function extractTemplates(
+  response: IpcResponsePayload,
+): Record<string, AgentTemplateSnapshot> {
+  const result: Record<string, AgentTemplateSnapshot> = {};
+  const templatesRaw = response.data?.templates;
+  if (!templatesRaw || typeof templatesRaw !== "object") {
+    return result;
+  }
+
+  const map = templatesRaw as Record<string, unknown>;
+  for (const [templateId, raw] of Object.entries(map)) {
+    if (!raw || typeof raw !== "object") {
+      continue;
+    }
+    const entry = raw as Record<string, unknown>;
+    const scriptRaw = entry.script;
+    const defaultRaw = entry.default_config;
+    const default_config =
+      defaultRaw && typeof defaultRaw === "object"
+        ? (defaultRaw as Record<string, unknown>)
+        : {};
+    result[templateId] = {
+      template_id: templateId,
+      script: typeof scriptRaw === "string" ? scriptRaw : "",
+      default_config,
     };
   }
 
@@ -535,7 +755,7 @@ async function sendIpcCommand(
       done = true;
       client.destroy();
       reject(new Error("timeout"));
-    }, 600);
+    }, 650);
 
     const finishOk = (payload: IpcResponsePayload): void => {
       if (done) {
@@ -605,16 +825,24 @@ async function refreshIpcStatus(): Promise<void> {
   }
 }
 
-async function refreshAgentStates(): Promise<void> {
+async function refreshAgentInstances(): Promise<void> {
   try {
-    const response = await sendIpcCommand("get_agent_states");
+    const response = await sendIpcCommand("get_agent_instances");
     if (!response.ok) {
       return;
     }
-    publishAgentStates(extractAgentStates(response));
+    publishInstances(extractAgentInstances(response));
   } catch {
     // Ignore transient polling failures; status loop reports IPC health.
   }
+}
+
+async function refreshTemplates(): Promise<Record<string, AgentTemplateSnapshot>> {
+  const response = await sendIpcCommand("list_agent_templates");
+  if (!response.ok) {
+    return {};
+  }
+  return extractTemplates(response);
 }
 
 async function pumpOpsLog(): Promise<void> {
@@ -656,33 +884,43 @@ async function pumpOpsLog(): Promise<void> {
 async function loadInitialSnapshot(): Promise<void> {
   await refreshIpcStatus();
   try {
-    const response = await sendIpcCommand("get_registered_plugins");
-    publishLine(`[ipc] ${JSON.stringify(response)}`);
-    if (response.ok) {
-      publishAgentStates(extractAgentStates(response));
-    }
+    const registeredResponse = await sendIpcCommand("get_registered_plugins");
+    publishLine(`[ipc] ${JSON.stringify(registeredResponse)}`);
   } catch (err) {
     const detail = err instanceof Error ? err.message : "plugin_query_failed";
     publishLine(`[ipc] get_registered_plugins failed: ${detail}`);
   }
+
+  await refreshAgentInstances();
+  await refreshTemplates();
 }
 
 async function runAgentCommand(
   payload: ControlCommandPayload,
 ): Promise<IpcResponsePayload> {
-  const response = await sendIpcCommand(
-    payload.action,
-    { label: payload.label },
-    payload.label,
-  );
-  await refreshAgentStates();
+  const extra: Record<string, unknown> = {};
+  if (payload.label) {
+    extra.label = payload.label;
+  }
+  if (payload.template_id) {
+    extra.template_id = payload.template_id;
+  }
+  if (payload.requested_label) {
+    extra.requested_label = payload.requested_label;
+  }
+  if (payload.updates) {
+    extra.updates = payload.updates;
+  }
+  const trafficLabel = payload.label;
+  const response = await sendIpcCommand(payload.action, extra, trafficLabel);
+  await refreshAgentInstances();
   return response;
 }
 
 function startBackgroundLoops(): void {
   void loadInitialSnapshot();
   void pumpOpsLog();
-  void refreshAgentStates();
+  void refreshAgentInstances();
 
   statusTimer = setInterval(() => {
     void refreshIpcStatus();
@@ -692,8 +930,8 @@ function startBackgroundLoops(): void {
     void pumpOpsLog();
   }, 320);
 
-  agentTimer = setInterval(() => {
-    void refreshAgentStates();
+  instanceTimer = setInterval(() => {
+    void refreshAgentInstances();
   }, 950);
 }
 
@@ -706,18 +944,18 @@ function stopBackgroundLoops(): void {
     clearInterval(logTimer);
     logTimer = null;
   }
-  if (agentTimer) {
-    clearInterval(agentTimer);
-    agentTimer = null;
+  if (instanceTimer) {
+    clearInterval(instanceTimer);
+    instanceTimer = null;
   }
 }
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1320,
-    height: 780,
-    minWidth: 1020,
-    minHeight: 620,
+    width: 1360,
+    height: 820,
+    minWidth: 1080,
+    minHeight: 660,
     backgroundColor: "#0e1014",
     webPreferences: {
       contextIsolation: false,
@@ -738,7 +976,15 @@ ipcMain.handle("mml:initial-state", () => {
     ipcPath,
     opsLogPath,
     status: lastStatus,
-    agents: lastAgentStates,
+    instances: lastAgentInstances,
+  };
+});
+
+ipcMain.handle("mml:list-agent-templates", async () => {
+  const templates = await refreshTemplates();
+  return {
+    ok: true,
+    templates,
   };
 });
 
@@ -752,29 +998,46 @@ ipcMain.handle("mml:agent-command", (_event, payload: unknown) => {
 
   const raw = payload as Record<string, unknown>;
   const actionRaw = raw.action;
-  const labelRaw = raw.label;
   if (
     actionRaw !== "start_agent" &&
     actionRaw !== "stop_agent" &&
-    actionRaw !== "restart_agent"
+    actionRaw !== "restart_agent" &&
+    actionRaw !== "add_agent_instance" &&
+    actionRaw !== "duplicate_agent_instance" &&
+    actionRaw !== "remove_agent_instance" &&
+    actionRaw !== "update_agent_instance"
   ) {
     return {
       ok: false,
       error: "invalid_action",
     };
   }
-  if (typeof labelRaw !== "string" || labelRaw.trim().length === 0) {
-    return {
-      ok: false,
-      error: "invalid_label",
-    };
+
+  const cmd: ControlCommandPayload = {
+    action: actionRaw,
+  };
+
+  const labelRaw = raw.label;
+  if (typeof labelRaw === "string" && labelRaw.trim().length > 0) {
+    cmd.label = labelRaw.trim();
+  }
+  const templateRaw = raw.template_id;
+  if (typeof templateRaw === "string" && templateRaw.trim().length > 0) {
+    cmd.template_id = templateRaw.trim();
+  }
+  const requestedLabelRaw = raw.requested_label;
+  if (
+    typeof requestedLabelRaw === "string" &&
+    requestedLabelRaw.trim().length > 0
+  ) {
+    cmd.requested_label = requestedLabelRaw.trim();
+  }
+  const updatesRaw = raw.updates;
+  if (updatesRaw && typeof updatesRaw === "object") {
+    cmd.updates = updatesRaw as Record<string, unknown>;
   }
 
-  const command: ControlCommandPayload = {
-    action: actionRaw,
-    label: labelRaw.trim(),
-  };
-  return runAgentCommand(command);
+  return runAgentCommand(cmd);
 });
 
 app.whenReady().then(() => {

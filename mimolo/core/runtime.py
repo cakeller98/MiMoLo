@@ -22,7 +22,7 @@ from typing import Any, Literal, cast
 
 from rich.console import Console
 
-from mimolo.core.config import Config
+from mimolo.core.config import Config, PluginConfig, save_config
 from mimolo.core.cooldown import CooldownTimer
 from mimolo.core.errors import SinkError
 from mimolo.core.event import Event
@@ -39,15 +39,18 @@ class Runtime:
         self,
         config: Config,
         console: Console | None = None,
+        config_path: Path | None = None,
     ) -> None:
         """Initialize runtime.
 
         Args:
             config: Configuration object.
             console: Optional rich console for output.
+            config_path: Optional path used to persist config mutations.
         """
         self.config = config
         self.console = console or Console()
+        self._config_path = config_path
 
         # Core components
         self.cooldown = CooldownTimer(config.monitor.cooldown_seconds)
@@ -73,7 +76,7 @@ class Runtime:
         self._shutdown_phase: dict[str, str] = {}
         self._agent_states: dict[str, AgentLifecycleState] = {}
         self._agent_state_details: dict[str, str] = {}
-        self._pending_control_actions: list[tuple[str, str]] = []
+        self._pending_control_actions: list[dict[str, Any]] = []
         self._control_actions_lock = threading.Lock()
 
         for label, plugin_cfg in self.config.plugins.items():
@@ -221,6 +224,253 @@ class Runtime:
             }
         return snapshot
 
+    def _infer_template_id(self, label: str, plugin_cfg: PluginConfig) -> str:
+        """Infer template id from args path, falling back to label."""
+        for arg in plugin_cfg.args:
+            if not isinstance(arg, str):
+                continue
+            if "/" not in arg or not arg.endswith(".py"):
+                continue
+            head = arg.split("/", 1)[0].strip()
+            if head:
+                return head
+        return label
+
+    def _discover_agent_templates(self) -> dict[str, dict[str, Any]]:
+        """Discover agent templates from local agents directory."""
+        templates: dict[str, dict[str, Any]] = {}
+        agents_root = Path(__file__).parent.parent / "agents"
+
+        if agents_root.exists():
+            for entry in sorted(agents_root.iterdir(), key=lambda p: p.name):
+                if not entry.is_dir():
+                    continue
+                if entry.name.startswith(".") or entry.name in {"repository", "__pycache__"}:
+                    continue
+                default_script = entry / f"{entry.name}.py"
+                if default_script.exists():
+                    script_path = default_script
+                else:
+                    candidates = sorted(
+                        [p for p in entry.glob("*.py") if p.name != "__init__.py"],
+                        key=lambda p: p.name,
+                    )
+                    if not candidates:
+                        continue
+                    script_path = candidates[0]
+
+                script_rel = f"{entry.name}/{script_path.name}"
+                templates[entry.name] = {
+                    "template_id": entry.name,
+                    "script": script_rel,
+                    "default_config": {
+                        "enabled": True,
+                        "plugin_type": "agent",
+                        "executable": "poetry",
+                        "args": ["run", "python", script_rel],
+                        "heartbeat_interval_s": 15.0,
+                        "agent_flush_interval_s": 60.0,
+                        "launch_in_separate_terminal": False,
+                    },
+                }
+
+        # Ensure all currently-configured templates remain selectable even if
+        # their source directory is moved/renamed.
+        for label, plugin_cfg in self.config.plugins.items():
+            if not plugin_cfg.enabled or plugin_cfg.plugin_type != "agent":
+                continue
+            template_id = self._infer_template_id(label, plugin_cfg)
+            if template_id in templates:
+                continue
+            templates[template_id] = {
+                "template_id": template_id,
+                "script": plugin_cfg.args[-1] if plugin_cfg.args else "",
+                "default_config": plugin_cfg.model_dump(),
+            }
+
+        return templates
+
+    def _snapshot_agent_instances(self) -> dict[str, dict[str, Any]]:
+        """Return configured agent instances with state and editable config."""
+        instances: dict[str, dict[str, Any]] = {}
+        for label, plugin_cfg in self.config.plugins.items():
+            if plugin_cfg.plugin_type != "agent":
+                continue
+            instances[label] = {
+                "label": label,
+                "state": self._agent_states.get(label, "inactive"),
+                "detail": self._agent_state_details.get(label, "configured"),
+                "template_id": self._infer_template_id(label, plugin_cfg),
+                "config": plugin_cfg.model_dump(),
+            }
+        return instances
+
+    def _next_available_label(self, base_label: str) -> str:
+        """Generate a unique config label for a new agent instance."""
+        if base_label not in self.config.plugins:
+            return base_label
+        idx = 2
+        while True:
+            candidate = f"{base_label}_{idx}"
+            if candidate not in self.config.plugins:
+                return candidate
+            idx += 1
+
+    def _persist_runtime_config(self) -> tuple[bool, str]:
+        """Persist in-memory runtime config if a config path is available."""
+        if self._config_path is None:
+            return False, "config_path_not_set"
+        try:
+            save_config(self.config, self._config_path)
+            return True, "saved"
+        except Exception as e:
+            detail = f"save_failed:{e}"
+            self.console.print(f"[red]Failed to save config: {e}[/red]")
+            return False, detail
+
+    def _add_agent_instance(
+        self, template_id: str, requested_label: str | None
+    ) -> tuple[bool, str, str | None]:
+        """Create and start one new agent instance from template defaults."""
+        templates = self._discover_agent_templates()
+        template = templates.get(template_id)
+        if template is None:
+            return False, "unknown_template", None
+
+        base_label = (requested_label or template_id).strip()
+        if not base_label:
+            return False, "invalid_label", None
+        new_label = self._next_available_label(base_label)
+
+        try:
+            raw_default = template.get("default_config", {})
+            plugin_cfg = PluginConfig.model_validate(raw_default)
+        except Exception as e:
+            return False, f"default_config_invalid:{e}", None
+
+        self.config.plugins[new_label] = plugin_cfg
+        self._set_agent_state(new_label, "inactive", "configured")
+        saved, save_detail = self._persist_runtime_config()
+        if not saved:
+            del self.config.plugins[new_label]
+            self._agent_states.pop(new_label, None)
+            self._agent_state_details.pop(new_label, None)
+            return False, save_detail, None
+
+        started, start_detail = self._spawn_agent_for_label(new_label)
+        if not started and start_detail != "already_running":
+            return True, f"added_not_started:{start_detail}", new_label
+        return True, "added", new_label
+
+    def _duplicate_agent_instance(self, label: str) -> tuple[bool, str, str | None]:
+        """Duplicate one configured agent instance."""
+        source_cfg = self.config.plugins.get(label)
+        if source_cfg is None or source_cfg.plugin_type != "agent":
+            return False, "unknown_agent", None
+
+        new_label = self._next_available_label(f"{label}_copy")
+        try:
+            dup_cfg = PluginConfig.model_validate(source_cfg.model_dump())
+        except Exception as e:
+            return False, f"duplicate_invalid:{e}", None
+
+        self.config.plugins[new_label] = dup_cfg
+        self._set_agent_state(new_label, "inactive", f"duplicated_from:{label}")
+        saved, save_detail = self._persist_runtime_config()
+        if not saved:
+            del self.config.plugins[new_label]
+            self._agent_states.pop(new_label, None)
+            self._agent_state_details.pop(new_label, None)
+            return False, save_detail, None
+
+        started, start_detail = self._spawn_agent_for_label(new_label)
+        if not started and start_detail != "already_running":
+            return True, f"duplicated_not_started:{start_detail}", new_label
+        return True, "duplicated", new_label
+
+    def _remove_agent_instance(self, label: str) -> tuple[bool, str]:
+        """Remove one configured agent instance (and stop if running)."""
+        source_cfg = self.config.plugins.get(label)
+        if source_cfg is None or source_cfg.plugin_type != "agent":
+            return False, "unknown_agent"
+
+        if label in self.agent_manager.agents:
+            stopped, stop_detail = self._stop_agent_for_label(label)
+            if not stopped:
+                return False, f"stop_before_remove_failed:{stop_detail}"
+
+        del self.config.plugins[label]
+        self.agent_last_flush.pop(label, None)
+        self._agent_states.pop(label, None)
+        self._agent_state_details.pop(label, None)
+
+        saved, save_detail = self._persist_runtime_config()
+        if not saved:
+            # Restore only if save failed.
+            self.config.plugins[label] = source_cfg
+            self._set_agent_state(label, "inactive", "restore_after_save_failure")
+            return False, save_detail
+
+        return True, "removed"
+
+    def _update_agent_instance(
+        self, label: str, updates: dict[str, Any]
+    ) -> tuple[bool, str]:
+        """Update one configured agent instance and persist changes."""
+        current_cfg = self.config.plugins.get(label)
+        if current_cfg is None or current_cfg.plugin_type != "agent":
+            return False, "unknown_agent"
+
+        allowed_update_keys = {
+            "enabled",
+            "executable",
+            "args",
+            "heartbeat_interval_s",
+            "agent_flush_interval_s",
+            "launch_in_separate_terminal",
+        }
+        sanitized_updates = {
+            k: v for k, v in updates.items() if k in allowed_update_keys
+        }
+
+        merged = current_cfg.model_dump()
+        merged.update(sanitized_updates)
+
+        try:
+            updated_cfg = PluginConfig.model_validate(merged)
+        except Exception as e:
+            return False, f"invalid_updates:{e}"
+
+        restart_needed = (
+            current_cfg.executable != updated_cfg.executable
+            or current_cfg.args != updated_cfg.args
+        )
+        was_running = label in self.agent_manager.agents and self.agent_manager.agents[label].is_alive()
+
+        self.config.plugins[label] = updated_cfg
+        saved, save_detail = self._persist_runtime_config()
+        if not saved:
+            self.config.plugins[label] = current_cfg
+            return False, save_detail
+
+        if not updated_cfg.enabled:
+            if was_running:
+                self._stop_agent_for_label(label)
+            self._set_agent_state(label, "inactive", "disabled")
+            return True, "updated_disabled"
+
+        if was_running and restart_needed:
+            restarted, restart_detail = self._restart_agent_for_label(label)
+            if not restarted:
+                return False, restart_detail
+            return True, "updated_restarted"
+
+        if not was_running:
+            self._set_agent_state(label, "inactive", "updated")
+        else:
+            self._set_agent_state(label, "running", "updated")
+        return True, "updated"
+
     def _spawn_agent_for_label(self, label: str) -> tuple[bool, str]:
         """Spawn one configured agent by label."""
         plugin_config = self.config.plugins.get(label)
@@ -296,12 +546,20 @@ class Runtime:
             return False, f"restart_start_failed:{start_detail}"
         return True, "restarted"
 
-    def _queue_control_action(self, action: str, label: str) -> None:
+    def _queue_control_action(
+        self, action: str, label: str, payload: dict[str, Any] | None = None
+    ) -> None:
         """Queue one control action for processing on the runtime loop."""
         with self._control_actions_lock:
-            self._pending_control_actions.append((action, label))
+            item: dict[str, Any] = {
+                "action": action,
+                "label": label,
+            }
+            if payload:
+                item["payload"] = payload
+            self._pending_control_actions.append(item)
 
-    def _drain_control_actions(self) -> list[tuple[str, str]]:
+    def _drain_control_actions(self) -> list[dict[str, Any]]:
         """Drain pending control actions."""
         with self._control_actions_lock:
             actions = list(self._pending_control_actions)
@@ -310,13 +568,40 @@ class Runtime:
 
     def _process_control_actions(self) -> None:
         """Apply queued control actions."""
-        for action, label in self._drain_control_actions():
+        for action_item in self._drain_control_actions():
+            action_raw = action_item.get("action")
+            label_raw = action_item.get("label")
+            if not isinstance(action_raw, str) or not isinstance(label_raw, str):
+                continue
+            action = action_raw
+            label = label_raw
+            payload = action_item.get("payload")
+            payload_dict = payload if isinstance(payload, dict) else {}
+
             if action == "start_agent":
                 self._spawn_agent_for_label(label)
             elif action == "stop_agent":
                 self._stop_agent_for_label(label)
             elif action == "restart_agent":
                 self._restart_agent_for_label(label)
+            elif action == "add_agent_instance":
+                template_id_raw = payload_dict.get("template_id")
+                requested_label_raw = payload_dict.get("requested_label")
+                if isinstance(template_id_raw, str):
+                    requested_label = (
+                        str(requested_label_raw)
+                        if isinstance(requested_label_raw, str)
+                        else None
+                    )
+                    self._add_agent_instance(template_id_raw, requested_label)
+            elif action == "duplicate_agent_instance":
+                self._duplicate_agent_instance(label)
+            elif action == "remove_agent_instance":
+                self._remove_agent_instance(label)
+            elif action == "update_agent_instance":
+                updates = payload_dict.get("updates")
+                if isinstance(updates, dict):
+                    self._update_agent_instance(label, updates)
 
     def _build_ipc_response(self, request: dict[str, Any]) -> dict[str, Any]:
         """Handle one IPC command and return response payload."""
@@ -342,6 +627,26 @@ class Runtime:
                 },
             }
 
+        if cmd == "list_agent_templates":
+            return {
+                "ok": True,
+                "cmd": "list_agent_templates",
+                "timestamp": now,
+                "data": {
+                    "templates": self._discover_agent_templates(),
+                },
+            }
+
+        if cmd == "get_agent_instances":
+            return {
+                "ok": True,
+                "cmd": "get_agent_instances",
+                "timestamp": now,
+                "data": {
+                    "instances": self._snapshot_agent_instances(),
+                },
+            }
+
         if cmd == "get_agent_states":
             return {
                 "ok": True,
@@ -350,6 +655,7 @@ class Runtime:
                 "data": {
                     "agent_states": self._snapshot_agent_states(),
                     "running_agents": self._snapshot_running_agents(),
+                    "instances": self._snapshot_agent_instances(),
                 },
             }
 
@@ -378,6 +684,144 @@ class Runtime:
                 }
 
             self._queue_control_action(cmd, label)
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "timestamp": now,
+                "data": {
+                    "accepted": True,
+                    "label": label,
+                },
+            }
+
+        if cmd == "add_agent_instance":
+            template_id_raw = request.get("template_id")
+            template_id = str(template_id_raw).strip() if template_id_raw is not None else ""
+            if not template_id:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "missing_template_id",
+                }
+
+            requested_label_raw = request.get("requested_label")
+            requested_label = (
+                str(requested_label_raw).strip()
+                if isinstance(requested_label_raw, str) and requested_label_raw.strip()
+                else None
+            )
+
+            # Precompute final label for immediate UI feedback.
+            final_label = self._next_available_label(requested_label or template_id)
+            self._queue_control_action(
+                "add_agent_instance",
+                final_label,
+                {
+                    "template_id": template_id,
+                    "requested_label": requested_label,
+                },
+            )
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "timestamp": now,
+                "data": {
+                    "accepted": True,
+                    "label": final_label,
+                    "template_id": template_id,
+                },
+            }
+
+        if cmd == "duplicate_agent_instance":
+            label_raw = request.get("label")
+            label = str(label_raw).strip() if label_raw is not None else ""
+            if not label:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "missing_label",
+                }
+            if label not in self.config.plugins:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": f"unknown_agent:{label}",
+                }
+            final_label = self._next_available_label(f"{label}_copy")
+            self._queue_control_action("duplicate_agent_instance", label)
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "timestamp": now,
+                "data": {
+                    "accepted": True,
+                    "label": final_label,
+                    "source_label": label,
+                },
+            }
+
+        if cmd == "remove_agent_instance":
+            label_raw = request.get("label")
+            label = str(label_raw).strip() if label_raw is not None else ""
+            if not label:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "missing_label",
+                }
+            if label not in self.config.plugins:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": f"unknown_agent:{label}",
+                }
+            self._queue_control_action("remove_agent_instance", label)
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "timestamp": now,
+                "data": {
+                    "accepted": True,
+                    "label": label,
+                },
+            }
+
+        if cmd == "update_agent_instance":
+            label_raw = request.get("label")
+            label = str(label_raw).strip() if label_raw is not None else ""
+            updates_raw = request.get("updates")
+            updates = updates_raw if isinstance(updates_raw, dict) else None
+            if not label:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "missing_label",
+                }
+            if updates is None:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "missing_updates",
+                }
+            if label not in self.config.plugins:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": f"unknown_agent:{label}",
+                }
+            self._queue_control_action(
+                "update_agent_instance",
+                label,
+                {"updates": updates},
+            )
             return {
                 "ok": True,
                 "cmd": cmd,
