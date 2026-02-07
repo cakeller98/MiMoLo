@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shlex
 import subprocess
 import sys
 
@@ -44,10 +45,14 @@ def _open_tail_window_windows(stderr_log_path: str) -> None:
 def _open_tail_window_macos(stderr_log_path: str) -> None:
     # Use Terminal.app to open a new window and tail the log file.
     try:
-        escaped_path = (
-            stderr_log_path.replace("\\", "\\\\").replace('"', '\\"')
+        # Quote the file path for shell safety (spaces, special chars).
+        tail_command = f"tail -f {shlex.quote(stderr_log_path)}"
+        escaped_command = tail_command.replace("\\", "\\\\").replace(
+            '"', '\\"'
         )
-        script = f'tell application "Terminal" to do script "tail -f {escaped_path}"'
+        script = (
+            f'tell application "Terminal" to do script "{escaped_command}"'
+        )
         result = subprocess.run(
             ["osascript", "-e", script],
             capture_output=True,
@@ -96,8 +101,11 @@ def open_tail_window(stderr_log_path: str) -> None:
         _open_tail_window_windows(stderr_log_path)
         return
 
-    if sys.platform == "darwin":
+    elif sys.platform == "darwin":
         _open_tail_window_macos(stderr_log_path)
         return
 
-    _open_tail_window_linux(stderr_log_path)
+    else:
+        # Assume Linux/Unix if not Windows or macOS.
+        _open_tail_window_linux(stderr_log_path)
+        return
