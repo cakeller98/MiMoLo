@@ -1,11 +1,22 @@
 import net from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
 
-const socketPath = process.env.MIMOLO_IPC_PATH || "";
+interface RuntimeProcess {
+  env: Record<string, string | undefined>;
+  exit(code?: number): never;
+}
+
+const runtimeProcess = (globalThis as { process?: RuntimeProcess }).process;
+
+if (!runtimeProcess) {
+  throw new Error("Node.js process global is unavailable");
+}
+
+const socketPath = runtimeProcess.env.MIMOLO_IPC_PATH || "";
 
 if (!socketPath) {
   console.error("MIMOLO_IPC_PATH is required (AF_UNIX socket path)");
-  process.exit(1);
+  runtimeProcess.exit(1);
 }
 
 const client = net.createConnection({ path: socketPath }, () => {
@@ -15,7 +26,7 @@ const client = net.createConnection({ path: socketPath }, () => {
 client.setEncoding("utf8");
 
 let buffer = "";
-client.on("data", (chunk) => {
+client.on("data", (chunk: string) => {
   buffer += chunk;
   let idx = buffer.indexOf("\n");
   while (idx !== -1) {
@@ -28,7 +39,7 @@ client.on("data", (chunk) => {
   }
 });
 
-client.on("error", (err) => {
+client.on("error", (err: { message: string }) => {
   console.error("ipc error", err.message);
 });
 
