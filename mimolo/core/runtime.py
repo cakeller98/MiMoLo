@@ -29,6 +29,8 @@ from mimolo.core.event import Event
 from mimolo.core.ipc import MAX_SOCKET_PATH_LENGTH
 from mimolo.core.sink import ConsoleSink, create_sink
 
+AgentLifecycleState = Literal["running", "shutting-down", "inactive", "error"]
+
 
 class Runtime:
     """Main orchestrator for MiMoLo framework."""
@@ -69,6 +71,14 @@ class Runtime:
         self._agents_started = False
         self._shutdown_deadlines: dict[str, float] = {}
         self._shutdown_phase: dict[str, str] = {}
+        self._agent_states: dict[str, AgentLifecycleState] = {}
+        self._agent_state_details: dict[str, str] = {}
+        self._pending_control_actions: list[tuple[str, str]] = []
+        self._control_actions_lock = threading.Lock()
+
+        for label, plugin_cfg in self.config.plugins.items():
+            if plugin_cfg.enabled and plugin_cfg.plugin_type == "agent":
+                self._set_agent_state(label, "inactive", "configured")
 
         # IPC server support for Control prototype
         self._ipc_socket_path: str | None = os.environ.get("MIMOLO_IPC_PATH")
@@ -86,23 +96,9 @@ class Runtime:
             if not plugin_config.enabled:
                 continue
             if not plugin_config.executable:
+                self._set_agent_state(label, "error", "missing_executable")
                 continue
-            try:
-                handle = self.agent_manager.spawn_agent(label, plugin_config)
-                # Optionally open a separate terminal to tail the stderr log.
-                if (
-                    getattr(plugin_config, "launch_in_separate_terminal", False)
-                    and handle.stderr_log
-                ):
-                    from mimolo.core.agent_debug import open_tail_window
-
-                    open_tail_window(handle.stderr_log)
-                self.console.print(f"[green]Spawned Agent: {label}[/green]")
-            except Exception as e:
-                self.console.print(f"[red]Failed to spawn agent {label}: {e}[/red]")
-                import traceback
-
-                self.console.print(f"[red]{traceback.format_exc()}[/red]")
+            self._spawn_agent_for_label(label)
 
     def run(self, max_iterations: int | None = None) -> None:
         """Run the main event loop.
@@ -196,10 +192,131 @@ class Runtime:
     def _snapshot_running_agents(self) -> list[str]:
         """Safely capture currently running agent labels."""
         try:
-            return sorted(self.agent_manager.agents.keys())
+            running_labels = [
+                label
+                for label, handle in self.agent_manager.agents.items()
+                if handle.is_alive()
+            ]
+            return sorted(running_labels)
         except RuntimeError:
             # RuntimeError: dict can mutate while iterating across threads.
             return []
+
+    def _set_agent_state(
+        self, label: str, state: AgentLifecycleState, detail: str
+    ) -> None:
+        """Set lifecycle state for one agent."""
+        self._agent_states[label] = state
+        self._agent_state_details[label] = detail
+
+    def _snapshot_agent_states(self) -> dict[str, dict[str, str]]:
+        """Return lifecycle state snapshot for enabled configured agents."""
+        snapshot: dict[str, dict[str, str]] = {}
+        for label, plugin_cfg in self.config.plugins.items():
+            if not plugin_cfg.enabled or plugin_cfg.plugin_type != "agent":
+                continue
+            snapshot[label] = {
+                "state": self._agent_states.get(label, "inactive"),
+                "detail": self._agent_state_details.get(label, "configured"),
+            }
+        return snapshot
+
+    def _spawn_agent_for_label(self, label: str) -> tuple[bool, str]:
+        """Spawn one configured agent by label."""
+        plugin_config = self.config.plugins.get(label)
+        if (
+            plugin_config is None
+            or not plugin_config.enabled
+            or plugin_config.plugin_type != "agent"
+        ):
+            self._set_agent_state(label, "error", "not_configured")
+            return False, "not_configured"
+
+        if not plugin_config.executable:
+            self._set_agent_state(label, "error", "missing_executable")
+            return False, "missing_executable"
+
+        existing = self.agent_manager.agents.get(label)
+        if existing and existing.is_alive():
+            self._set_agent_state(label, "running", "already_running")
+            return False, "already_running"
+
+        if existing and not existing.is_alive():
+            del self.agent_manager.agents[label]
+
+        try:
+            handle = self.agent_manager.spawn_agent(label, plugin_config)
+            if (
+                getattr(plugin_config, "launch_in_separate_terminal", False)
+                and handle.stderr_log
+            ):
+                from mimolo.core.agent_debug import open_tail_window
+
+                open_tail_window(handle.stderr_log)
+            self._set_agent_state(label, "running", "spawned")
+            self.console.print(f"[green]Spawned Agent: {label}[/green]")
+            return True, "started"
+        except Exception as e:
+            detail = f"spawn_failed:{e}"
+            self._set_agent_state(label, "error", detail)
+            self.console.print(f"[red]Failed to spawn agent {label}: {e}[/red]")
+            return False, detail
+
+    def _stop_agent_for_label(self, label: str) -> tuple[bool, str]:
+        """Stop one running agent by label."""
+        handle = self.agent_manager.agents.get(label)
+        if handle is None:
+            self._set_agent_state(label, "inactive", "not_running")
+            return False, "not_running"
+
+        self._set_agent_state(label, "shutting-down", "stop_requested")
+
+        try:
+            handle.shutdown()
+        except Exception as e:
+            detail = f"stop_failed:{e}"
+            self._set_agent_state(label, "error", detail)
+            self.console.print(f"[red]Failed stopping agent {label}: {e}[/red]")
+            return False, detail
+
+        self.agent_manager.agents.pop(label, None)
+        self.agent_last_flush.pop(label, None)
+        self._set_agent_state(label, "inactive", "stopped")
+        return True, "stopped"
+
+    def _restart_agent_for_label(self, label: str) -> tuple[bool, str]:
+        """Restart one configured agent by label."""
+        if label in self.agent_manager.agents:
+            stopped, stop_detail = self._stop_agent_for_label(label)
+            if not stopped:
+                return False, f"restart_stop_failed:{stop_detail}"
+
+        started, start_detail = self._spawn_agent_for_label(label)
+        if not started:
+            return False, f"restart_start_failed:{start_detail}"
+        return True, "restarted"
+
+    def _queue_control_action(self, action: str, label: str) -> None:
+        """Queue one control action for processing on the runtime loop."""
+        with self._control_actions_lock:
+            self._pending_control_actions.append((action, label))
+
+    def _drain_control_actions(self) -> list[tuple[str, str]]:
+        """Drain pending control actions."""
+        with self._control_actions_lock:
+            actions = list(self._pending_control_actions)
+            self._pending_control_actions.clear()
+        return actions
+
+    def _process_control_actions(self) -> None:
+        """Apply queued control actions."""
+        for action, label in self._drain_control_actions():
+            if action == "start_agent":
+                self._spawn_agent_for_label(label)
+            elif action == "stop_agent":
+                self._stop_agent_for_label(label)
+            elif action == "restart_agent":
+                self._restart_agent_for_label(label)
 
     def _build_ipc_response(self, request: dict[str, Any]) -> dict[str, Any]:
         """Handle one IPC command and return response payload."""
@@ -221,6 +338,53 @@ class Runtime:
                 "data": {
                     "registered_plugins": registered_plugins,
                     "running_agents": self._snapshot_running_agents(),
+                    "agent_states": self._snapshot_agent_states(),
+                },
+            }
+
+        if cmd == "get_agent_states":
+            return {
+                "ok": True,
+                "cmd": "get_agent_states",
+                "timestamp": now,
+                "data": {
+                    "agent_states": self._snapshot_agent_states(),
+                    "running_agents": self._snapshot_running_agents(),
+                },
+            }
+
+        if cmd in {"start_agent", "stop_agent", "restart_agent"}:
+            label_raw = request.get("label")
+            label = str(label_raw).strip() if label_raw is not None else ""
+            if not label:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "missing_label",
+                }
+
+            plugin_cfg = self.config.plugins.get(label)
+            if (
+                plugin_cfg is None
+                or not plugin_cfg.enabled
+                or plugin_cfg.plugin_type != "agent"
+            ):
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": f"unknown_agent:{label}",
+                }
+
+            self._queue_control_action(cmd, label)
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "timestamp": now,
+                "data": {
+                    "accepted": True,
+                    "label": label,
                 },
             }
 
@@ -346,6 +510,7 @@ class Runtime:
         """Execute one tick of the event loop."""
         self._tick_count += 1
         now = datetime.now(UTC)
+        self._process_control_actions()
 
         # Track and report unexpected agent exits
         for label, handle in list(self.agent_manager.agents.items()):
@@ -377,6 +542,8 @@ class Runtime:
                         f"[yellow]Failed to write agent_exit event for {label}: {e}[/yellow]"
                     )
                 # Remove dead handle to avoid repeated alerts
+                detail = f"exit_code:{exit_code}" if exit_code is not None else "exit_code:unknown"
+                self._set_agent_state(label, "error", detail)
                 del self.agent_manager.agents[label]
                 continue
 
@@ -694,6 +861,7 @@ class Runtime:
             handle = self.agent_manager.agents.get(label)
             if not handle:
                 continue
+            self._set_agent_state(label, "shutting-down", "orchestrator_shutdown")
             try:
                 ok = handle.send_command(sequence_cmd)
                 if not ok:
@@ -958,6 +1126,7 @@ class Runtime:
             for h in handles:
                 if h.label in self.agent_manager.agents:
                     del self.agent_manager.agents[h.label]
+                self._set_agent_state(h.label, "inactive", "stopped")
         except Exception as e:
             self._debug(
                 f"[yellow]Failed to clear agent handles after shutdown: {e}[/yellow]"

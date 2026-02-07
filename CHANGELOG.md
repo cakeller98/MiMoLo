@@ -24,6 +24,12 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 - Added canonical launcher scripts `mml.sh` and `mml.ps1` to standardize `MIMOLO_IPC_PATH` and launch Operations/Control/prototype targets.
 - Added `mml.toml` for launcher defaults (no-verb command, default stack, IPC path, socket wait timeout).
 - Added a minimal runtime IPC command server (AF_UNIX) that responds to `ping` and `get_registered_plugins`.
+- Added Operations IPC commands `get_agent_states`, `start_agent`, `stop_agent`, and `restart_agent` for per-agent Control actions.
+- Added runtime lifecycle state tracking for configured agents (`running`, `shutting-down`, `inactive`, `error`) with detail strings for UI instrumentation.
+- Added queued control-action processing in runtime so IPC-triggered agent actions execute safely on the orchestrator loop.
+- Added a right-side scrollable agent control panel in `mimolo/control_proto` with per-agent cards and `start/stop/restart` buttons.
+- Added lifecycle indicator lights in `mimolo/control_proto` with state mapping: green `running`, yellow `shutting-down`, dark-gray `inactive`, red `error`.
+- Added per-agent TX/RX indicator pulses in `mimolo/control_proto` (green on send, red on receive, dark-gray neutral idle).
 
 ### Changed
 - Archived legacy `start_*.sh` and `start_*.ps1` scripts under `archive/start_scripts/`.
@@ -35,3 +41,7 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 - Updated IPC prototype package metadata from `mimolo-dashboard-proto` to `mimolo-control-proto`.
 - Added local TypeScript shim declarations in `mimolo-control` and `mimolo/control_proto` so early bootstrap builds pass before full runtime dependencies are installed.
 - Removed deprecated `enableRemoteModule` BrowserWindow flag for Electron v40 compatibility.
+- Updated `mimolo.toml` agent launch args to `poetry run python <agent_script>` ordering to avoid immediate exit-code `1` on startup.
+- Updated `mimolo/control_proto` window layout from single-pane log view to split-pane log + control instrumentation panel.
+- Updated `get_registered_plugins` IPC response to include `agent_states` snapshots for Control panel hydration.
+- Updated control-proto Electron shim typings so IPC handlers/invokes accept payload arguments.

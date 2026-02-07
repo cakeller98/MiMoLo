@@ -34,7 +34,7 @@ declare module "electron" {
   export interface IpcMain {
     handle(
       channel: string,
-      handler: () => unknown | Promise<unknown>
+      handler: (...args: unknown[]) => unknown | Promise<unknown>
     ): void;
   }
 
@@ -43,7 +43,7 @@ declare module "electron" {
       channel: string,
       listener: (event: unknown, payload: unknown) => void
     ): void;
-    invoke(channel: string): Promise<unknown>;
+    invoke(channel: string, ...args: unknown[]): Promise<unknown>;
   }
 
   export interface ContextBridge {
