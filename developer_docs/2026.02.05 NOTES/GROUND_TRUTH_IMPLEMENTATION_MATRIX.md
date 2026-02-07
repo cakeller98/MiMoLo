@@ -99,3 +99,7 @@ Interpretation rule: if code and notes conflict, code is ground truth.
 - Keep this matrix current and update status fields on implementation.
 - Keep planned items explicitly listed instead of deleting them.
 - Move superseded notes to archive with a small breadcrumb to canonical docs.
+- Keep workflow-intent decisions in:
+  - `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`
+- Keep full doc classification in:
+  - `developer_docs/2026.02.05 NOTES/DEVELOPER_DOCS_TRIAGE_2026-02-07.md`
