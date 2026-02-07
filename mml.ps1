@@ -23,6 +23,7 @@ $DefaultCommand = "all"
 $DefaultStack = "proto"
 $SocketWaitSeconds = 8
 $DefaultIpcPath = Join-Path $env:TEMP "mimolo\operations.sock"
+$DefaultOpsLogPath = Join-Path $env:TEMP "mimolo\operations.log"
 
 function Get-TomlValue {
     param(
@@ -59,6 +60,10 @@ function Load-LauncherConfig {
     if (-not [string]::IsNullOrWhiteSpace($configIpcPath)) {
         $script:DefaultIpcPath = $configIpcPath
     }
+    $configOpsLogPath = Get-TomlValue -Path $ConfigFile -Key "operations_log_path" -Fallback ""
+    if (-not [string]::IsNullOrWhiteSpace($configOpsLogPath)) {
+        $script:DefaultOpsLogPath = $configOpsLogPath
+    }
 }
 
 function Resolve-AllCommand {
@@ -80,10 +85,17 @@ Load-LauncherConfig
 if (-not $env:MIMOLO_IPC_PATH) {
     $env:MIMOLO_IPC_PATH = $DefaultIpcPath
 }
+if (-not $env:MIMOLO_OPS_LOG_PATH) {
+    $env:MIMOLO_OPS_LOG_PATH = $DefaultOpsLogPath
+}
 
 $ipcDir = Split-Path -Parent $env:MIMOLO_IPC_PATH
 if ($ipcDir) {
     New-Item -ItemType Directory -Path $ipcDir -Force | Out-Null
+}
+$opsLogDir = Split-Path -Parent $env:MIMOLO_OPS_LOG_PATH
+if ($opsLogDir) {
+    New-Item -ItemType Directory -Path $opsLogDir -Force | Out-Null
 }
 
 if ([string]::IsNullOrWhiteSpace($Command)) {
@@ -109,6 +121,7 @@ function Show-Usage {
 function Launch-Operations {
     param([string[]]$MonitorArgs)
     Write-Host "[dev-stack] MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
+    Write-Host "[dev-stack] MIMOLO_OPS_LOG_PATH=$env:MIMOLO_OPS_LOG_PATH"
     poetry run python -m mimolo.cli monitor @MonitorArgs
 }
 
@@ -125,6 +138,7 @@ function Launch-Control {
 
 function Launch-Proto {
     Write-Host "[dev-stack] MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
+    Write-Host "[dev-stack] MIMOLO_OPS_LOG_PATH=$env:MIMOLO_OPS_LOG_PATH"
     Push-Location "mimolo/control_proto"
     try {
         npm run start
@@ -195,7 +209,14 @@ function Run-AllTarget {
 
     Write-Host "[dev-stack] Starting Operations in background..."
     $opsArguments = @("run", "python", "-m", "mimolo.cli", "monitor") + $MonitorArgs
-    $opsProc = Start-Process -FilePath "poetry" -ArgumentList $opsArguments -PassThru
+    if ($Target -eq "proto") {
+        Set-Content -Path $env:MIMOLO_OPS_LOG_PATH -Value ""
+        Write-Host "[dev-stack] Operations log file: $env:MIMOLO_OPS_LOG_PATH"
+        $opsProc = Start-Process -FilePath "poetry" -ArgumentList $opsArguments -PassThru -RedirectStandardOutput $env:MIMOLO_OPS_LOG_PATH
+    }
+    else {
+        $opsProc = Start-Process -FilePath "poetry" -ArgumentList $opsArguments -PassThru
+    }
 
     try {
         Write-Host "[dev-stack] Operations started (pid=$($opsProc.Id))"
@@ -229,6 +250,8 @@ switch ($Command) {
     "env" {
         Write-Host "MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
         Write-Host ('$env:MIMOLO_IPC_PATH="' + $env:MIMOLO_IPC_PATH + '"')
+        Write-Host "MIMOLO_OPS_LOG_PATH=$env:MIMOLO_OPS_LOG_PATH"
+        Write-Host ('$env:MIMOLO_OPS_LOG_PATH="' + $env:MIMOLO_OPS_LOG_PATH + '"')
         Write-Host "default_command=$DefaultCommand"
         Write-Host "default_stack=$DefaultStack"
         Write-Host "socket_wait_seconds=$SocketWaitSeconds"

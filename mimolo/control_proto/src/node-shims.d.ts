@@ -8,6 +8,7 @@ declare module "node:net" {
     on(event: "end", listener: () => void): this;
     write(data: string): void;
     end(): void;
+    destroy(): void;
   }
 
   export interface ConnectionOptions {
@@ -27,4 +28,16 @@ declare module "node:net" {
 
 declare module "node:timers/promises" {
   export function setTimeout(ms: number): Promise<void>;
+}
+
+declare module "node:fs/promises" {
+  export interface Stats {
+    size: number;
+  }
+
+  export function readFile(
+    path: string,
+    encoding: "utf8"
+  ): Promise<string>;
+  export function stat(path: string): Promise<Stats>;
 }

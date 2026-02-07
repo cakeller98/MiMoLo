@@ -1,6 +1,8 @@
-# Control IPC Prototype (TypeScript)
+# Control IPC Prototype (Electron + TypeScript)
 
-This is a lightweight IPC test harness (no Electron yet). It connects to the orchestrator over AF_UNIX sockets and sends a simple command.
+This is the active Control prototype testbed. It opens an Electron window,
+pings Operations over AF_UNIX IPC, and streams Operations output from a
+launcher-managed log file.
 
 ## Setup
 
@@ -9,13 +11,30 @@ cd mimolo/control_proto
 npm install
 ```
 
-## Run
+## Build
 
 ```bash
 MIMOLO_IPC_PATH=... npm run build
-MIMOLO_IPC_PATH=... npm run start
 ```
 
-## Notes
-- This is a temporary prototype to validate IPC wiring.
-- The message contract will align with the orchestrator IPC API once implemented.
+## Run (Electron prototype)
+
+```bash
+MIMOLO_IPC_PATH=... MIMOLO_OPS_LOG_PATH=... npm run start
+```
+
+## CLI Harness (legacy)
+
+The original one-shot socket client is still available:
+
+```bash
+MIMOLO_IPC_PATH=... npm run start:cli
+```
+
+## Recommended Launch
+
+From repo root, use the canonical launcher:
+
+```bash
+./mml.sh
+```

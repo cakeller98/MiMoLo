@@ -14,3 +14,6 @@
   #   macOS/Linux: ${TMPDIR:-/tmp}/mimolo/operations.sock
   #   Windows:     $env:TEMP\mimolo\operations.sock
   ipc_path = "/tmp/mimolo/operations.sock"
+
+  # Operations console output log consumed by control_proto Electron viewer.
+  operations_log_path = "/tmp/mimolo/operations.log"

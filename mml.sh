@@ -14,6 +14,7 @@ cd "$SCRIPT_DIR"
 TMP_BASE="${TMPDIR:-/tmp}"
 TMP_BASE="${TMP_BASE%/}"
 DEFAULT_IPC_PATH="${TMP_BASE}/mimolo/operations.sock"
+DEFAULT_OPS_LOG_PATH="${TMP_BASE}/mimolo/operations.log"
 CONFIG_FILE="${SCRIPT_DIR}/mml.toml"
 DEFAULT_COMMAND="all"
 DEFAULT_STACK="proto"
@@ -53,6 +54,12 @@ load_launcher_config() {
   if [[ -n "$config_ipc_path" ]]; then
     DEFAULT_IPC_PATH="$config_ipc_path"
   fi
+
+  local config_ops_log_path
+  config_ops_log_path="$(get_toml_value "operations_log_path" "")"
+  if [[ -n "$config_ops_log_path" ]]; then
+    DEFAULT_OPS_LOG_PATH="$config_ops_log_path"
+  fi
 }
 
 normalize_all_command() {
@@ -71,6 +78,7 @@ normalize_all_command() {
 
 load_launcher_config
 export MIMOLO_IPC_PATH="${MIMOLO_IPC_PATH:-$DEFAULT_IPC_PATH}"
+export MIMOLO_OPS_LOG_PATH="${MIMOLO_OPS_LOG_PATH:-$DEFAULT_OPS_LOG_PATH}"
 
 print_usage() {
   cat <<'EOF'
@@ -104,9 +112,17 @@ ensure_ipc_dir() {
   mkdir -p "$ipc_dir"
 }
 
+ensure_ops_log_dir() {
+  local log_dir
+  log_dir="$(dirname "$MIMOLO_OPS_LOG_PATH")"
+  mkdir -p "$log_dir"
+}
+
 launch_operations() {
   ensure_ipc_dir
+  ensure_ops_log_dir
   echo "[dev-stack] MIMOLO_IPC_PATH=$MIMOLO_IPC_PATH"
+  echo "[dev-stack] MIMOLO_OPS_LOG_PATH=$MIMOLO_OPS_LOG_PATH"
   poetry run python -m mimolo.cli monitor "$@"
 }
 
@@ -118,7 +134,9 @@ launch_control() {
 
 launch_proto() {
   ensure_ipc_dir
+  ensure_ops_log_dir
   echo "[dev-stack] MIMOLO_IPC_PATH=$MIMOLO_IPC_PATH"
+  echo "[dev-stack] MIMOLO_OPS_LOG_PATH=$MIMOLO_OPS_LOG_PATH"
   (cd "$SCRIPT_DIR/mimolo/control_proto" && npm run start)
 }
 
@@ -174,8 +192,15 @@ run_all_target() {
   shift
 
   ensure_ipc_dir
+  ensure_ops_log_dir
   echo "[dev-stack] Starting Operations in background..."
-  poetry run python -m mimolo.cli monitor "$@" &
+  if [[ "$target" == "proto" ]]; then
+    : > "$MIMOLO_OPS_LOG_PATH"
+    echo "[dev-stack] Operations log file: $MIMOLO_OPS_LOG_PATH"
+    poetry run python -m mimolo.cli monitor "$@" >"$MIMOLO_OPS_LOG_PATH" 2>&1 &
+  else
+    poetry run python -m mimolo.cli monitor "$@" &
+  fi
   operations_pid=$!
 
   cleanup() {
@@ -216,8 +241,11 @@ case "$COMMAND" in
     ;;
   env)
     ensure_ipc_dir
+    ensure_ops_log_dir
     echo "MIMOLO_IPC_PATH=$MIMOLO_IPC_PATH"
     echo "export MIMOLO_IPC_PATH=\"$MIMOLO_IPC_PATH\""
+    echo "MIMOLO_OPS_LOG_PATH=$MIMOLO_OPS_LOG_PATH"
+    echo "export MIMOLO_OPS_LOG_PATH=\"$MIMOLO_OPS_LOG_PATH\""
     echo "default_command=$DEFAULT_COMMAND"
     echo "default_stack=$DEFAULT_STACK"
     echo "socket_wait_seconds=$SOCKET_WAIT_SECONDS"

@@ -28,6 +28,8 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 ### Changed
 - Archived legacy `start_*.sh` and `start_*.ps1` scripts under `archive/start_scripts/`.
 - Improved launcher readiness checks to require an IPC `ping` response before launching proto, reducing startup `ECONNREFUSED` races.
+- Converted `mimolo/control_proto` into an Electron prototype window that streams Operations output from `MIMOLO_OPS_LOG_PATH` and polls IPC status.
+- Updated `mml.sh` / `mml.ps1` / `mml.toml` to manage `MIMOLO_OPS_LOG_PATH` and run Operations with log redirection for proto mode.
 - Renamed the Electron Control app package path from `mimolo-dash` to `mimolo-control` and aligned package metadata.
 - Renamed the TypeScript IPC prototype package path from `mimolo/dashboard` to `mimolo/control_proto`.
 - Updated IPC prototype package metadata from `mimolo-dashboard-proto` to `mimolo-control-proto`.
