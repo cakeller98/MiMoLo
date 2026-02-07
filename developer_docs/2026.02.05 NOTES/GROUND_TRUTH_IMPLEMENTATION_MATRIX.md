@@ -57,8 +57,8 @@ Interpretation rule: if code and notes conflict, code is ground truth.
 - Notes:
   - TS socket harness exists, Electron app is placeholder only.
 - Evidence:
-  - `mimolo/dashboard/src/index.ts` (current implementation path)
-  - `mimolo-dash/src/main.ts`
+  - `mimolo/control_proto/src/index.ts`
+  - `mimolo-control/src/main.ts`
 
 2. Orchestrator IPC command server contract (list/install/upgrade)
 - Status: Planned/not implemented

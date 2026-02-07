@@ -90,13 +90,13 @@ complete: 2026-01-31
 - [ ] Current module layout target includes reporter_exporters/*
 - [x] Current module layout target includes control (TS IPC prototype only)
 - [x] Current module layout target includes common (shared schemas/protocols)
-- [/] Later: mimolo-dash sibling repo for Electron UI
+- [/] Later: `mimolo-control` package for Electron UI
 	- [x] Stub created
 	- [ ] Next step - planning
 
 ## IPC prototype (TypeScript)
 complete: 2026-01-31
-- [x] Minimal TS IPC harness exists in `mimolo/dashboard/`
+- [x] Minimal TS IPC harness exists in `mimolo/control_proto/`
 - [x] `src/index.ts` connects to AF_UNIX socket via MIMOLO_IPC_PATH and sends a placeholder command
 - [x] package.json + tsconfig.json + README.md are set up
 
@@ -125,7 +125,7 @@ complete: 2026-01-31
 complete: 2026-01-31
 - [x] Agents moved under `mimolo/agents/`
 - [x] Added manifests and hash placeholders for agent_template and agent_example
-- [x] Added shared `tsconfig.base.json` and stubbed `mimolo-dash/` (Electron v40)
+- [x] Added shared `tsconfig.base.json` and stubbed `mimolo-control/` (Electron v40)
 - [x] Added `mimolo/utils` for packaging scripts
 
 ## Recent run notes

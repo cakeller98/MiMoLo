@@ -17,7 +17,7 @@ This review focused on the Python core and the TypeScript/Electron components in
 ## Medium Severity
 
 ### M-01: Electron BrowserWindow lacks explicit secure-by-default settings
-**Location:** `mimolo-dash/src/main.ts:4-10`
+**Location:** `mimolo-control/src/main.ts:4-10`
 
 **Description:** The Electron `BrowserWindow` is created without explicitly setting `webPreferences`. While some defaults are safer in modern Electron, best practice is to enforce `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`, and `enableRemoteModule: false` explicitly to prevent regressions or default changes from weakening security.
 

@@ -17,3 +17,10 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 ### Changed
 - `pack-agent` now merges updates into `build-manifest.toml` instead of overwriting it.
 - `pack-agent` now reports repo/version conflicts with explicit context and preserves non-conflicting builds.
+
+## 2026-02-06
+
+### Changed
+- Renamed the Electron Control app package path from `mimolo-dash` to `mimolo-control` and aligned package metadata.
+- Renamed the TypeScript IPC prototype package path from `mimolo/dashboard` to `mimolo/control_proto`.
+- Updated IPC prototype package metadata from `mimolo-dashboard-proto` to `mimolo-control-proto`.

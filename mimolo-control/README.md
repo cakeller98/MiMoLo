@@ -1,11 +1,11 @@
-# MiMoLo Dash (Electron Stub)
+# MiMoLo Control (Electron App)
 
 Minimal Electron v40 + TypeScript scaffold.
 
 ## Setup
 
 ```bash
-cd mimolo-dash
+cd mimolo-control
 npm install
 ```
 
