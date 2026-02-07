@@ -278,6 +278,68 @@ function buildHtml(): string {
       .agent-actions button:hover {
         background: #2d3b55;
       }
+      .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(7, 10, 14, 0.76);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+      }
+      .modal-card {
+        width: min(560px, calc(100vw - 30px));
+        background: #171d27;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .modal-title {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--text);
+        margin-bottom: 10px;
+      }
+      .modal-body {
+        display: grid;
+        gap: 8px;
+      }
+      .modal-body label {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .modal-body input,
+      .modal-body select,
+      .modal-body textarea {
+        width: 100%;
+        border: 1px solid #344357;
+        border-radius: 6px;
+        background: #0f141d;
+        color: var(--text);
+        font-family: inherit;
+        font-size: 11px;
+        padding: 6px;
+      }
+      .modal-body textarea {
+        min-height: 220px;
+        resize: vertical;
+      }
+      .modal-actions {
+        margin-top: 10px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .modal-actions button {
+        background: #253047;
+        color: var(--text);
+        border: 1px solid #33405a;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 11px;
+        padding: 5px 10px;
+        cursor: pointer;
+      }
     </style>
   </head>
   <body>
@@ -302,6 +364,7 @@ function buildHtml(): string {
         </div>
       </div>
     </div>
+    <div id="modalHost"></div>
     <script>
       const electronRuntime = typeof require === "function" ? require("electron") : null;
       const ipcRenderer = electronRuntime ? electronRuntime.ipcRenderer : null;
@@ -311,6 +374,7 @@ function buildHtml(): string {
       const opsLogPathEl = document.getElementById("opsLogPath");
       const cardsRoot = document.getElementById("cards");
       const addAgentBtn = document.getElementById("addAgentBtn");
+      const modalHost = document.getElementById("modalHost");
       const cards = new Map();
       const instancesByLabel = new Map();
       const templatesById = new Map();
@@ -327,6 +391,132 @@ function buildHtml(): string {
 
       function setStatus(text) {
         statusEl.textContent = text;
+      }
+
+      function showModal(build) {
+        if (!modalHost) {
+          return Promise.resolve(null);
+        }
+        return new Promise((resolve) => {
+          modalHost.innerHTML = "";
+          const overlay = document.createElement("div");
+          overlay.className = "modal-overlay";
+          const card = document.createElement("div");
+          card.className = "modal-card";
+          overlay.appendChild(card);
+          modalHost.appendChild(overlay);
+
+          function close(result) {
+            modalHost.innerHTML = "";
+            resolve(result);
+          }
+
+          build(card, close);
+        });
+      }
+
+      async function pickTemplateModal(templateIds) {
+        return showModal((card, close) => {
+          const title = document.createElement("div");
+          title.className = "modal-title";
+          title.textContent = "Add agent instance";
+          const body = document.createElement("div");
+          body.className = "modal-body";
+
+          const labelTemplate = document.createElement("label");
+          labelTemplate.textContent = "Template";
+          const select = document.createElement("select");
+          for (const id of templateIds) {
+            const opt = document.createElement("option");
+            opt.value = id;
+            opt.textContent = id;
+            select.appendChild(opt);
+          }
+          labelTemplate.appendChild(select);
+
+          const labelName = document.createElement("label");
+          labelName.textContent = "Instance label (optional)";
+          const input = document.createElement("input");
+          input.placeholder = "leave blank for default";
+          labelName.appendChild(input);
+
+          body.appendChild(labelTemplate);
+          body.appendChild(labelName);
+
+          const actions = document.createElement("div");
+          actions.className = "modal-actions";
+          const cancelBtn = document.createElement("button");
+          cancelBtn.textContent = "Cancel";
+          cancelBtn.addEventListener("click", () => close(null));
+          const addBtn = document.createElement("button");
+          addBtn.textContent = "Add";
+          addBtn.addEventListener("click", () => {
+            close({
+              template_id: select.value,
+              requested_label: input.value.trim(),
+            });
+          });
+          actions.appendChild(cancelBtn);
+          actions.appendChild(addBtn);
+
+          card.appendChild(title);
+          card.appendChild(body);
+          card.appendChild(actions);
+          select.focus();
+        });
+      }
+
+      async function confirmModal(message) {
+        const result = await showModal((card, close) => {
+          const title = document.createElement("div");
+          title.className = "modal-title";
+          title.textContent = message;
+          const actions = document.createElement("div");
+          actions.className = "modal-actions";
+          const cancelBtn = document.createElement("button");
+          cancelBtn.textContent = "Cancel";
+          cancelBtn.addEventListener("click", () => close(false));
+          const okBtn = document.createElement("button");
+          okBtn.textContent = "Confirm";
+          okBtn.addEventListener("click", () => close(true));
+          actions.appendChild(cancelBtn);
+          actions.appendChild(okBtn);
+          card.appendChild(title);
+          card.appendChild(actions);
+          okBtn.focus();
+        });
+        return result === true;
+      }
+
+      async function editJsonModal(titleText, defaultValue) {
+        return showModal((card, close) => {
+          const title = document.createElement("div");
+          title.className = "modal-title";
+          title.textContent = titleText;
+          const body = document.createElement("div");
+          body.className = "modal-body";
+          const label = document.createElement("label");
+          label.textContent = "JSON";
+          const area = document.createElement("textarea");
+          area.value = defaultValue;
+          label.appendChild(area);
+          body.appendChild(label);
+
+          const actions = document.createElement("div");
+          actions.className = "modal-actions";
+          const cancelBtn = document.createElement("button");
+          cancelBtn.textContent = "Cancel";
+          cancelBtn.addEventListener("click", () => close(null));
+          const saveBtn = document.createElement("button");
+          saveBtn.textContent = "Save";
+          saveBtn.addEventListener("click", () => close(area.value));
+          actions.appendChild(cancelBtn);
+          actions.appendChild(saveBtn);
+          card.appendChild(title);
+          card.appendChild(body);
+          card.appendChild(actions);
+          area.focus();
+        });
       }
 
       function applyLifeClass(light, state) {
@@ -378,7 +568,7 @@ function buildHtml(): string {
           agent_flush_interval_s: current.config.agent_flush_interval_s,
           launch_in_separate_terminal: current.config.launch_in_separate_terminal,
         };
-        const input = window.prompt(
+        const input = await editJsonModal(
           "Edit JSON for " + label + " (supported keys only)",
           JSON.stringify(editable, null, 2)
         );
@@ -401,43 +591,54 @@ function buildHtml(): string {
       }
 
       async function showAddDialog() {
+        if (!ipcRenderer) {
+          append("[ui] add failed: ipc renderer unavailable");
+          return;
+        }
         if (templatesById.size === 0) {
-          const refresh = await ipcRenderer.invoke("mml:list-agent-templates");
-          if (refresh && refresh.ok && refresh.templates) {
-            for (const [k, v] of Object.entries(refresh.templates)) {
-              templatesById.set(k, v);
-            }
-          }
+          await refreshTemplatesCache();
         }
         const templateIds = Array.from(templatesById.keys()).sort();
         if (templateIds.length === 0) {
-          append("[ui] no templates available");
+          append("[ui] no templates available (templates cache empty)");
           return;
         }
-        const selection = window.prompt(
-          "Add agent instance\\nAvailable templates:\\n" + templateIds.join("\\n"),
-          templateIds[0]
-        );
+        const selection = await pickTemplateModal(templateIds);
         if (selection === null) return;
-        const templateId = selection.trim();
+        const templateId = selection.template_id.trim();
         if (!templatesById.has(templateId)) {
           append("[ui] unknown template: " + templateId);
           return;
         }
-        const requestedLabel = window.prompt(
-          "Optional instance label (leave blank for default)",
-          ""
-        );
         const payload = {
           action: "add_agent_instance",
           template_id: templateId,
         };
-        if (requestedLabel && requestedLabel.trim()) {
-          payload.requested_label = requestedLabel.trim();
+        if (selection.requested_label && selection.requested_label.trim()) {
+          payload.requested_label = selection.requested_label.trim();
         }
         const response = await sendCommand(payload);
         if (!response.ok) {
           append("[ipc] add failed: " + (response.error || "unknown_error"));
+        }
+      }
+
+      async function refreshTemplatesCache() {
+        if (!ipcRenderer) {
+          return;
+        }
+        try {
+          const refresh = await ipcRenderer.invoke("mml:list-agent-templates");
+          if (!(refresh && refresh.ok && refresh.templates)) {
+            return;
+          }
+          templatesById.clear();
+          for (const [k, v] of Object.entries(refresh.templates)) {
+            templatesById.set(k, v);
+          }
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : "template_refresh_failed";
+          append("[ui] template refresh failed: " + detail);
         }
       }
 
@@ -495,7 +696,7 @@ function buildHtml(): string {
           }
         });
         del.addEventListener("click", async () => {
-          const ok = window.confirm("Remove instance '" + label + "'?");
+          const ok = await confirmModal("Remove instance '" + label + "'?");
           if (!ok) return;
           const response = await sendCommand({
             action: "remove_agent_instance",
@@ -563,9 +764,17 @@ function buildHtml(): string {
       if (!ipcRenderer) {
         append("[proto] electron ipcRenderer unavailable in renderer");
       } else {
-        addAgentBtn.addEventListener("click", () => {
-          void showAddDialog();
-        });
+        if (!addAgentBtn) {
+          append("[ui] add button not found in DOM");
+        } else {
+          addAgentBtn.addEventListener("click", () => {
+            void showAddDialog();
+          });
+        }
+        void refreshTemplatesCache();
+        setInterval(() => {
+          void refreshTemplatesCache();
+        }, 4500);
         ipcRenderer.on("ops:status", (_event, payload) => {
           setStatus(payload.state + " - " + payload.detail);
         });
