@@ -1,6 +1,6 @@
 # Developer Docs Triage (Comprehensive)
 
-Date: 2026-02-07
+Date: 2026-02-06
 Scope: all markdown files under `developer_docs/`
 Policy labels:
 - `KEEP`: keep as active reference (or canonical source).
@@ -14,7 +14,7 @@ Policy labels:
 | `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md` | KEEP | Implementation-truth tracker. |
 | `developer_docs/2026.02.05 NOTES/NOTES_TRIAGE_2026-02-05.md` | KEEP | January-notes triage log. |
 | `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md` | KEEP | Canonical workflow-intent consolidation. |
-| `developer_docs/2026.02.05 NOTES/DEVELOPER_DOCS_TRIAGE_2026-02-07.md` | KEEP | Full docs triage ledger. |
+| `developer_docs/2026.02.05 NOTES/DEVELOPER_DOCS_TRIAGE_2026-02-06.md` | KEEP | Full docs triage ledger. |
 
 ## 2026.01.28 Notes
 | Path | Decision | Rationale |

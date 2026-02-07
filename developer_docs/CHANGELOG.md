@@ -2,11 +2,11 @@
 
 All notable documentation changes under `developer_docs/` are tracked in this file.
 
-## 2026-02-07
+## 2026-02-06
 
 ### Added
 - Added canonical workflow-intent consolidation at `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`.
-- Added comprehensive documentation triage ledger at `developer_docs/2026.02.05 NOTES/DEVELOPER_DOCS_TRIAGE_2026-02-07.md`.
+- Added comprehensive documentation triage ledger at `developer_docs/2026.02.05 NOTES/DEVELOPER_DOCS_TRIAGE_2026-02-06.md`.
 - Added centralized archive index at `developer_docs/archive/README.md`.
 
 ### Changed

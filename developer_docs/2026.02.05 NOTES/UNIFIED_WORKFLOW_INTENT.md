@@ -1,6 +1,6 @@
 # Unified Workflow Intent (Reference-History Consolidation)
 
-Date: 2026-02-07
+Date: 2026-02-06
 Status: Canonical workflow-intent document
 
 ## 1. Purpose

@@ -1,6 +1,6 @@
 # Ground Truth Implementation Matrix (2026-02-05)
 
-Date: 2026-02-07
+Date: 2026-02-06
 Basis: current code + tests (`poetry run pytest -q` => 80 passed)
 Interpretation rule: if code and notes conflict, code is ground truth.
 
@@ -102,4 +102,4 @@ Interpretation rule: if code and notes conflict, code is ground truth.
 - Keep workflow-intent decisions in:
   - `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`
 - Keep full doc classification in:
-  - `developer_docs/2026.02.05 NOTES/DEVELOPER_DOCS_TRIAGE_2026-02-07.md`
+  - `developer_docs/2026.02.05 NOTES/DEVELOPER_DOCS_TRIAGE_2026-02-06.md`

@@ -11,7 +11,7 @@ Primary docs in this folder:
 - `GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
 - `NOTES_TRIAGE_2026-02-05.md`
 - `UNIFIED_WORKFLOW_INTENT.md`
-- `DEVELOPER_DOCS_TRIAGE_2026-02-07.md`
+- `DEVELOPER_DOCS_TRIAGE_2026-02-06.md`
 
 Centralized docs archive:
 - `developer_docs/archive/README.md`

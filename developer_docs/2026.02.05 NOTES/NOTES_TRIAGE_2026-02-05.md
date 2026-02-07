@@ -1,6 +1,6 @@
 # Notes Triage (KEEP / ARCHIVE / MERGE)
 
-Date: 2026-02-07
+Date: 2026-02-06
 Policy:
 - `KEEP`: still useful as direct reference and not superseded.
 - `MERGE`: content preserved in canonical 2026.02.05 ground-truth notes.
@@ -40,4 +40,4 @@ Policy:
   - `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
   - `developer_docs/2026.02.05 NOTES/NOTES_TRIAGE_2026-02-05.md`
   - `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`
-  - `developer_docs/2026.02.05 NOTES/DEVELOPER_DOCS_TRIAGE_2026-02-07.md`
+  - `developer_docs/2026.02.05 NOTES/DEVELOPER_DOCS_TRIAGE_2026-02-06.md`
