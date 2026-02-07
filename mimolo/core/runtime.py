@@ -227,8 +227,6 @@ class Runtime:
     def _infer_template_id(self, label: str, plugin_cfg: PluginConfig) -> str:
         """Infer template id from args path, falling back to label."""
         for arg in plugin_cfg.args:
-            if not isinstance(arg, str):
-                continue
             if "/" not in arg or not arg.endswith(".py"):
                 continue
             head = arg.split("/", 1)[0].strip()
@@ -294,8 +292,6 @@ class Runtime:
         """Return configured agent instances with state and editable config."""
         instances: dict[str, dict[str, Any]] = {}
         for label, plugin_cfg in self.config.plugins.items():
-            if plugin_cfg.plugin_type != "agent":
-                continue
             instances[label] = {
                 "label": label,
                 "state": self._agent_states.get(label, "inactive"),

@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
+import tomlkit
 import yaml
 from pydantic import BaseModel, Field, field_validator
+from tomlkit.toml_document import TOMLDocument
 
 from mimolo.core.errors import ConfigError
 
@@ -172,6 +174,10 @@ def save_config(config: Config, path: Path | str) -> None:
     path = Path(path)
 
     try:
+        if path.suffix == ".toml":
+            _save_toml_config_roundtrip(config, path)
+            return
+
         content = _serialize_config(config, path)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
@@ -191,7 +197,7 @@ def _serialize_config(config: Config, path: Path) -> str:
 
 
 def _config_to_toml(config: Config) -> str:
-    """Convert Config to TOML string (simple implementation).
+    """Convert Config to TOML string.
 
     Args:
         config: Config object to serialize.
@@ -199,33 +205,77 @@ def _config_to_toml(config: Config) -> str:
     Returns:
         TOML-formatted string.
     """
-    lines = ["[monitor]"]
-    for key, value in config.monitor.model_dump().items():
-        lines.append(f"{key} = {_toml_value(value)}")
-
-    lines.append("")
-
-    for plugin_name, plugin_config in config.plugins.items():
-        lines.append(f"[plugins.{plugin_name}]")
-        for key, value in plugin_config.model_dump().items():
-            lines.append(f"{key} = {_toml_value(value)}")
-        lines.append("")
-
-    return "\n".join(lines)
+    doc = tomlkit.document()
+    _sync_toml_document_from_config(doc, config)
+    return tomlkit.dumps(doc)
 
 
-def _toml_value(value: object) -> str:
-    """Serialize a primitive Python value to TOML literal syntax."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, str):
-        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{escaped}"'
-    if isinstance(value, (int, float)):
-        return str(value)
-    if isinstance(value, list):
-        inner = ", ".join(_toml_value(v) for v in value)
-        return f"[{inner}]"
-    if value is None:
-        return '""'
-    return _toml_value(str(value))
+def _save_toml_config_roundtrip(config: Config, path: Path) -> None:
+    """Save TOML config while preserving existing comments/format where possible."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            existing_text = f.read()
+        doc = tomlkit.parse(existing_text)
+    except FileNotFoundError:
+        doc = tomlkit.document()
+    except Exception as e:
+        raise ConfigError(f"Failed to parse existing TOML for save: {e}") from e
+
+    _sync_toml_document_from_config(doc, config)
+
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(tomlkit.dumps(doc))
+    except OSError as e:
+        raise ConfigError(f"Failed writing TOML config {path}: {e}") from e
+
+
+def _sync_toml_document_from_config(doc: TOMLDocument, config: Config) -> None:
+    """Mutate TOML document to match config model."""
+    monitor_data = config.monitor.model_dump()
+    plugins_data = {
+        label: plugin_cfg.model_dump() for label, plugin_cfg in config.plugins.items()
+    }
+
+    monitor_table = doc.get("monitor")
+    if monitor_table is None or not isinstance(monitor_table, dict):
+        monitor_table = tomlkit.table()
+        doc["monitor"] = monitor_table
+    _sync_mapping_table(
+        monitor_table, monitor_data, remove_missing_keys=True  # Any: tomlkit dynamic mapping table.
+    )
+
+    plugins_table = doc.get("plugins")
+    if plugins_table is None or not isinstance(plugins_table, dict):
+        plugins_table = tomlkit.table()
+        doc["plugins"] = plugins_table
+
+    existing_plugin_keys = {
+        key for key in plugins_table.keys() if isinstance(key, str)
+    }
+    target_plugin_keys = set(plugins_data.keys())
+
+    for plugin_key in existing_plugin_keys - target_plugin_keys:
+        del plugins_table[plugin_key]
+
+    for plugin_name, plugin_data in plugins_data.items():
+        plugin_table = plugins_table.get(plugin_name)
+        if plugin_table is None or not isinstance(plugin_table, dict):
+            plugin_table = tomlkit.table()
+            plugins_table[plugin_name] = plugin_table
+        _sync_mapping_table(
+            plugin_table, plugin_data, remove_missing_keys=True  # Any: tomlkit dynamic mapping table.
+        )
+
+
+def _sync_mapping_table(
+    table: dict[str, Any], data: dict[str, Any], remove_missing_keys: bool
+) -> None:
+    """Sync key/value data into a TOML mapping table."""
+    if remove_missing_keys:
+        existing_keys = {key for key in table.keys() if isinstance(key, str)}
+        for key in existing_keys - set(data.keys()):
+            del table[key]
+
+    for key, value in data.items():
+        table[key] = tomlkit.item(value)
