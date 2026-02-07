@@ -74,16 +74,27 @@ def test_markdown_sink(tmp_path: Path) -> None:
     assert "Standalone Events" in text
 
 
-def test_console_sink(capsys: pytest.CaptureFixture[str]) -> None:
+def test_console_sink(caplog: pytest.LogCaptureFixture) -> None:
     sink = ConsoleSink("debug")
     now = datetime.now(UTC)
     seg = make_segment(now)
-    sink.write_segment(seg)
     evt = Event(timestamp=now, label="x", event="y", data=None).with_id()
-    sink.write_event(evt)
-    out = capsys.readouterr().out
-    assert "[SEGMENT]" in out
-    assert "[EVENT]" in out
+
+    with caplog.at_level("INFO"):
+        sink.write_segment(seg)
+        sink.write_event(evt)
+
+    text = caplog.text
+    assert "[SEGMENT]" in text
+    assert "[EVENT]" in text
+
+    caplog.clear()
+    quiet_sink = ConsoleSink("warning")
+    with caplog.at_level("INFO"):
+        quiet_sink.write_segment(seg)
+        quiet_sink.write_event(evt)
+    assert "[SEGMENT]" not in caplog.text
+    assert "[EVENT]" not in caplog.text
 
 
 def test_create_sink_factory(tmp_path: Path) -> None:
