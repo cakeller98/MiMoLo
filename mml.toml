@@ -1,0 +1,16 @@
+[launcher]
+  # Command used when you run ./mml.sh (or .ps1) with no verb.
+  default_command = "all-proto"
+
+  # Used when default_command = "all" (or when explicit "all" is passed).
+  # Options: "proto" | "control"
+  default_stack = "proto"
+
+  # Seconds to wait for IPC socket readiness before launching proto in all-proto mode.
+  socket_wait_seconds = 8
+
+  # Optional fixed IPC path override.
+  # Leave empty to use OS temp path defaults:
+  #   macOS/Linux: ${TMPDIR:-/tmp}/mimolo/operations.sock
+  #   Windows:     $env:TEMP\mimolo\operations.sock
+  ipc_path = "/tmp/mimolo/operations.sock"

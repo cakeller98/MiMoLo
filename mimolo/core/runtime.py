@@ -11,6 +11,10 @@ The orchestrator:
 
 from __future__ import annotations
 
+import json
+import os
+import socket
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +26,7 @@ from mimolo.core.config import Config
 from mimolo.core.cooldown import CooldownTimer
 from mimolo.core.errors import SinkError
 from mimolo.core.event import Event
+from mimolo.core.ipc import MAX_SOCKET_PATH_LENGTH
 from mimolo.core.sink import ConsoleSink, create_sink
 
 
@@ -65,6 +70,12 @@ class Runtime:
         self._shutdown_deadlines: dict[str, float] = {}
         self._shutdown_phase: dict[str, str] = {}
 
+        # IPC server support for Control prototype
+        self._ipc_socket_path: str | None = os.environ.get("MIMOLO_IPC_PATH")
+        self._ipc_stop_event = threading.Event()
+        self._ipc_thread: threading.Thread | None = None
+        self._ipc_server_socket: socket.socket | None = None
+
     def _start_agents(self) -> None:
         """Spawn Agent plugins from config."""
         if self._agents_started:
@@ -100,6 +111,7 @@ class Runtime:
             max_iterations: Optional maximum iterations (for testing/dry-run).
         """
         self._running = True
+        self._start_ipc_server()
         self._start_agents()
         self.console.print("[bold green]MiMoLo starting...[/bold green]")
         self.console.print(f"Cooldown: {self.config.monitor.cooldown_seconds}s")
@@ -134,6 +146,201 @@ class Runtime:
         """Print a debug-only message to the console."""
         if self.config.monitor.console_verbosity == "debug":
             self.console.print(message)
+
+    def _start_ipc_server(self) -> None:
+        """Start background IPC server for Control commands."""
+        if not self._ipc_socket_path:
+            self._debug("[dim]IPC disabled (MIMOLO_IPC_PATH not set).[/dim]")
+            return
+
+        if self._ipc_thread and self._ipc_thread.is_alive():
+            return
+
+        self._ipc_stop_event.clear()
+        self._ipc_thread = threading.Thread(
+            target=self._ipc_server_loop,
+            name="mimolo-ipc-server",
+            daemon=True,
+        )
+        self._ipc_thread.start()
+
+    def _stop_ipc_server(self) -> None:
+        """Stop IPC server thread and clean up socket file."""
+        self._ipc_stop_event.set()
+
+        if self._ipc_server_socket is not None:
+            try:
+                self._ipc_server_socket.close()
+            except OSError:
+                # OSError: server socket may already be closed by worker thread.
+                pass
+
+        if self._ipc_thread is not None:
+            self._ipc_thread.join(timeout=1.0)
+            self._ipc_thread = None
+
+        self._cleanup_ipc_socket_file()
+
+    def _cleanup_ipc_socket_file(self) -> None:
+        """Remove IPC socket file if it exists."""
+        if not self._ipc_socket_path:
+            return
+        try:
+            os.unlink(self._ipc_socket_path)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            # OSError: filesystem cleanup can fail on shutdown races.
+            self._debug(f"[yellow]IPC socket cleanup failed: {e}[/yellow]")
+
+    def _snapshot_running_agents(self) -> list[str]:
+        """Safely capture currently running agent labels."""
+        try:
+            return sorted(self.agent_manager.agents.keys())
+        except RuntimeError:
+            # RuntimeError: dict can mutate while iterating across threads.
+            return []
+
+    def _build_ipc_response(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Handle one IPC command and return response payload."""
+        cmd_raw = request.get("cmd")
+        cmd = str(cmd_raw) if cmd_raw is not None else ""
+        now = datetime.now(UTC).isoformat()
+
+        if cmd == "ping":
+            return {"ok": True, "cmd": "ping", "timestamp": now, "data": {"pong": True}}
+
+        if cmd == "get_registered_plugins":
+            registered_plugins = sorted(
+                [label for label, plugin_cfg in self.config.plugins.items() if plugin_cfg.enabled]
+            )
+            return {
+                "ok": True,
+                "cmd": "get_registered_plugins",
+                "timestamp": now,
+                "data": {
+                    "registered_plugins": registered_plugins,
+                    "running_agents": self._snapshot_running_agents(),
+                },
+            }
+
+        return {
+            "ok": False,
+            "cmd": cmd,
+            "timestamp": now,
+            "error": f"unknown_command:{cmd}",
+        }
+
+    def _handle_ipc_line(self, line: str) -> dict[str, Any]:
+        """Parse one JSON-line request and produce a response."""
+        now = datetime.now(UTC).isoformat()
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            return {"ok": False, "timestamp": now, "error": "invalid_json"}
+
+        if not isinstance(payload, dict):
+            return {"ok": False, "timestamp": now, "error": "invalid_payload"}
+
+        return self._build_ipc_response(cast(dict[str, Any], payload))
+
+    def _send_ipc_response(self, conn: socket.socket, payload: dict[str, Any]) -> bool:
+        """Send a single JSON-line response to an IPC client."""
+        try:
+            conn.sendall((json.dumps(payload) + "\n").encode("utf-8"))
+            return True
+        except OSError:
+            # OSError: client may disconnect while response is being written.
+            return False
+
+    def _serve_ipc_connection(self, conn: socket.socket) -> None:
+        """Serve one IPC client connection until disconnect/stop."""
+        conn.settimeout(0.2)
+        buffer = ""
+
+        while not self._ipc_stop_event.is_set():
+            try:
+                chunk = conn.recv(4096)
+            except TimeoutError:
+                continue
+            except OSError:
+                # OSError: client socket may close/reset unexpectedly.
+                return
+
+            if not chunk:
+                return
+
+            try:
+                buffer += chunk.decode("utf-8")
+            except UnicodeDecodeError:
+                response = {
+                    "ok": False,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "error": "invalid_utf8",
+                }
+                self._send_ipc_response(conn, response)
+                return
+
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                line = line.strip()
+                if not line:
+                    continue
+                response = self._handle_ipc_line(line)
+                if not self._send_ipc_response(conn, response):
+                    return
+
+    def _ipc_server_loop(self) -> None:
+        """Accept IPC connections and process control commands."""
+        if not self._ipc_socket_path:
+            return
+
+        socket_path = self._ipc_socket_path
+        if len(socket_path) > MAX_SOCKET_PATH_LENGTH:
+            self.console.print(
+                f"[red]IPC socket path too long ({len(socket_path)} > {MAX_SOCKET_PATH_LENGTH}).[/red]"
+            )
+            return
+
+        socket_dir = Path(socket_path).parent
+        socket_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self._cleanup_ipc_socket_file()
+
+        server_sock: socket.socket | None = None
+        try:
+            server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            server_sock.bind(socket_path)
+            os.chmod(socket_path, 0o600)
+            server_sock.listen(4)
+            server_sock.settimeout(0.2)
+            self._ipc_server_socket = server_sock
+            self._debug(f"[dim]IPC server listening at {socket_path}[/dim]")
+
+            while not self._ipc_stop_event.is_set():
+                try:
+                    conn, _ = server_sock.accept()
+                except TimeoutError:
+                    continue
+                except OSError:
+                    # OSError: listener may be closed during shutdown.
+                    if self._ipc_stop_event.is_set():
+                        break
+                    continue
+
+                with conn:
+                    self._serve_ipc_connection(conn)
+        except OSError as e:
+            # OSError: bind/listen can fail due path/permission conflicts.
+            self.console.print(f"[red]IPC server failed to start: {e}[/red]")
+        finally:
+            if server_sock is not None:
+                try:
+                    server_sock.close()
+                except OSError:
+                    # OSError: best-effort close on shutdown path.
+                    pass
+            self._ipc_server_socket = None
+            self._cleanup_ipc_socket_file()
 
     def _tick(self) -> None:
         """Execute one tick of the event loop."""
@@ -794,6 +1001,8 @@ class Runtime:
             self.console.print("[green]Shutdown complete.[/green]")
         except Exception as e:
             self.console.print(f"[red]Error closing sinks: {e}[/red]")
+        finally:
+            self._stop_ipc_server()
 
     def stop(self) -> None:
         """Request graceful stop."""
