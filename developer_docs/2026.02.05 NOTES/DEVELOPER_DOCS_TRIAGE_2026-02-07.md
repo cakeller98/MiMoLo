@@ -22,10 +22,10 @@ Policy labels:
 | `developer_docs/2026.01.28 NOTES/README.md` | KEEP | Declares reference-only status and archive pointer. |
 | `developer_docs/2026.01.28 NOTES/1-29-2026_context.md` | MERGE | Context intent merged into unified workflow doc. |
 | `developer_docs/2026.01.28 NOTES/2026-01-29_status_combined.md` | MERGE | Install/registry and control-flow intent merged into unified workflow doc. |
-| `developer_docs/2026.01.28 NOTES/archive/2026-01-29_status.md` | ARCHIVE | Superseded status snapshot. |
-| `developer_docs/2026.01.28 NOTES/archive/2026-01-29_status_v2.md` | ARCHIVE | Superseded status snapshot. |
-| `developer_docs/2026.01.28 NOTES/archive/another run.md` | ARCHIVE | Raw runtime transcript. |
-| `developer_docs/2026.01.28 NOTES/archive/current_test_run.md` | ARCHIVE | Raw runtime transcript. |
+| `developer_docs/archive/2026.01.28 NOTES/2026-01-29_status.md` | ARCHIVE | Superseded status snapshot. |
+| `developer_docs/archive/2026.01.28 NOTES/2026-01-29_status_v2.md` | ARCHIVE | Superseded status snapshot. |
+| `developer_docs/archive/2026.01.28 NOTES/another run.md` | ARCHIVE | Raw runtime transcript. |
+| `developer_docs/archive/2026.01.28 NOTES/current_test_run.md` | ARCHIVE | Raw runtime transcript. |
 
 ## Core Architecture Narrative Docs
 | Path | Decision | Rationale |
@@ -38,7 +38,7 @@ Policy labels:
 | `developer_docs/6_Extensibility_and_Plugin_Development.md` | MERGE | Agent behavior principles preserved as workflow intent. |
 | `developer_docs/7_Constraints_and_Performance_Etiquette.md` | MERGE | Performance etiquette remains directional intent. |
 | `developer_docs/8_Future_Roadmap_and_Summary.md` | MERGE | Future themes retained as non-binding direction. |
-| `developer_docs/ASM_Development_Documentation.md` | ARCHIVE | Obsidian index wrapper, no independent canonical content. |
+| `developer_docs/archive/ASM_Development_Documentation.md` | ARCHIVE | Obsidian index wrapper, no independent canonical content. |
 
 ## Dashboard / UX / Terminology
 | Path | Decision | Rationale |
@@ -62,12 +62,12 @@ Policy labels:
 ## Logging and Migration History
 | Path | Decision | Rationale |
 |---|---|---|
-| `developer_docs/logging_spec/LOGGING_IMPLEMENTATION_SUMMARY.md` | ARCHIVE | Legacy celebratory summary, overlaps with structured logging docs. |
-| `developer_docs/LOGGING_FIXES/LOGGING_IMPLEMENTATION_SUMMARY.md` | ARCHIVE | Implementation-historical detail, not forward workflow intent. |
-| `developer_docs/LOGGING_FIXES/LOGGING_FIXES_APPLIED.md` | ARCHIVE | Fix diary/history, not active planning doc. |
-| `developer_docs/LOGGING_FIXES/LEGACY_PLUGIN_REMOVAL.md` | ARCHIVE | Migration completion history. |
-| `developer_docs/refactor_plan/refactor_plan_v0.2-to-v0.3.md` | ARCHIVE | Pre-implementation migration plan (historical). |
-| `developer_docs/refactor_plan/INCREMENTAL_REFACTOR_PLAN.md` | ARCHIVE | Pre-implementation migration plan (historical). |
+| `developer_docs/archive/logging_spec/LOGGING_IMPLEMENTATION_SUMMARY.md` | ARCHIVE | Legacy celebratory summary, overlaps with structured logging docs. |
+| `developer_docs/archive/LOGGING_FIXES/LOGGING_IMPLEMENTATION_SUMMARY.md` | ARCHIVE | Implementation-historical detail, not forward workflow intent. |
+| `developer_docs/archive/LOGGING_FIXES/LOGGING_FIXES_APPLIED.md` | ARCHIVE | Fix diary/history, not active planning doc. |
+| `developer_docs/archive/LOGGING_FIXES/LEGACY_PLUGIN_REMOVAL.md` | ARCHIVE | Migration completion history. |
+| `developer_docs/archive/refactor_plan/refactor_plan_v0.2-to-v0.3.md` | ARCHIVE | Pre-implementation migration plan (historical). |
+| `developer_docs/archive/refactor_plan/INCREMENTAL_REFACTOR_PLAN.md` | ARCHIVE | Pre-implementation migration plan (historical). |
 
 ## Platform / Security / Operations Setup
 | Path | Decision | Rationale |
@@ -80,8 +80,8 @@ Policy labels:
 ## Conversation Artifacts
 | Path | Decision | Rationale |
 |---|---|---|
-| `developer_docs/copilot-conversations/20251113_180129__what_can_you_infer_from_what_you_can_see_within.md` | ARCHIVE | AI conversation artifact; not product source-of-truth. |
-| `developer_docs/copilot-conversations/20251113_200540__write_me_a_small_python_class_that_does_the_following.md` | ARCHIVE | AI conversation artifact; not product source-of-truth. |
+| `developer_docs/archive/copilot-conversations/20251113_180129__what_can_you_infer_from_what_you_can_see_within.md` | ARCHIVE | AI conversation artifact; not product source-of-truth. |
+| `developer_docs/archive/copilot-conversations/20251113_200540__write_me_a_small_python_class_that_does_the_following.md` | ARCHIVE | AI conversation artifact; not product source-of-truth. |
 
 ## Practical Use Rule
 When implementing new work:

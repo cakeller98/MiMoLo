@@ -1,3 +1,7 @@
+> [!NOTE]
+> Reference-History Document: workflow intent from this file is merged into `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`.
+> Use that file for current workflow direction; keep this file for historical context.
+
 ## Data Schema and Message Types
 
 All MiMoLo communication occurs through **newline-delimited JSON objects** transmitted over each Agent’s standard input and output streams.  

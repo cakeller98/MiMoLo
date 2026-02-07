@@ -1,3 +1,7 @@
+> [!NOTE]
+> Reference-History Document: workflow intent from this file is merged into `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`.
+> Use that file for current workflow direction; keep this file for historical context.
+
 ## Lifecycle and Control Flow
 
 MiMoLo operates as a continuous cooperative loop between the Orchestrator, its Agents, and the optional Dashboard.  

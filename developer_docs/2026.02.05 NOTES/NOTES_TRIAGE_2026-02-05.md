@@ -17,19 +17,19 @@ Policy:
 - Merged into:
   - `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
 
-3. `developer_docs/2026.01.28 NOTES/2026-01-29_status.md`
+3. `developer_docs/archive/2026.01.28 NOTES/2026-01-29_status.md`
 - Decision: ARCHIVE
 - Reason: superseded by combined status and now by 2026.02.05 ground truth.
 
-4. `developer_docs/2026.01.28 NOTES/2026-01-29_status_v2.md`
+4. `developer_docs/archive/2026.01.28 NOTES/2026-01-29_status_v2.md`
 - Decision: ARCHIVE
 - Reason: superseded by combined status and now by 2026.02.05 ground truth.
 
-5. `developer_docs/2026.01.28 NOTES/another run.md`
+5. `developer_docs/archive/2026.01.28 NOTES/another run.md`
 - Decision: ARCHIVE
 - Reason: raw run transcript; high-detail historical artifact.
 
-6. `developer_docs/2026.01.28 NOTES/current_test_run.md`
+6. `developer_docs/archive/2026.01.28 NOTES/current_test_run.md`
 - Decision: ARCHIVE
 - Reason: raw run transcript; high-detail historical artifact.
 

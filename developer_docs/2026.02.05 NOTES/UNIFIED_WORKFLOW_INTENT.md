@@ -103,11 +103,13 @@ This document is intentionally not:
 
 ## 11. Change Tracking Discipline (Required Going Forward)
 When implementation changes land:
-1. Update `CHANGELOG.md` on the same day as the change.
-2. Classify entries under `Added`, `Changed`, `Fixed`, or `Breaking`.
-3. When a planned workflow item is implemented, update:
+1. Update root `CHANGELOG.md` for code/runtime behavior changes.
+2. Update `developer_docs/CHANGELOG.md` for documentation-only changes.
+3. Keep entries on the same day as the change.
+4. Classify entries under `Added`, `Changed`, `Fixed`, or `Breaking`.
+5. When a planned workflow item is implemented, update:
   - `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
-4. Keep this unified workflow document stable unless workflow intent itself changes.
+6. Keep this unified workflow document stable unless workflow intent itself changes.
 
 ## 12. Source Inputs Merged Into This Document
 Primary reference sources:

@@ -12,3 +12,6 @@ Primary docs in this folder:
 - `NOTES_TRIAGE_2026-02-05.md`
 - `UNIFIED_WORKFLOW_INTENT.md`
 - `DEVELOPER_DOCS_TRIAGE_2026-02-07.md`
+
+Centralized docs archive:
+- `developer_docs/archive/README.md`

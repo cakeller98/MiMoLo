@@ -10,4 +10,4 @@ Primary reference docs left in this folder:
 - `2026-01-29_status_combined.md` (historical combined status)
 
 Archived superseded/raw files are in:
-- `developer_docs/2026.01.28 NOTES/archive`
+- `developer_docs/archive/2026.01.28 NOTES`
