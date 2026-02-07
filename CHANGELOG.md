@@ -20,6 +20,9 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 
 ## 2026-02-06
 
+### Added
+- Added `start_control_dev.sh` and `start_control_dev.ps1` to standardize `MIMOLO_IPC_PATH` and launch Operations/Control/prototype targets.
+
 ### Changed
 - Renamed the Electron Control app package path from `mimolo-dash` to `mimolo-control` and aligned package metadata.
 - Renamed the TypeScript IPC prototype package path from `mimolo/dashboard` to `mimolo/control_proto`.
