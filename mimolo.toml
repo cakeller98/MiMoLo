@@ -25,7 +25,7 @@
   args = ["run", "python", "agent_template/agent_template.py"]
   heartbeat_interval_s = 15.0
   agent_flush_interval_s = 300.0
-  launch_in_separate_terminal = true
+  launch_in_separate_terminal = false
 
 [plugins.agent_example]
   enabled = true
@@ -34,7 +34,7 @@
   args = ["run", "python", "agent_example/agent_example.py"]
   heartbeat_interval_s = 5.0
   agent_flush_interval_s = 30.0
-  launch_in_separate_terminal = true
+  launch_in_separate_terminal = false
 
 [plugins.scheming_agent]
   enabled = true
@@ -43,4 +43,4 @@
   args = ["run", "python", "agent_template/agent_template.py"]
   heartbeat_interval_s = 15.0
   agent_flush_interval_s = 300.0
-  launch_in_separate_terminal = true
+  launch_in_separate_terminal = false
