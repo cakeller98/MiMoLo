@@ -6,7 +6,7 @@
 
 MiMoLo v0.3 defines a mature foundation for the asynchronous Agent ecosystem—  
 a modular, language-agnostic framework that monitors creative and system activity with microscopic impact.  
-Its architecture has proven resilient, extensible, and cooperative: agents observe independently, the orchestrator governs predictably, and the dashboard presents insight without interference.  
+Its architecture has proven resilient, extensible, and cooperative: agents observe independently, the orchestrator governs predictably, and the control presents insight without interference.  
 From this base, future work will focus on refinement, autonomy, and secure scalability.
 
 ---
@@ -17,7 +17,7 @@ From this base, future work will focus on refinement, autonomy, and secure scala
 - **Sandboxed Execution:** Implement per-agent CPU and memory namespaces to guarantee isolation and enforce hard resource ceilings.  
 - **Adaptive Intelligence:** Enable Agents to self-tune sampling and reporting intervals using historical performance metrics.  
 - **Distributed Collectors:** Expand orchestrator capabilities to manage remote or networked agents securely across multiple hosts.  
-- **Dashboard Evolution:** Add live data replay, timecard generation, and real-time template editing with immediate preview.  
+- **Control Evolution:** Add live data replay, timecard generation, and real-time template editing with immediate preview.  
 - **Telemetry Analytics:** Aggregate multi-session statistics for long-term productivity and reliability insights.  
 
 ---

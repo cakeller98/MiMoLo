@@ -6,7 +6,7 @@ This document defines ongoing security best practices for MiMoLo. It is meant fo
 ## Scope
 This guide applies to:
 - Python core runtime and CLI
-- TypeScript/Electron dashboard
+- TypeScript/Electron control
 - Configuration, logging, and IPC
 
 ## Security Goals

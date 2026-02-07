@@ -60,7 +60,7 @@ These limits ensure the system remains deterministic and safe even when hundreds
   Agents that fail or hang beyond timeout thresholds are gracefully restarted with their last known configuration.
 
 - **Telemetry Aggregation:**  
-  Performance and health data are logged to sinks and visualized in the Dashboard for long-term trend analysis.
+  Performance and health data are logged to sinks and visualized in the Control for long-term trend analysis.
 
 ---
 
@@ -68,7 +68,7 @@ These limits ensure the system remains deterministic and safe even when hundreds
 
 - Benchmark new agents for **5-minute sustained CPU and memory averages** before deployment.  
 - Verify each `heartbeat` includes `metrics.cpu` and `metrics.mem_mb`.  
-- Review orchestrator diagnostic logs and Dashboard telemetry for compliance across multi-hour sessions.  
+- Review orchestrator diagnostic logs and Control telemetry for compliance across multi-hour sessions.  
 - Use controlled load tests to confirm that throttling and recovery logic behave deterministically under pressure.
 
 ---

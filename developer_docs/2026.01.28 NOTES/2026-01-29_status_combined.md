@@ -68,11 +68,11 @@ complete: 2026-01-31
 
 ## What we decided
 - [x] Agents communicate with orchestrator over Agent JLP (stdin/stdout JSON lines)
-- [i] AF_UNIX IPC is reserved for dashboard <-> orchestrator (and report/exporters)
+- [i] AF_UNIX IPC is reserved for control <-> orchestrator (and report/exporters)
 - [x] Storage is JSONL daily journals; no SQLite for now
 - [x] Per-user data folder is the root for all artifacts (Windows/macOS/Linux)
 - [/] Agent artifacts live in: <base>/<agent_name>/...
-- [ ] Dashboard artifacts live in: <base>/dashboard/...
+- [ ] Control artifacts live in: <base>/control/...
 
 ## Agent specs created
 complete: 2026-01-31
@@ -88,7 +88,7 @@ complete: 2026-01-31
 - [x] Current module layout target includes orchestrator (python)
 - [x] Current module layout target includes agents/*
 - [ ] Current module layout target includes reporter_exporters/*
-- [x] Current module layout target includes dashboard (TS IPC prototype only)
+- [x] Current module layout target includes control (TS IPC prototype only)
 - [x] Current module layout target includes common (shared schemas/protocols)
 - [/] Later: mimolo-dash sibling repo for Electron UI
 	- [x] Stub created
@@ -137,7 +137,7 @@ complete: 2026-01-31
 - [<] Clarify IPC naming: IPC umbrella vs AF_UNIX IPC vs Agent JLP; update docs accordingly
 - [<] Implement install folder + manifest schema + registry format + scan
 - [<] Add IPC server in orchestrator to reply to list-plugs, install, upgrade
-- [<] Wire TS dashboard harness to actual IPC responses
+- [<] Wire TS control harness to actual IPC responses
 - [<] Define instance config model separate from install list
 
 ## Codex environment note

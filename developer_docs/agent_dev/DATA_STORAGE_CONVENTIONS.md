@@ -20,12 +20,12 @@ Examples:
 - ~/Library/Application Support/mimolo/blender_sonar/...
 - ~/.local/share/mimolo/screen_tracker/...
 
-## Dashboard Data
-Dashboard artifacts live under:
-- <base>/dashboard/...
+## Control Data
+Control artifacts live under:
+- <base>/control/...
 
 Example report layout:
-- mimolo/dashboard/reports/report_20260128_<client>_1/
+- mimolo/control/reports/report_20260128_<client>_1/
   - report_20260128_<client>.md
   - assets/ (mp4, wav, jpg, png, svg)
 

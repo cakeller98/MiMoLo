@@ -40,10 +40,10 @@ Policy labels:
 | `developer_docs/8_Future_Roadmap_and_Summary.md` | MERGE | Future themes retained as non-binding direction. |
 | `developer_docs/archive/ASM_Development_Documentation.md` | ARCHIVE | Obsidian index wrapper, no independent canonical content. |
 
-## Dashboard / UX / Terminology
+## Control / UX / Terminology
 | Path | Decision | Rationale |
 |---|---|---|
-| `developer_docs/dashboard_dev/DASH_SPECIFICATION.md` | MERGE | Primary source for control/data separation and dashboard UX intent. |
+| `developer_docs/control_dev/CONTROL_SPECIFICATION.md` | MERGE | Primary source for control/data separation and Control UX intent. |
 | `developer_docs/monitor_ux_dev/AGENT_MENU_FEATURE.md` | MERGE | Useful operational UX ideas, partially implemented. |
 | `developer_docs/TERMINOLOGY_MAP.md` | MERGE | Role mapping and naming intent consolidated. |
 

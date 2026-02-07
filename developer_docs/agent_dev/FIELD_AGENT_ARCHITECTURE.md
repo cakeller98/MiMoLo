@@ -181,7 +181,7 @@ Every tick (~100ms):
 ### 🚧 Next Steps
 1. Create reference Agent implementations
    - Create template Agent with 3-thread architecture
-2. Add agent health monitoring dashboard
+2. Add agent health monitoring control
 3. Implement agent restart on failure
 4. Add flush timeout handling
 

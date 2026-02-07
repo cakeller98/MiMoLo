@@ -4,7 +4,7 @@
 
 ## Lifecycle and Control Flow
 
-MiMoLo operates as a continuous cooperative loop between the Orchestrator, its Agents, and the optional Dashboard.  
+MiMoLo operates as a continuous cooperative loop between the Orchestrator, its Agents, and the optional Control.  
 Each component participates in a predictable lifecycle: initialization, active monitoring, cooldown or idle periods, and graceful shutdown.  
 The system is designed to remain resilient under partial failures, maintaining data integrity and stability at all times.
 
@@ -28,13 +28,13 @@ Orchestrator → {"ack":"agent_registered","label":"folderwatch"}
 1. Agents independently collect and aggregate local observations while consuming <0.1% instantaneous CPU and <0.01% sustained CPU over time.  
 2. At defined intervals (typically 5–15 seconds), each Agent emits a `heartbeat` message reporting operational metrics and, when relevant, a `summary` containing condensed data.  
 3. The Orchestrator continuously listens, validates message structure, and appends events to active segments.  
-4. The Dashboard may query aggregated data or trigger orchestrator commands such as `flush` or `status`.  
+4. The Control may query aggregated data or trigger orchestrator commands such as `flush` or `status`.  
 5. When a `flush` command is issued, the Orchestrator relays it to the targeted agent, which emits a `summary` immediately.
 
 ```text
 Agent → {"type":"heartbeat","timestamp":"2025-11-07T09:00:00Z"}
 Agent → {"type":"summary","data":{"folders":["/project/demo"]}}
-Dashboard → {"action":"flush","target":"folderwatch"}
+Control → {"action":"flush","target":"folderwatch"}
 Orchestrator → {"cmd":"flush"}
 Agent → {"type":"summary","data":{"folders":["/project/demo"],"flush_reason":"manual"}}
 ```
@@ -90,7 +90,7 @@ Orchestrator → closes sinks, writes final logs
 - **Back-Pressure Handling:** Incoming message queues are throttled; Agents can self-tune emission frequency to reduce load.  
 - **Error Recovery:** Consecutive failures trigger exponential backoff; successful heartbeats reset the error count.  
 - **Graceful Termination:** Even under partial failure, the Orchestrator ensures all buffered data are flushed to disk and that segments close cleanly.  
-- **Dashboard Continuity:** If the Dashboard disconnects, the Orchestrator continues normal operation; data remain accessible upon reconnection.
+- **Control Continuity:** If the Control disconnects, the Orchestrator continues normal operation; data remain accessible upon reconnection.
 
 ---
 
@@ -98,7 +98,7 @@ Orchestrator → closes sinks, writes final logs
 
 MiMoLo’s full loop can be represented as:
 
-`Startup → Sampling → Event → Aggregation → Segment → Dashboard → User → (Flush / Shutdown)`
+`Startup → Sampling → Event → Aggregation → Segment → Control → User → (Flush / Shutdown)`
 
 This continuous feedback cycle ensures each Agent operates independently yet contributes to a unified, low-overhead timeline of creative or system activity.
 

@@ -11,7 +11,7 @@ The orchestrator is the supervisory process that spawns, tracks, and manages Age
 - Spawn and terminate Agents as subprocesses  
 - Send structured control commands (`flush`, `status`, `shutdown`)  
 - Track agent status, heartbeat signals, and health metrics  
-- Request live data (with or without flush) for dashboards or active monitoring  
+- Request live data (with or without flush) for Control views or active monitoring  
 - Enforce per-agent CPU and memory budgets  
 - Aggregate agent summaries into segments for logging and analytics  
 - Throttle, restart, or isolate agents that exceed limits or fail  
@@ -67,22 +67,22 @@ The schema defines the structure of all JSON messages exchanged between orchestr
 
 ---
 
-### Dashboard / Control Interface
-The Dashboard is the human-facing companion to the orchestrator. It provides visualization, configuration, and reporting tools that translate the orchestrator’s aggregated data into interpretable context for users. The Dashboard never communicates directly with Agents—it interacts solely with the orchestrator through a control API or IPC channel.
+### Control Interface
+The Control is the human-facing companion to the orchestrator. It provides visualization, configuration, and reporting tools that translate the orchestrator’s aggregated data into interpretable context for users. The Control never communicates directly with Agents—it interacts solely with the orchestrator through a control API or IPC channel.
 
 **Capabilities**
 - Query orchestrator state, agent health, and recent segment data in near-real time  
 - Send configuration updates (e.g., modify plugin parameters, adjust monitored folders)  
 - Trigger on-demand exports such as timecards or activity summaries  
 - Render Jinja2 templates for formatted reports and allow live editing of those templates  
-- Display health, performance, and activity dashboards without adding measurable system overhead  
+- Display health, performance, and activity views without adding measurable system overhead  
 
 ---
 
 ### Hierarchy Note
 The orchestrator remains the single point of authority for all communication:
 - **Agents** report upward to the **Orchestrator**.  
-- The **Dashboard** queries and commands through the **Orchestrator**, never bypassing it.  
+- The **Control** queries and commands through the **Orchestrator**, never bypassing it.  
 
 ---
 
@@ -90,4 +90,3 @@ The orchestrator remains the single point of authority for all communication:
 **Agent JLP** — *Agent JSON Lines Protocol.* The newline-delimited JSON protocol over stdin/stdout used exclusively for Agent ↔ Orchestrator messaging (commands, heartbeats, summaries, logs).  
 
 ### ...next [[3_Architectural_Overview]]
-

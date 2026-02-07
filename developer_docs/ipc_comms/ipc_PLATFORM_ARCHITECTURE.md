@@ -51,12 +51,12 @@ Agent ↔ Orchestrator: Agent JLP (stdin/stdout subprocess pipes)
   - Scales to 1000s of agents
   - Already implemented
 
-Dashboard ↔ Orchestrator: Unix domain sockets (2 sockets for bidirectional)
+Control ↔ Orchestrator: Unix domain sockets (2 sockets for bidirectional)
   - ~0.1ms latency
   - Minimal CPU
   - Same code on Windows 10+/macOS/Linux
 
-Dashboard ↔ Report Plugin: Unix domain sockets
+Control ↔ Report Plugin: Unix domain sockets
   - Consistent API
   - Fast progress updates
   - Isolated from orchestrator

@@ -9,7 +9,7 @@ Interpretation rule: if code and notes conflict, code is ground truth.
 - Agent communication over Agent JLP (stdin/stdout JSON lines) is implemented.
 - Agent lifecycle and shutdown sequence handling are implemented.
 - Logging pipeline via Agent JLP log packets is implemented.
-- Dashboard/Controller is not implemented beyond prototype stubs.
+- Control is not implemented beyond prototype stubs.
 
 ## Implemented (ground truth)
 1. Agent runtime orchestration and message handling
@@ -52,12 +52,12 @@ Interpretation rule: if code and notes conflict, code is ground truth.
   - `tests/test_ipc_support.py`
 
 ## Planned or partial (preserve)
-1. Dashboard/Controller implementation
+1. Control implementation
 - Status: Planned/partial
 - Notes:
   - TS socket harness exists, Electron app is placeholder only.
 - Evidence:
-  - `mimolo/dashboard/src/index.ts`
+  - `mimolo/dashboard/src/index.ts` (current implementation path)
   - `mimolo-dash/src/main.ts`
 
 2. Orchestrator IPC command server contract (list/install/upgrade)
@@ -92,7 +92,7 @@ Interpretation rule: if code and notes conflict, code is ground truth.
 
 ## Reference-note discrepancies to treat as tactical drift
 - Older docs still describe plugin layout and commands no longer aligned with current code.
-- Dashboard specs include aspirational features not yet reflected in runtime.
+- Control specs include aspirational features not yet reflected in runtime.
 - Historical status docs include agreed plans that remain valid but unimplemented.
 
 ## Actionable doc policy from this point

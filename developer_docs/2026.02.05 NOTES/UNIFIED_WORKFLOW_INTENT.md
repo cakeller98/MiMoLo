@@ -14,34 +14,34 @@ Interpretation rules:
 ## 2. Current Reality vs Intent
 Current reality (implemented):
 - Operations runtime, Agent JLP lifecycle, and logging pipeline are functioning.
-- Dashboard/Controller implementation is still at prototype/stub level.
+- Control implementation is still at prototype/stub level.
 
 Intent to preserve:
-- Dashboard/Controller should be the user-facing control plane.
+- Control should be the user-facing control plane.
 - Operations should remain the execution and state authority.
 
 ## 3. Core Workflow Model
-1. Dashboard/Controller handles user interaction.
+1. Control handles user interaction.
 2. Operations validates, installs, configures, and runs Agents.
 3. Agents run as isolated subprocesses and communicate with Operations via Agent JLP.
-4. Dashboard does not communicate directly with Agent processes.
+4. Control does not communicate directly with Agent processes.
 
 ## 4. Plugin Install UX Intent (Preserve)
 Primary UX pattern to preserve:
 - Install and upgrade flow should feel similar to Blender extensions:
-  - drag-and-drop zip into dashboard, or
+  - drag-and-drop zip into control, or
   - select zip via extension/agent manager UI.
 
 Behavioral flow:
-1. User provides an agent package zip via Dashboard.
-2. Dashboard passes install/upgrade request to Operations.
+1. User provides an agent package zip via Control.
+2. Control passes install/upgrade request to Operations.
 3. Operations validates package metadata/integrity and applies install policy.
-4. Operations returns result/status to Dashboard.
-5. Dashboard updates UI state and available actions.
+4. Operations returns result/status to Control.
+5. Control updates UI state and available actions.
 
 Operational policy intent:
 - Install and upgrade logic belongs to Operations.
-- Dashboard should not unpack/deploy payloads directly.
+- Control should not unpack/deploy payloads directly.
 - Preserve planned command semantics from notes:
   - list installed plugins
   - install (no overwrite)
@@ -61,7 +61,7 @@ Desired workflow:
 ## 6. Configuration Ownership and Location Intent
 Ownership rule:
 - Operations owns writable runtime configuration for agents and instances.
-- Dashboard requests changes through control commands; Operations writes canonical files.
+- Control requests changes through control commands; Operations writes canonical files.
 
 Canonical path intent:
 - `agent_config.toml` should be owned by Operations under OS-appropriate data root.
@@ -78,14 +78,14 @@ Note:
 
 ## 7. Data/Control Separation Intent
 Preserve this separation:
-- Dashboard reads durable activity data from files (journals/cache views).
-- Dashboard uses command bridge only for control and runtime state.
+- Control reads durable activity data from files (journals/cache views).
+- Control uses command bridge only for control and runtime state.
 - Operations remains system-of-record for lifecycle, health, and config authority.
 
 ## 8. Reporter Workflow Intent
 Preserve reporter concept:
-- Report generation remains a Dashboard-driven UX path.
-- Dashboard can synthesize segment views from journals/cache and pass prepared data to reporter subprocesses.
+- Report generation remains a Control-driven UX path.
+- Control can synthesize segment views from journals/cache and pass prepared data to reporter subprocesses.
 - Reporter plugins are presentation/export tools, not runtime control owners.
 
 ## 9. Security and Reliability Intent
@@ -113,7 +113,7 @@ When implementation changes land:
 
 ## 12. Source Inputs Merged Into This Document
 Primary reference sources:
-- `developer_docs/dashboard_dev/DASH_SPECIFICATION.md`
+- `developer_docs/control_dev/CONTROL_SPECIFICATION.md`
 - `developer_docs/TERMINOLOGY_MAP.md`
 - `developer_docs/agent_dev/DATA_STORAGE_CONVENTIONS.md`
 - `developer_docs/2026.01.28 NOTES/1-29-2026_context.md`

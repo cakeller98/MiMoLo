@@ -2,7 +2,7 @@
 > Reference-History Document: workflow intent from this file is merged into `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`.
 > Use that file for current workflow direction; keep this file for historical context.
 
-# Dashboard Specification
+# Control Specification
 
 > **Document Version:** 0.3  
 > **Target Framework:** MiMoLo v0.3+  
@@ -13,16 +13,16 @@
 
 ## 1. Overview
 
-The Dashboard is MiMoLo's human-facing interface for monitoring, reporting, and controlling the Orchestrator and its Agents.
+Control is MiMoLo's human-facing interface for monitoring, reporting, and controlling the Orchestrator and its Agents.
 
 ### Core Principle: Separation of Concerns
 
-**Dashboard reads data directly from files.**  
-**Dashboard sends commands via bi-directional bridge.**  
+**Control reads data directly from files.**  
+**Control sends commands via bi-directional bridge.**  
 **No redundant data transport.**
 
 ```
-Dashboard Responsibilities:
+Control Responsibilities:
 ├── Read daily_journal_YYYYMMDD.jsonl (historic data)
 ├── Read current_segment.json cache (TODAY's partial data)
 ├── Query Orchestrator status (agent health, config, runtime info)
@@ -38,7 +38,7 @@ Orchestrator Responsibilities:
 ```
 
 **Key Insight:**  
-The Dashboard never asks the Orchestrator to "send segment data" because the Dashboard can read the journal files directly. The Orchestrator only provides information it uniquely knows: runtime state, agent health, and in-flight partial segments.
+The Control never asks the Orchestrator to "send segment data" because the Control can read the journal files directly. The Orchestrator only provides information it uniquely knows: runtime state, agent health, and in-flight partial segments.
 
 ---
 
@@ -117,8 +117,8 @@ print(f"Found {len(segments)} complete segments")
 ```
 
 **Key Points:**
-- Dashboard reads raw event stream from journal files
-- Report plugins synthesize segments from events (not Dashboard's job)
+- Control reads raw event stream from journal files
+- Report plugins synthesize segments from events (not Control's job)
 - Every flush is logged as a separate summary event
 - Minimal time between flushes prevents spam (configured per-agent)
 - Heartbeats are NOT recorded in journal (too noisy, only for runtime health)
@@ -182,12 +182,12 @@ else:
 **Key Points:**
 - Cache updated by Orchestrator on every flush
 - Contains last closed segment + current partial segment
-- Dashboard reads this file directly (no Orchestrator query needed)
+- Control reads this file directly (no Orchestrator query needed)
 - File updated frequently but not written to journal until segment closes
 
 ---
 
-## 3. Dashboard-Orchestrator Bridge Protocol
+## 3. Control-Orchestrator Bridge Protocol
 
 ### 3.1 Communication Pattern
 
@@ -195,26 +195,26 @@ else:
 **Direction:** Bi-directional  
 **Purpose:** Commands and status queries ONLY (not data transport)
 
-**What the Dashboard Queries:**
+**What the Control Queries:**
 - Agent health and registered plugins
 - Configuration values
 - Runtime metrics (CPU, memory usage)
 - Process IDs and lifecycle state
 
-**What the Dashboard Commands:**
+**What the Control Commands:**
 - Start/stop "the monitors" (all Agents)
 - Restart individual agents
 - Modify configuration (poll intervals, watch folders, etc.)
 - Trigger forced flush
 
-**What the Dashboard Does NOT Query:**
+**What the Control Does NOT Query:**
 - Segment data (reads journals directly)
 - Historical summaries (reads journals directly)
 - Current partial segment (reads cache file directly)
 
 ---
 
-### 3.2 Command Messages (Dashboard → Orchestrator)
+### 3.2 Command Messages (Control → Orchestrator)
 
 #### Start All Monitors
 ```json
@@ -360,22 +360,22 @@ else:
 
 ---
 
-## 4. Dashboard Report Plugins
+## 4. Control Report Plugins
 
 ### 4.1 Plugin Architecture
 
-**Report plugins are subprocesses** spawned by the Dashboard to generate outputs (PDF, CSV, video, etc.).
+**Report plugins are subprocesses** spawned by the Control to generate outputs (PDF, CSV, video, etc.).
 
 **Communication:** stdin (command + segment data) → stdout (progress + result)
 
 **Key Principle:**  
-Dashboard reads journal files, synthesizes segments, then feeds segment data to report plugins. Plugins never read journals directly (Dashboard does the I/O).
+Control reads journal files, synthesizes segments, then feeds segment data to report plugins. Plugins never read journals directly (Control does the I/O).
 
 ---
 
 ### 4.2 Report Plugin Protocol
 
-#### Dashboard → Plugin (stdin)
+#### Control → Plugin (stdin)
 
 ```json
 {
@@ -399,7 +399,7 @@ Dashboard reads journal files, synthesizes segments, then feeds segment data to 
 }
 ```
 
-#### Plugin → Dashboard (stdout)
+#### Plugin → Control (stdout)
 
 **Progress Updates:**
 ```json
@@ -545,7 +545,7 @@ if __name__ == '__main__':
 
 ---
 
-## 5. Dashboard Process Management
+## 5. Control Process Management
 
 ### 5.1 Start Orchestrator
 
@@ -601,11 +601,11 @@ def is_orchestrator_running():
 
 ---
 
-## 6. Complete Dashboard Example
+## 6. Complete Control Example
 
 ```python
-class MiMoLoDashboard:
-    """Simple dashboard implementation."""
+class MiMoLoControl:
+    """Simple control implementation."""
     
     def __init__(self):
         self.orchestrator_proc = None
@@ -696,35 +696,35 @@ class MiMoLoDashboard:
 
 ## 7. Summary
 
-### Dashboard Data Flow
+### Control Data Flow
 
 ```
 Historical Data:
-  Dashboard → read daily_journal_YYYYMMDD.jsonl → synthesize segments → feed to report plugins
+  Control → read daily_journal_YYYYMMDD.jsonl → synthesize segments → feed to report plugins
 
 Current Activity:
-  Dashboard → read current_segment.json cache → display in UI
+  Control → read current_segment.json cache → display in UI
 
 Agent Status:
-  Dashboard → query Orchestrator via bridge → display health/metrics
+  Control → query Orchestrator via bridge → display health/metrics
 
 Control:
-  Dashboard → send commands via bridge → Orchestrator executes → Dashboard receives ack
+  Control → send commands via bridge → Orchestrator executes → Control receives ack
 ```
 
 ### Key Principles
 
 1. **No Redundant Data Transport**  
-   Dashboard reads journal files directly. Orchestrator never sends segment data over the bridge.
+   Control reads journal files directly. Orchestrator never sends segment data over the bridge.
 
 2. **Bi-Directional Bridge for Commands Only**  
-   Dashboard queries runtime state (agent health, config) and sends control commands (start/stop, restart, config changes).
+   Control queries runtime state (agent health, config) and sends control commands (start/stop, restart, config changes).
 
 3. **Report Plugins as Subprocesses**  
-   Dashboard handles I/O (reading journals), plugins handle rendering (PDF, video, CSV).
+   Control handles I/O (reading journals), plugins handle rendering (PDF, video, CSV).
 
 4. **Cache File for Current Segment**  
-   Orchestrator maintains `current_segment.json` with in-progress data. Dashboard reads it directly.
+   Orchestrator maintains `current_segment.json` with in-progress data. Control reads it directly.
 
 5. **Event-Based Journal Format**  
    Journal contains raw events (segment_start, summary, segment_close, idle_start). Report plugins synthesize complete segments from event streams.
@@ -746,5 +746,5 @@ Control:
 
 ---
 
-**Dashboard = File Reader + Command Sender + Plugin Spawner**  
+**Control = File Reader + Command Sender + Plugin Spawner**  
 **No redundant data transport. No over-engineering. Just the essentials.**

@@ -5,7 +5,7 @@
 ## Data Schema and Message Types
 
 All MiMoLo communication occurs through **newline-delimited JSON objects** transmitted over each Agent’s standard input and output streams.  
-Every message includes a `"type"` or `"cmd"` field that identifies its semantic role. These structures define the canonical vocabulary used between Agents, the Orchestrator, and—indirectly—the Dashboard.
+Every message includes a `"type"` or `"cmd"` field that identifies its semantic role. These structures define the canonical vocabulary used between Agents, the Orchestrator, and—indirectly—the Control.
 
 ---
 
@@ -84,7 +84,7 @@ Commands control lifecycle, flushing, and health checks.
 ```json
 {
   "cmd": "flush",
-  "params": {"reason": "dashboard_request"}
+  "params": {"reason": "control_request"}
 }
 ```
 
@@ -112,4 +112,3 @@ Commands control lifecycle, flushing, and health checks.
 - This schema is versioned at the protocol level; backward-compatible fields should use additive expansion rather than mutation.
 
 ### ...next [[5_Lifecycle_and_Control_Flow]]
-

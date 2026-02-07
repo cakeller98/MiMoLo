@@ -15,3 +15,5 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 - Centralized archived docs into `developer_docs/archive/` and removed scattered local archive folders.
 - Added `Reference-History` banner notes to all `MERGE`-classified documents.
 - Updated 2026.01.28 reference README and triage paths to point to centralized archive locations.
+- Standardized active docs terminology to use `Control` as the canonical UI term (removed mixed Dashboard/Controller wording).
+- Moved Control specification docs from `developer_docs/dashboard_dev/DASH_SPECIFICATION.md` to `developer_docs/control_dev/CONTROL_SPECIFICATION.md` and updated references.

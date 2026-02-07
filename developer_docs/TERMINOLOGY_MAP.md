@@ -13,13 +13,13 @@ needs explanation, we can remove it.
 - **Agent** → **Agent**
 - **Reporter/Exporter** → **Reporter**
 - **Vault manager plugin** → **Archivist** (use “Vault Archivist” when disambiguation helps)
-- **Dashboard** → **Control** (rename in progress; keep until docs/code/UI fully updated)
+- **Dashboard** → **Control** (canonical UI term)
 - **Orchestrator** → **Operations** (rename in progress; keep until docs/code/UI fully updated)
 
 ## Core Responsibilities
 - **Agents are plugins** that perform monitoring and provide source data to Operations.
 - **Operations manages the Vault of data** and orchestrates agent lifecycles.
-- **Control (Dashboard)** is the user interface to Operations (the backend).
+- **Control** is the user interface to Operations (the backend).
 - **Reporters are plugins** in Control that transform information into human-readable formats.
 - **Archivists (future, maybe)** are Operations-side plugins for backup, encryption, or remote
   forwarding. For now, Operations handles these duties directly.

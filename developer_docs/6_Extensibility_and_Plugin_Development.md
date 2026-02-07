@@ -26,7 +26,7 @@ Agents must remain compliant with the MiMoLo communication schema and follow lig
 **Optional Enhancements**
 - Implement `status` fields for custom health metrics (e.g., cache size, latency).  
 - Add `error` messages for recoverable conditions to improve resilience.  
-- Provide version and metadata tags for orchestrator and dashboard visibility.  
+- Provide version and metadata tags for orchestrator and control visibility.  
 
 ---
 
@@ -39,7 +39,7 @@ Each agent is represented under `[plugins.<name>]`, where it may include both st
 2. User adds configuration under `[plugins.<agent_name>]`, enabling and defining polling parameters.  
 3. The orchestrator spawns the executable or Python class listed in configuration.  
 4. Agents register themselves on launch via `status` or `heartbeat` messages.  
-5. The Dashboard can modify these settings interactively and trigger a reload or restart.  
+5. The Control can modify these settings interactively and trigger a reload or restart.  
 6. The orchestrator maintains versioning and runtime control (enable, disable, isolate).  
 
 **Configuration Example**
