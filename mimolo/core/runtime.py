@@ -930,8 +930,17 @@ class Runtime:
 
         if not isinstance(payload, dict):
             return {"ok": False, "timestamp": now, "error": "invalid_payload"}
-
-        return self._build_ipc_response(cast(dict[str, Any], payload))
+        request = cast(dict[str, Any], payload)
+        response = self._build_ipc_response(request)
+        request_id_raw = request.get("request_id")
+        request_id = (
+            str(request_id_raw).strip()
+            if request_id_raw is not None and str(request_id_raw).strip()
+            else ""
+        )
+        if request_id:
+            response["request_id"] = request_id
+        return response
 
     def _send_ipc_response(self, conn: socket.socket, payload: dict[str, Any]) -> bool:
         """Send a single JSON-line response to an IPC client."""
@@ -1015,9 +1024,13 @@ class Runtime:
                     if self._ipc_stop_event.is_set():
                         break
                     continue
-
-                with conn:
-                    self._serve_ipc_connection(conn)
+                ipc_conn_thread = threading.Thread(
+                    target=self._serve_ipc_client_thread,
+                    args=(conn,),
+                    name="mimolo-ipc-client",
+                    daemon=True,
+                )
+                ipc_conn_thread.start()
         except OSError as e:
             # OSError: bind/listen can fail due path/permission conflicts.
             self.console.print(f"[red]IPC server failed to start: {e}[/red]")
@@ -1030,6 +1043,11 @@ class Runtime:
                     pass
             self._ipc_server_socket = None
             self._cleanup_ipc_socket_file()
+
+    def _serve_ipc_client_thread(self, conn: socket.socket) -> None:
+        """Serve one IPC client connection on its own thread."""
+        with conn:
+            self._serve_ipc_connection(conn)
 
     def _tick(self) -> None:
         """Execute one tick of the event loop."""

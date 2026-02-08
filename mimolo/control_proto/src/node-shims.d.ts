@@ -3,12 +3,15 @@ declare module "node:net" {
 
   export interface Socket {
     setEncoding(encoding: string): void;
+    on(event: "connect", listener: () => void): this;
     on(event: "data", listener: (chunk: string) => void): this;
     on(event: "error", listener: (err: ErrorWithMessage) => void): this;
+    on(event: "close", listener: () => void): this;
     on(event: "end", listener: () => void): this;
     write(data: string): void;
     end(): void;
     destroy(): void;
+    removeAllListeners(): this;
   }
 
   export interface ConnectionOptions {

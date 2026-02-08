@@ -50,6 +50,7 @@ interface IpcResponsePayload {
   data?: Record<string, unknown>;
   error?: string;
   ok: boolean;
+  request_id?: string;
   timestamp?: string;
 }
 
@@ -57,6 +58,15 @@ interface IpcTrafficPayload {
   direction: "tx" | "rx";
   label?: string;
   timestamp: string;
+}
+
+interface PendingIpcRequest {
+  id: string;
+  payload: Record<string, unknown>;
+  reject: (reason: Error) => void;
+  resolve: (value: IpcResponsePayload) => void;
+  timeoutHandle: ReturnType<typeof setTimeout> | null;
+  trafficLabel?: string;
 }
 
 const maybeRuntimeProcess = (globalThis as { process?: RuntimeProcess }).process;
@@ -82,6 +92,21 @@ let lastStatus: OpsStatusPayload = {
 };
 
 let lastAgentInstances: Record<string, AgentInstanceSnapshot> = {};
+
+const IPC_REQUEST_TIMEOUT_MS = 1500;
+const IPC_MAX_PENDING_REQUESTS = 256;
+type IpcSocket = ReturnType<typeof net.createConnection>;
+
+let ipcSocket: IpcSocket | null = null;
+let ipcSocketState: "disconnected" | "connecting" | "connected" = "disconnected";
+let ipcSocketBuffer = "";
+let ipcConnectPromise: Promise<void> | null = null;
+let ipcConnectResolve: (() => void) | null = null;
+let ipcConnectReject: ((error: Error) => void) | null = null;
+let ipcInFlightRequest: PendingIpcRequest | null = null;
+let ipcQueueDrainRunning = false;
+let ipcRequestCounter = 0;
+const ipcPendingRequestQueue: PendingIpcRequest[] = [];
 
 function buildHtml(): string {
   return `<!doctype html>
@@ -420,6 +445,7 @@ function buildHtml(): string {
       const templatesById = new Map();
       const widgetPausedLabels = new Set();
       const widgetInFlight = new Set();
+      const widgetManifestLoaded = new Set();
 
       const lines = [];
       const maxLines = 1800;
@@ -627,14 +653,18 @@ function buildHtml(): string {
           append("[widget] manual update requested for " + label);
         }
         try {
-          const manifest = await ipcRenderer.invoke("mml:get-widget-manifest", identity);
-          if (manifest && manifest.data && manifest.data.widget) {
-            const widget = manifest.data.widget;
-            const supports = widget.supports_render === true ? "yes" : "no";
-            const ratio = typeof widget.default_aspect_ratio === "string" ? widget.default_aspect_ratio : "n/a";
-            manifestEl.textContent = "manifest: supports_render=" + supports + ", aspect=" + ratio;
-          } else {
-            manifestEl.textContent = "manifest: unavailable";
+          const shouldFetchManifest = manualRequest || !widgetManifestLoaded.has(label);
+          if (shouldFetchManifest) {
+            const manifest = await ipcRenderer.invoke("mml:get-widget-manifest", identity);
+            if (manifest && manifest.data && manifest.data.widget) {
+              const widget = manifest.data.widget;
+              const supports = widget.supports_render === true ? "yes" : "no";
+              const ratio = typeof widget.default_aspect_ratio === "string" ? widget.default_aspect_ratio : "n/a";
+              manifestEl.textContent = "manifest: supports_render=" + supports + ", aspect=" + ratio;
+              widgetManifestLoaded.add(label);
+            } else {
+              manifestEl.textContent = "manifest: unavailable";
+            }
           }
 
           const renderResponse = await ipcRenderer.invoke("mml:request-widget-render", {
@@ -907,6 +937,7 @@ function buildHtml(): string {
           instancesByLabel.delete(label);
           widgetPausedLabels.delete(label);
           widgetInFlight.delete(label);
+          widgetManifestLoaded.delete(label);
         }
       }
 
@@ -928,9 +959,6 @@ function buildHtml(): string {
       }
 
       void refreshInitialState();
-      setInterval(() => {
-        void refreshInitialState();
-      }, 1200);
 
       if (!ipcRenderer) {
         append("[proto] electron ipcRenderer unavailable in renderer");
@@ -948,7 +976,7 @@ function buildHtml(): string {
         }, 4500);
         setInterval(() => {
           refreshWidgetsAuto();
-        }, 1500);
+        }, 2500);
         ipcRenderer.on("ops:status", (_event, payload) => {
           setStatus(payload.state + " - " + payload.detail);
         });
@@ -1035,6 +1063,8 @@ function parseIpcResponse(rawLine: string): IpcResponsePayload {
     ok: record.ok === true,
     cmd: typeof record.cmd === "string" ? record.cmd : undefined,
     timestamp: typeof record.timestamp === "string" ? record.timestamp : undefined,
+    request_id:
+      typeof record.request_id === "string" ? record.request_id : undefined,
     error: typeof record.error === "string" ? record.error : undefined,
     data:
       record.data && typeof record.data === "object"
@@ -1128,70 +1158,247 @@ async function sendIpcCommand(
     throw new Error("MIMOLO_IPC_PATH not set");
   }
 
-  return new Promise((resolve, reject) => {
-    let done = false;
-    let buffer = "";
-    const timeout = setTimeout(() => {
-      if (done) {
-        return;
-      }
-      done = true;
-      client.destroy();
-      reject(new Error("timeout"));
-    }, 650);
+  const providedRequestId =
+    extraPayload && typeof extraPayload.request_id === "string" && extraPayload.request_id.trim().length > 0
+      ? extraPayload.request_id.trim()
+      : "";
+  const requestId = providedRequestId || `ctrl-${Date.now()}-${++ipcRequestCounter}`;
 
-    const finishOk = (payload: IpcResponsePayload): void => {
-      if (done) {
-        return;
-      }
-      done = true;
-      clearTimeout(timeout);
-      resolve(payload);
-    };
+  const requestPayload: Record<string, unknown> = {
+    cmd,
+    ...(extraPayload || {}),
+    request_id: requestId,
+  };
 
-    const finishErr = (err: string): void => {
-      if (done) {
-        return;
-      }
-      done = true;
-      clearTimeout(timeout);
-      reject(new Error(err));
-    };
+  return new Promise<IpcResponsePayload>((resolve, reject) => {
+    if (ipcPendingRequestQueue.length >= IPC_MAX_PENDING_REQUESTS) {
+      reject(new Error("ipc_queue_overloaded"));
+      return;
+    }
 
-    const requestPayload: Record<string, unknown> = {
-      cmd,
-      ...(extraPayload || {}),
-    };
-
-    const client = net.createConnection({ path: ipcPath }, () => {
-      publishTraffic("tx", trafficLabel);
-      client.write(JSON.stringify(requestPayload) + "\n");
+    ipcPendingRequestQueue.push({
+      id: requestId,
+      payload: requestPayload,
+      resolve,
+      reject,
+      timeoutHandle: null,
+      trafficLabel,
     });
 
-    client.setEncoding("utf8");
-
-    client.on("data", (chunk: string) => {
-      buffer += chunk;
-      const idx = buffer.indexOf("\n");
-      if (idx === -1) {
-        return;
-      }
-      const line = buffer.slice(0, idx).trim();
-      client.end();
-      publishTraffic("rx", trafficLabel);
-      try {
-        const parsed = parseIpcResponse(line);
-        finishOk(parsed);
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : "invalid_response";
-        finishErr(detail);
-      }
-    });
-
-    client.on("error", (err: { message: string }) => {
-      finishErr(err.message);
-    });
+    void drainIpcQueue();
   });
+}
+
+function clearRequestTimeout(request: PendingIpcRequest): void {
+  if (!request.timeoutHandle) {
+    return;
+  }
+  clearTimeout(request.timeoutHandle);
+  request.timeoutHandle = null;
+}
+
+function settleInFlightWithError(reason: string): void {
+  if (!ipcInFlightRequest) {
+    return;
+  }
+  const request = ipcInFlightRequest;
+  ipcInFlightRequest = null;
+  clearRequestTimeout(request);
+  request.reject(new Error(reason));
+}
+
+function handleIpcSocketDisconnect(reason: string): void {
+  if (ipcSocket) {
+    ipcSocket.removeAllListeners();
+    ipcSocket.destroy();
+    ipcSocket = null;
+  }
+
+  ipcSocketBuffer = "";
+  ipcSocketState = "disconnected";
+  if (ipcConnectReject) {
+    ipcConnectReject(new Error(reason));
+  }
+  ipcConnectPromise = null;
+  ipcConnectResolve = null;
+  ipcConnectReject = null;
+
+  settleInFlightWithError(reason);
+}
+
+function resolveInFlightResponse(response: IpcResponsePayload): void {
+  if (!ipcInFlightRequest) {
+    publishLine(`[ipc] unsolicited response: ${JSON.stringify(response)}`);
+    return;
+  }
+
+  const request = ipcInFlightRequest;
+  const responseRequestId = response.request_id;
+  if (responseRequestId && responseRequestId !== request.id) {
+    publishLine(
+      `[ipc] request_id mismatch: expected=${request.id} got=${responseRequestId}`,
+    );
+    return;
+  }
+
+  ipcInFlightRequest = null;
+  clearRequestTimeout(request);
+  publishTraffic("rx", request.trafficLabel);
+  request.resolve(response);
+  void drainIpcQueue();
+}
+
+function parseIpcSocketBuffer(): void {
+  while (true) {
+    const newlineIndex = ipcSocketBuffer.indexOf("\n");
+    if (newlineIndex < 0) {
+      return;
+    }
+    const rawLine = ipcSocketBuffer.slice(0, newlineIndex).trim();
+    ipcSocketBuffer = ipcSocketBuffer.slice(newlineIndex + 1);
+    if (rawLine.length === 0) {
+      continue;
+    }
+    try {
+      const parsed = parseIpcResponse(rawLine);
+      resolveInFlightResponse(parsed);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "invalid_response";
+      settleInFlightWithError(detail);
+      void drainIpcQueue();
+    }
+  }
+}
+
+async function ensureIpcConnection(): Promise<void> {
+  if (!ipcPath) {
+    throw new Error("MIMOLO_IPC_PATH not set");
+  }
+
+  if (ipcSocketState === "connected" && ipcSocket) {
+    return;
+  }
+
+  if (ipcSocketState === "connecting" && ipcConnectPromise) {
+    return ipcConnectPromise;
+  }
+
+  ipcSocketState = "connecting";
+  ipcConnectPromise = new Promise<void>((resolve, reject) => {
+    ipcConnectResolve = resolve;
+    ipcConnectReject = reject;
+  });
+
+  const socket = net.createConnection({ path: ipcPath });
+  socket.setEncoding("utf8");
+  ipcSocket = socket;
+
+  socket.on("connect", () => {
+    ipcSocketState = "connected";
+    const resolver = ipcConnectResolve;
+    ipcConnectResolve = null;
+    ipcConnectReject = null;
+    ipcConnectPromise = null;
+    if (resolver) {
+      resolver();
+    }
+  });
+
+  socket.on("data", (chunk: string) => {
+    ipcSocketBuffer += chunk;
+    parseIpcSocketBuffer();
+  });
+
+  socket.on("error", (err: { message: string }) => {
+    const reason = err.message || "ipc_socket_error";
+    handleIpcSocketDisconnect(reason);
+  });
+
+  socket.on("close", () => {
+    handleIpcSocketDisconnect("ipc_socket_closed");
+  });
+
+  return ipcConnectPromise;
+}
+
+async function drainIpcQueue(): Promise<void> {
+  if (ipcQueueDrainRunning) {
+    return;
+  }
+  ipcQueueDrainRunning = true;
+
+  try {
+    while (!ipcInFlightRequest && ipcPendingRequestQueue.length > 0) {
+      try {
+        await ensureIpcConnection();
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "ipc_connect_failed";
+        setStatus("disconnected", detail);
+        return;
+      }
+
+      const nextRequest = ipcPendingRequestQueue.shift();
+      if (!nextRequest || !ipcSocket) {
+        return;
+      }
+
+      ipcInFlightRequest = nextRequest;
+      publishTraffic("tx", nextRequest.trafficLabel);
+      nextRequest.timeoutHandle = setTimeout(() => {
+        const timeoutRequest = ipcInFlightRequest;
+        if (!timeoutRequest || timeoutRequest.id !== nextRequest.id) {
+          return;
+        }
+        handleIpcSocketDisconnect("timeout");
+        void drainIpcQueue();
+      }, IPC_REQUEST_TIMEOUT_MS);
+
+      try {
+        ipcSocket.write(`${JSON.stringify(nextRequest.payload)}\n`);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "ipc_write_failed";
+        handleIpcSocketDisconnect(detail);
+        nextRequest.reject(new Error(detail));
+        void drainIpcQueue();
+      }
+
+      return;
+    }
+  } finally {
+    ipcQueueDrainRunning = false;
+  }
+}
+
+function stopPersistentIpc(): void {
+  if (ipcSocket) {
+    ipcSocket.removeAllListeners();
+    ipcSocket.destroy();
+    ipcSocket = null;
+  }
+  ipcSocketBuffer = "";
+  ipcSocketState = "disconnected";
+  if (ipcConnectReject) {
+    ipcConnectReject(new Error("control_shutdown"));
+  }
+  ipcConnectPromise = null;
+  ipcConnectResolve = null;
+  ipcConnectReject = null;
+
+  if (ipcInFlightRequest) {
+    const inflight = ipcInFlightRequest;
+    ipcInFlightRequest = null;
+    clearRequestTimeout(inflight);
+    inflight.reject(new Error("control_shutdown"));
+  }
+
+  while (ipcPendingRequestQueue.length > 0) {
+    const pending = ipcPendingRequestQueue.shift();
+    if (!pending) {
+      continue;
+    }
+    clearRequestTimeout(pending);
+    pending.reject(new Error("control_shutdown"));
+  }
 }
 
 async function refreshIpcStatus(): Promise<void> {
@@ -1393,6 +1600,7 @@ function stopBackgroundLoops(): void {
     clearInterval(instanceTimer);
     instanceTimer = null;
   }
+  stopPersistentIpc();
 }
 
 function createWindow(): void {

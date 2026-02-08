@@ -19,10 +19,18 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
   - `screen_tracker` (artifact-reference screenshot summaries)
 - Added plugin build manifests for `client_folder_activity` and `screen_tracker`.
 - Added these plugin entries to `mimolo/agents/sources.json` so local source inventory includes both.
+- Added persistent IPC transport in `mimolo/control_proto`:
+  - one long-lived AF_UNIX socket connection to Operations
+  - bounded queued request dispatch with timeout handling and reconnect-safe teardown
+  - request-id tagging on control requests for stable response correlation
+- Added runtime IPC response request-id echo support in `mimolo/core/runtime.py` for persistent-client correlation.
+- Added runtime IPC connection-serving threads so one long-lived client no longer blocks all other IPC clients.
 
 ### Changed
 - Updated Control proto agent cards to display widget-manifest status and widget-render placeholder state from Operations responses.
 - Kept widget canvas rendering security-first: renderer currently shows validated placeholder state text, not direct fragment injection.
+- Reduced widget polling chatter by caching manifest fetches per instance and increasing auto-refresh interval.
+- Removed redundant renderer-side `initial-state` polling loop; renderer now uses event-driven updates after initial hydrate.
 
 ## 2026-01-31
 

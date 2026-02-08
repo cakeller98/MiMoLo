@@ -100,3 +100,25 @@ def test_dispatch_widget_action_stub_payload() -> None:
     assert data["plugin_id"] == "client_folder_activity"
     assert data["instance_id"] == "inst_acme"
     assert data["action"] == "set_filter"
+
+
+def test_handle_ipc_line_echoes_request_id() -> None:
+    runtime = _make_runtime()
+    raw_request = (
+        '{"cmd":"get_widget_manifest","plugin_id":"screen_tracker",'
+        '"instance_id":"inst_001","request_id":"req_abc"}'
+    )
+    response = runtime._handle_ipc_line(raw_request)
+    assert response["cmd"] == "get_widget_manifest"
+    assert response["request_id"] == "req_abc"
+
+
+def test_handle_ipc_line_omits_empty_request_id() -> None:
+    runtime = _make_runtime()
+    raw_request = (
+        '{"cmd":"get_widget_manifest","plugin_id":"screen_tracker",'
+        '"instance_id":"inst_001","request_id":"  "}'
+    )
+    response = runtime._handle_ipc_line(raw_request)
+    assert response["cmd"] == "get_widget_manifest"
+    assert "request_id" not in response
