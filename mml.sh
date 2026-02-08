@@ -2,6 +2,8 @@
 # Launch MiMoLo Control/Operations dev targets in portable-test mode by default.
 # Usage:
 #   ./mml.sh [command]
+#   ./mml.sh --no-cache [command]
+#   ./mml.sh --rebuild-dist [command]
 #   ./mml.sh operations [monitor args...]
 #   ./mml.sh all-proto [monitor args...]
 #   ./mml.sh all-control [monitor args...]
@@ -28,6 +30,9 @@ CONFIG_MONITOR_LOG_DIR=""
 CONFIG_MONITOR_JOURNAL_DIR=""
 CONFIG_MONITOR_CACHE_DIR=""
 CONFIG_DEPLOY_AGENTS_DEFAULT=""
+EFFECTIVE_PORTABLE_ROOT=""
+NO_CACHE=0
+IPC_SOCKET_MAX_LENGTH=100
 
 trim() {
   local value="$1"
@@ -85,8 +90,20 @@ normalize_all_command() {
   fi
 }
 
+to_abs_path() {
+  local path="$1"
+  if [[ "$path" = /* ]]; then
+    printf "%s" "$path"
+  else
+    printf "%s/%s" "$SCRIPT_DIR" "$path"
+  fi
+}
+
 apply_environment_defaults() {
-  local portable_root="${CONFIG_PORTABLE_ROOT:-$PORTABLE_ROOT_DEFAULT}"
+  local portable_root_raw="${CONFIG_PORTABLE_ROOT:-$PORTABLE_ROOT_DEFAULT}"
+  local portable_root
+  portable_root="$(to_abs_path "$portable_root_raw")"
+  EFFECTIVE_PORTABLE_ROOT="$portable_root"
   local derived_data_dir="${portable_root}/user_home/mimolo"
   local derived_bin_dir="${portable_root}/bin"
 
@@ -99,10 +116,16 @@ apply_environment_defaults() {
   export MIMOLO_RUNTIME_CONFIG_PATH="${MIMOLO_RUNTIME_CONFIG_PATH:-${CONFIG_RUNTIME_CONFIG_PATH:-$derived_runtime_config}}"
   export MIMOLO_CONFIG_SOURCE_PATH="${MIMOLO_CONFIG_SOURCE_PATH:-${CONFIG_CONFIG_SOURCE_PATH:-$derived_config_source}}"
 
-  local derived_ipc_path="${MIMOLO_DATA_DIR}/runtime/operations.sock"
+  local derived_ipc_path="/tmp/mimolo/operations.sock"
   local derived_ops_log_path="${MIMOLO_DATA_DIR}/runtime/operations.log"
   export MIMOLO_IPC_PATH="${MIMOLO_IPC_PATH:-${CONFIG_IPC_PATH:-$derived_ipc_path}}"
   export MIMOLO_OPS_LOG_PATH="${MIMOLO_OPS_LOG_PATH:-${CONFIG_OPS_LOG_PATH:-$derived_ops_log_path}}"
+
+  # AF_UNIX socket paths are length-limited on macOS/Linux; fall back to a short tmp path.
+  if ((${#MIMOLO_IPC_PATH} > IPC_SOCKET_MAX_LENGTH)); then
+    echo "[dev-stack] IPC path too long (${#MIMOLO_IPC_PATH} > ${IPC_SOCKET_MAX_LENGTH}); falling back to /tmp/mimolo/operations.sock"
+    export MIMOLO_IPC_PATH="/tmp/mimolo/operations.sock"
+  fi
 
   local derived_monitor_log_dir="${MIMOLO_DATA_DIR}/operations/logs"
   local derived_monitor_journal_dir="${MIMOLO_DATA_DIR}/operations/journals"
@@ -173,6 +196,77 @@ run_prepare() {
   "${prepare_cmd[@]}"
 }
 
+cleanup_artifacts() {
+  local removed_portable=0
+  local removed_dist=0
+  local removed_pycache=0
+
+  echo "[dev-stack] Cleaning development artifacts..."
+
+  if [[ -n "$EFFECTIVE_PORTABLE_ROOT" ]]; then
+    if [[ "$EFFECTIVE_PORTABLE_ROOT" == "$SCRIPT_DIR" || "$EFFECTIVE_PORTABLE_ROOT" == "$SCRIPT_DIR/"* ]]; then
+      if [[ -d "$EFFECTIVE_PORTABLE_ROOT" ]]; then
+        rm -rf "$EFFECTIVE_PORTABLE_ROOT"
+        removed_portable=1
+      fi
+    else
+      echo "[dev-stack] Skipping portable root outside repo: $EFFECTIVE_PORTABLE_ROOT"
+    fi
+  fi
+
+  while IFS= read -r dir; do
+    [[ -z "$dir" ]] && continue
+    if [[ "$dir" == */node_modules/* ]]; then
+      continue
+    fi
+    rm -rf "$dir"
+    removed_dist=$((removed_dist + 1))
+  done < <(find "$SCRIPT_DIR" -type d -name dist -prune -print)
+
+  while IFS= read -r dir; do
+    [[ -z "$dir" ]] && continue
+    rm -rf "$dir"
+    removed_pycache=$((removed_pycache + 1))
+  done < <(find "$SCRIPT_DIR" -type d -name __pycache__ -prune -print)
+
+  echo "[dev-stack] Cleanup done: portable_root_removed=$removed_portable dist_removed=$removed_dist pycache_removed=$removed_pycache"
+}
+
+maybe_reset_and_prepare() {
+  if [[ "$NO_CACHE" -ne 1 ]]; then
+    return
+  fi
+  echo "[dev-stack] --no-cache requested: cleaning and rebuilding portable artifacts..."
+  cleanup_artifacts
+  run_prepare
+}
+
+ensure_control_build() {
+  if ! (cd "$SCRIPT_DIR/mimolo-control" && npx --no-install electron --version >/dev/null 2>&1); then
+    echo "[dev-stack] Electron runtime missing for mimolo-control; running npm ci..."
+    (cd "$SCRIPT_DIR/mimolo-control" && npm ci)
+  fi
+  local control_main="$SCRIPT_DIR/mimolo-control/dist/main.js"
+  if [[ -f "$control_main" ]]; then
+    return
+  fi
+  echo "[dev-stack] Building mimolo-control (dist missing)..."
+  (cd "$SCRIPT_DIR/mimolo-control" && npm run build)
+}
+
+ensure_proto_build() {
+  if ! (cd "$SCRIPT_DIR/mimolo-control" && npx --no-install electron --version >/dev/null 2>&1); then
+    echo "[dev-stack] Electron runtime missing for control_proto launch; running npm ci in mimolo-control..."
+    (cd "$SCRIPT_DIR/mimolo-control" && npm ci)
+  fi
+  local proto_main="$SCRIPT_DIR/mimolo/control_proto/dist/main.js"
+  if [[ -f "$proto_main" ]]; then
+    return
+  fi
+  echo "[dev-stack] Building control_proto (dist missing)..."
+  (cd "$SCRIPT_DIR/mimolo/control_proto" && npm run build)
+}
+
 ensure_prepared() {
   local manifest="$MIMOLO_BIN_DIR/deploy-manifest.json"
   if [[ -f "$manifest" ]]; then
@@ -188,7 +282,10 @@ MiMoLo Portable Dev Launcher
 
 Commands:
   [no command] Use default_command from mml.toml
+  --no-cache  Global flag: cleanup and rebuild portable artifacts before launch
+  --rebuild-dist Alias for --no-cache
   prepare     Build/sync portable bin artifacts and seed default agents
+  cleanup     Remove temp_debug, all dist folders, and all __pycache__ folders
   env         Show effective environment and launch commands
   operations  Launch Operations (orchestrator): poetry run python -m mimolo.cli monitor
   control     Launch Electron Control app (mimolo-control)
@@ -204,7 +301,11 @@ Notes:
 
 Examples:
   ./mml.sh
+  ./mml.sh --no-cache
+  ./mml.sh --rebuild-dist
+  ./mml.sh --no-cache all-proto
   ./mml.sh prepare
+  ./mml.sh cleanup
   ./mml.sh env
   ./mml.sh operations --once
   ./mml.sh proto
@@ -226,6 +327,7 @@ launch_operations() {
 launch_control() {
   ensure_prepared
   ensure_portable_layout
+  ensure_control_build
   echo "[dev-stack] MIMOLO_DATA_DIR=$MIMOLO_DATA_DIR"
   echo "[dev-stack] MIMOLO_BIN_DIR=$MIMOLO_BIN_DIR"
   echo "[dev-stack] MIMOLO_IPC_PATH=$MIMOLO_IPC_PATH"
@@ -235,6 +337,7 @@ launch_control() {
 launch_proto() {
   ensure_prepared
   ensure_portable_layout
+  ensure_proto_build
   echo "[dev-stack] MIMOLO_DATA_DIR=$MIMOLO_DATA_DIR"
   echo "[dev-stack] MIMOLO_BIN_DIR=$MIMOLO_BIN_DIR"
   echo "[dev-stack] MIMOLO_IPC_PATH=$MIMOLO_IPC_PATH"
@@ -331,6 +434,19 @@ run_all_target() {
 load_launcher_config
 apply_environment_defaults
 
+# Global flag parse (can appear anywhere before command args).
+if [[ "$#" -gt 0 ]]; then
+  filtered_args=()
+  for arg in "$@"; do
+    if [[ "$arg" == "--no-cache" || "$arg" == "--rebuild-dist" ]]; then
+      NO_CACHE=1
+      continue
+    fi
+    filtered_args+=("$arg")
+  done
+  set -- "${filtered_args[@]}"
+fi
+
 COMMAND=""
 if [[ "$#" -gt 0 ]]; then
   COMMAND="$1"
@@ -358,10 +474,14 @@ case "$COMMAND" in
     echo "default_command=$DEFAULT_COMMAND"
     echo "default_stack=$DEFAULT_STACK"
     echo "socket_wait_seconds=$SOCKET_WAIT_SECONDS"
+    echo "no_cache_supported=true"
     echo
     echo "Launch commands:"
     echo "  ./mml.sh"
     echo "  ./mml.sh prepare"
+    echo "  ./mml.sh cleanup"
+    echo "  ./mml.sh --no-cache [command]"
+    echo "  ./mml.sh --rebuild-dist [command]"
     echo "  ./mml.sh operations"
     echo "  ./mml.sh control"
     echo "  ./mml.sh proto"
@@ -369,24 +489,37 @@ case "$COMMAND" in
     echo "  ./mml.sh all-control"
     ;;
   operations)
+    maybe_reset_and_prepare
     launch_operations "$@"
     ;;
   prepare)
+    if [[ "$NO_CACHE" -eq 1 ]]; then
+      echo "[dev-stack] --no-cache requested: cleaning before prepare..."
+      cleanup_artifacts
+    fi
     run_prepare "$@"
     ;;
+  cleanup)
+    cleanup_artifacts
+    ;;
   control)
+    maybe_reset_and_prepare
     launch_control
     ;;
   proto)
+    maybe_reset_and_prepare
     launch_proto
     ;;
   all)
+    maybe_reset_and_prepare
     run_all_target "$DEFAULT_STACK" "$@"
     ;;
   all-proto)
+    maybe_reset_and_prepare
     run_all_target "proto" "$@"
     ;;
   all-control)
+    maybe_reset_and_prepare
     run_all_target "control" "$@"
     ;;
   *)

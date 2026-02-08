@@ -52,6 +52,14 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 - Added cross-platform PowerShell deploy utility `scripts/deploy_portable.ps1`:
   - compatible with `pwsh` on macOS/Windows/Linux
   - same incremental sync + default agent seeding behavior as shell deploy script
+- Added launcher cache/reset controls in both `mml.sh` and `mml.ps1`:
+  - global `--no-cache` preflight (cleanup + prepare)
+  - alias `--rebuild-dist`
+  - explicit `cleanup` command
+  - explicit `prepare` command in PowerShell launcher
+- Added launcher self-repair behavior for Electron startup:
+  - auto-install Electron runtime via `npm ci` in `mimolo-control` when missing
+  - auto-build missing `dist/main.js` for `mimolo-control` and `mimolo/control_proto`
 
 ### Changed
 - Updated Control proto agent cards to display widget-manifest status and widget-render placeholder state from Operations responses.
@@ -76,6 +84,8 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
   - `agent_template`
   - `agent_example`
 - Updated Control proto with non-blocking installer status toasts for passive drag/drop install flow.
+- Updated launcher cleanup logic to avoid deleting `node_modules/**` artifacts while still clearing repo build caches.
+- Updated default non-Windows IPC socket behavior to use short `/tmp/mimolo/operations.sock` paths with length-guard fallback to avoid AF_UNIX path-length failures in portable mode.
 
 ## 2026-01-31
 
