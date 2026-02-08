@@ -15,6 +15,11 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 - Updated `developer_docs/agent_dev/client_folder_activity/client_folder_activity_SPEC.md` from draft to implementation-ready v0.2 spec with bounded summary schema and command handling expectations.
 - Updated `developer_docs/agent_dev/screen_tracker/screen_tracker_SPEC.md` from draft to implementation-ready v0.2 spec with artifact-reference summary schema and explicit archive-before-purge behavior.
 - Formalized user-control retention policy in docs: no automatic purge by default, no purge without explicit permission, archive opportunity required before purge, and in-place restore requirement.
+- Reworked `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md` into the canonical active backlog with updated implementation truth and prioritized execution order.
+- Replaced `developer_docs/8_Future_Roadmap_and_Summary.md` with a strategic-only roadmap and explicit link to the canonical backlog.
+- Updated `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md` to reflect current Control prototype capabilities and persistent IPC reliability intent.
+- Updated `developer_docs/agent_dev/PROTOCOL_IMPLEMENTATION_STATUS.md` to reflect persistent Control IPC transport, request-id correlation behavior, and current widget IPC stub reality.
+- Updated `developer_docs/2026.02.05 NOTES/README.md` to point explicitly to canonical backlog and strategic roadmap locations.
 
 ## 2026-02-06
 

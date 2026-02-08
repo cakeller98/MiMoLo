@@ -1,105 +1,137 @@
-# Ground Truth Implementation Matrix (2026-02-05)
+# Ground Truth Implementation Matrix (Canonical Active Backlog)
 
-Date: 2026-02-06
-Basis: current code + tests (`poetry run pytest -q` => 80 passed)
-Interpretation rule: if code and notes conflict, code is ground truth.
+Date: 2026-02-08
+Rule: code and tests are implementation truth when docs differ.
 
-## Current operational baseline
-- Operations/orchestrator runtime is implemented and functioning in current form.
-- Agent communication over Agent JLP (stdin/stdout JSON lines) is implemented.
-- Agent lifecycle and shutdown sequence handling are implemented.
-- Logging pipeline via Agent JLP log packets is implemented.
-- Control is not implemented beyond prototype stubs.
+Verification snapshot:
+- `poetry run pytest -q` => 87 passed
+- `poetry run mypy mimolo` => clean
+- `poetry run ruff check .` => clean
+- `npm run build` in `mimolo/control_proto` => clean
 
-## Implemented (ground truth)
-1. Agent runtime orchestration and message handling
+## 1) Implemented (Current Ground Truth)
+
+1. Operations runtime and Agent JLP lifecycle
 - Status: Implemented
+- Includes:
+  - agent spawn/monitor/flush/shutdown
+  - Agent JLP message handling (`handshake`, `summary`, `heartbeat`, `log`, `error`, `ack`)
+  - lifecycle state snapshots for Control
 - Evidence:
   - `mimolo/core/runtime.py`
   - `mimolo/core/agent_process.py`
   - `mimolo/core/protocol.py`
 
-2. Agent process spawning with context env vars
+2. Operations <-> Control IPC command server
 - Status: Implemented
-- Notes:
-  - Injects `MIMOLO_AGENT_LABEL`, `MIMOLO_AGENT_ID`, `MIMOLO_DATA_DIR`
+- Commands:
+  - `ping`
+  - `get_registered_plugins`
+  - `list_agent_templates`
+  - `get_agent_instances`
+  - `get_agent_states`
+  - `start_agent` / `stop_agent` / `restart_agent`
+  - `add_agent_instance` / `duplicate_agent_instance` / `remove_agent_instance` / `update_agent_instance`
 - Evidence:
-  - `mimolo/core/agent_process.py`
-  - `mimolo/common/paths.py`
+  - `mimolo/core/runtime.py`
 
-3. Agent flush/summary flow and shutdown sequence tracking
+3. Control proto (Electron) operational testbed
+- Status: Implemented (prototype scope)
+- Includes:
+  - operations log stream view
+  - per-instance cards with start/stop/restart
+  - per-instance duplicate/delete/configure
+  - widget panel on each card with manual update + pause/play
+  - persistent IPC channel with bounded queued requests and timeout handling
+- Evidence:
+  - `mimolo/control_proto/src/main.ts`
+
+4. Runtime widget IPC command names (stable stubs)
+- Status: Implemented as non-breaking stubs
+- Commands:
+  - `get_widget_manifest`
+  - `request_widget_render`
+  - `dispatch_widget_action`
+- Behavior:
+  - returns structured `not_implemented_yet` responses for early Control integration
+- Evidence:
+  - `mimolo/core/runtime.py`
+  - `tests/test_runtime_widget_ipc_stubs.py`
+
+5. Agent template discovery and instance provisioning model
 - Status: Implemented
+- Behavior:
+  - template discovery from `mimolo/agents/<agent_name>/`
+  - instance-level config persisted by Operations
 - Evidence:
   - `mimolo/core/runtime.py`
+  - `mimolo/core/config.py`
 
-4. JLP logging support and verbosity filtering
-- Status: Implemented
+6. Initial plugin scaffolds for planned real agents
+- Status: Implemented (scaffold level)
+- Added:
+  - `client_folder_activity`
+  - `screen_tracker`
 - Evidence:
-  - `mimolo/core/runtime.py`
-  - `mimolo/core/agent_logging.py`
-  - `tests/test_logging_integration.py`
+  - `mimolo/agents/client_folder_activity/client_folder_activity.py`
+  - `mimolo/agents/screen_tracker/screen_tracker.py`
 
-5. Packaging utility for agent zips + manifest/hash generation
-- Status: Implemented (tooling side)
-- Evidence:
-  - `mimolo/utils/src/pack-agent.ts`
-  - `mimolo/agents/repository/README.md`
+## 2) Planned / Partial (Keep Explicitly)
 
-6. AF_UNIX IPC primitives
-- Status: Implemented (library-level)
-- Evidence:
-  - `mimolo/core/ipc.py`
-  - `tests/test_ipc_support.py`
+1. End-to-end widget render bridge
+- Status: Planned / partial
+- Gap:
+  - runtime IPC names exist, but Operations does not yet request render payloads from agent instances and sanitize/render approved output end-to-end.
 
-## Planned or partial (preserve)
-1. Control implementation
-- Status: Planned/partial
-- Notes:
-  - TS socket harness exists, Electron app is placeholder only.
-- Evidence:
-  - `mimolo/control_proto/src/index.ts`
-  - `mimolo-control/src/main.ts`
+2. Install/upgrade lifecycle from packaged zips
+- Status: Planned / partial
+- Gap:
+  - packaging exists, but full Operations-managed install registry, upgrade policy, and Control UX flow are not complete.
 
-2. Orchestrator IPC command server contract (list/install/upgrade)
-- Status: Planned/not implemented
-- Notes:
-  - IPC channel class exists; command server behavior is not wired in runtime/CLI.
-- Evidence:
-  - `mimolo/core/ipc.py`
-  - `mimolo/core/runtime.py`
+3. Archive/restore/purge workflow with explicit permission gates
+- Status: Planned / partial
+- Gap:
+  - contracts/specs exist; runtime + Control behavior is not yet fully implemented.
 
-3. Install-folder scanning and installed-plugin registry lifecycle
-- Status: Planned/not implemented in orchestrator runtime
-- Notes:
-  - Packaging outputs exist; install/upgrade/list operational path is not present.
-- Evidence:
-  - `mimolo/utils/src/pack-agent.ts`
-  - `mimolo/core/runtime.py`
+4. Production-grade agent implementations
+- Status: Planned / partial
+- Gap:
+  - `client_folder_activity` and `screen_tracker` exist as runnable scaffolds, but still need full production behavior and expanded tests.
 
-4. Integrity hardening with signed payload hash copy (HMAC)
-- Status: Planned/not implemented
-- Notes:
-  - Hash generation exists, no orchestrator-side signed storage/verification path.
-- Evidence:
-  - `mimolo/utils/src/pack-agent.ts`
+5. Commercial Control app parity
+- Status: Planned / partial
+- Gap:
+  - `mimolo-control` exists but prototype-first work is currently concentrated in `mimolo/control_proto`.
 
-5. Interactive agent menu control handling
-- Status: Partial
-- Notes:
-  - Rendering exists; input handling marked TODO.
-- Evidence:
-  - `mimolo/core/agent_menu.py`
+## 3) Active Priority Backlog (Execution Order)
 
-## Reference-note discrepancies to treat as tactical drift
-- Older docs still describe plugin layout and commands no longer aligned with current code.
-- Control specs include aspirational features not yet reflected in runtime.
-- Historical status docs include agreed plans that remain valid but unimplemented.
+1. Implement true widget render pipeline through Operations
+- Done when:
+  - `get_widget_manifest` and `request_widget_render` return implemented data for at least one real agent instance.
+  - Control renders validated output and handles refresh/action round-trips without transport errors.
 
-## Actionable doc policy from this point
-- Keep this matrix current and update status fields on implementation.
-- Keep planned items explicitly listed instead of deleting them.
-- Move superseded notes to archive with a small breadcrumb to canonical docs.
-- Keep workflow-intent decisions in:
-  - `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`
-- Keep full doc classification in:
-  - `developer_docs/2026.02.05 NOTES/DEVELOPER_DOCS_TRIAGE_2026-02-06.md`
+2. Finish agent package install/upgrade lifecycle
+- Done when:
+  - Operations can list/install/upgrade installed agent packages from repository artifacts with clear policy outcomes.
+  - Control can trigger the flow via stable commands.
+
+3. Complete archive-before-purge workflow
+- Done when:
+  - no artifact purge can occur without explicit user confirmation and archive option.
+  - restore path can rehydrate data in-place by plugin-controlled logic.
+
+4. Hardening pass for `client_folder_activity` and `screen_tracker`
+- Done when:
+  - behavior matches spec contracts for bounded payloads/artifact references.
+  - plugin-level tests cover key edge and failure paths.
+
+5. Promote control_proto patterns into commercial Control app
+- Done when:
+  - `mimolo-control` reaches functional parity for core runtime controls and stable IPC integration.
+
+## 4) Canonical Planning Rules
+
+- This file is the canonical active backlog/todo for implementation tracking.
+- `developer_docs/8_Future_Roadmap_and_Summary.md` remains strategic direction.
+- `developer_docs/agent_dev/PROTOCOL_IMPLEMENTATION_STATUS.md` remains protocol reality map.
+- Keep planned items explicit; do not delete them when incomplete.

@@ -1,28 +1,60 @@
-> [!NOTE]
-> Reference-History Document: workflow intent from this file is merged into `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`.
-> Use that file for current workflow direction; keep this file for historical context.
+# Future Roadmap and Summary
 
-## Future Roadmap and Summary
+Date: 2026-02-08
+Purpose: strategic direction, not sprint-by-sprint task tracking.
 
-MiMoLo v0.3 defines a mature foundation for the asynchronous Agent ecosystem—  
-a modular, language-agnostic framework that monitors creative and system activity with microscopic impact.  
-Its architecture has proven resilient, extensible, and cooperative: agents observe independently, the orchestrator governs predictably, and the control presents insight without interference.  
-From this base, future work will focus on refinement, autonomy, and secure scalability.
+Canonical execution tracker:
+- `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
 
----
+Protocol reality tracker:
+- `developer_docs/agent_dev/PROTOCOL_IMPLEMENTATION_STATUS.md`
 
-### Roadmap Highlights
-- **Schema Registration:** Introduce a formal `mimolo-agent-schema.json` for versioned validation, protocol evolution, and cross-language tool generation.
-	- almost completed: [[AGENT_PROTOCOL_SPEC]]
-- **Sandboxed Execution:** Implement per-agent CPU and memory namespaces to guarantee isolation and enforce hard resource ceilings.  
-- **Adaptive Intelligence:** Enable Agents to self-tune sampling and reporting intervals using historical performance metrics.  
-- **Distributed Collectors:** Expand orchestrator capabilities to manage remote or networked agents securely across multiple hosts.  
-- **Control Evolution:** Add live data replay, timecard generation, and real-time template editing with immediate preview.  
-- **Telemetry Analytics:** Aggregate multi-session statistics for long-term productivity and reliability insights.  
+## Strategic Priorities
 
----
+1. Control as the durable user-facing plane
+- Mature from prototype instrumentation to production workflows:
+  - agent install/upgrade management
+  - instance provisioning/configuration at scale
+  - stable widget-based monitoring experiences
 
-**Closing Principle:**  
-MiMoLo exists to **observe without intrusion**—a framework where countless autonomous monitors quietly collaborate to produce clarity without cost.  
-Its goal is simple yet absolute: *always be aware, never be in the way.*
+2. Operations as strict execution authority
+- Keep all runtime control, lifecycle, and config persistence centralized in Operations.
+- Maintain a narrow, explicit IPC contract with clear validation and diagnostics.
 
+3. Artifact-first breadcrumb model
+- Keep vault/journal payloads lightweight.
+- Store heavy artifacts in plugin-owned instance storage under `MIMOLO_DATA_DIR`.
+- Enforce archive-before-purge and explicit user permission before destructive actions.
+
+4. Plugin ecosystem hardening
+- Move scaffold agents to production-grade behavior and tests.
+- Strengthen package install/upgrade lifecycle and integrity policy.
+- Preserve cross-platform behavior expectations for both runtime and plugin tooling.
+
+5. Security and resilience defaults
+- Keep owner-scoped permissions, validated payloads, and bounded queues.
+- Keep low-overhead runtime behavior with measurable backpressure and reconnect behavior.
+- Prefer design-level fixes over retries/noise masking.
+
+## Roadmap Horizons
+
+Near term:
+- complete end-to-end widget render/action bridge
+- complete install/upgrade lifecycle through Operations
+- complete archive/restore/purge workflow gates
+
+Mid term:
+- commercial Control app parity with proto runtime features
+- richer instance-level monitoring UIs and widget contracts
+- expanded protocol conformance tests and plugin contract tests
+
+Long term:
+- distributed Operations/collector topology
+- deeper analytics/reporting workflows
+- schema/version negotiation and compatibility automation
+
+## Guiding Principle
+
+Measure twice, cut once:
+- favor simple, durable architecture decisions,
+- avoid throwaway intermediate layers unless there is measurable necessity.

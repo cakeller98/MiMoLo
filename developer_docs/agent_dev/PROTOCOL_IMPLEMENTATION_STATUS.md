@@ -1,7 +1,7 @@
 # Protocol Implementation Status
 
 Date: 2026-02-08
-Rule: Code is ground truth when docs and code differ.
+Rule: code is ground truth when docs and code differ.
 
 ## 1. Agent <-> Operations (Agent JLP)
 
@@ -24,7 +24,7 @@ Implemented command handling in BaseAgent:
 ## 2. Operations <-> Control (IPC socket)
 
 Transport:
-- AF_UNIX socket, JSON lines request/response.
+- AF_UNIX socket with JSON-line request/response payloads.
 
 Implemented commands:
 - `ping`
@@ -39,26 +39,44 @@ Implemented commands:
 - `duplicate_agent_instance`
 - `remove_agent_instance`
 - `update_agent_instance`
+- `get_widget_manifest` (stub)
+- `request_widget_render` (stub)
+- `dispatch_widget_action` (stub)
 - Source: `mimolo/core/runtime.py`
 
-Control proto client usage:
-- Implemented in `mimolo/control_proto/src/main.ts`
+Server behavior:
+- Accept loop plus per-client serving threads.
+- Source: `mimolo/core/runtime.py`
 
-## 3. Known Gaps vs Spec Intent
+## 3. Control Proto IPC Behavior (Current)
+
+Implemented in `mimolo/control_proto/src/main.ts`:
+- One persistent AF_UNIX client connection to Operations.
+- Bounded queued request dispatch.
+- Request timeout handling and reconnect-safe teardown.
+- Request-id tagging (`request_id`) on requests.
+
+Correlation behavior:
+- Runtime echoes non-empty `request_id` in IPC responses.
+- Sources:
+  - `mimolo/core/runtime.py`
+  - `tests/test_runtime_widget_ipc_stubs.py`
+
+## 4. Known Gaps vs Spec Intent
 
 1. Handshake negotiation:
 - Handshake messages exist, but explicit runtime accept/reject negotiation flow is not enforced in orchestrator loop.
 
 2. Status handling:
-- `status` type exists in protocol model, but normal runtime routing does not currently process it beyond shutdown path timing updates.
+- `status` type exists in protocol model, but normal runtime routing does not currently process it as a first-class state update path.
 
 3. Schema file:
 - `mimolo-agent-schema.json` is referenced in docs but is not present in repository.
 
-4. Unknown custom message types:
-- Parser currently validates `type` against known enum, so arbitrary new message types are not accepted by default.
+4. Widget render bridge:
+- IPC widget command names and response shapes exist, but Operations does not yet complete the full agent-render bridge.
 
-## 4. Storage Contract Alignment
+## 5. Storage Contract Alignment
 
 Implemented now:
 - Agent processes receive `MIMOLO_DATA_DIR` environment variable.
@@ -67,4 +85,4 @@ Planned:
 - Standard artifact index schema.
 - Archive manifest + restore protocol.
 - Explicit user-driven archive/purge control flow in Control.
-- Widget render/action bridge (`request_widget_render` over IPC and `widget_render` over Agent JLP), with Operations-side sanitization and class allowlist enforcement.
+- Full widget render/action bridge (`request_widget_render` over IPC and render/action roundtrip with agent instances), including sanitization/allowlist policy.

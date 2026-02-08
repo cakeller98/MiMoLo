@@ -1,6 +1,6 @@
 # Unified Workflow Intent (Reference-History Consolidation)
 
-Date: 2026-02-06
+Date: 2026-02-08
 Status: Canonical workflow-intent document
 
 ## 1. Purpose
@@ -14,7 +14,11 @@ Interpretation rules:
 ## 2. Current Reality vs Intent
 Current reality (implemented):
 - Operations runtime, Agent JLP lifecycle, and logging pipeline are functioning.
-- Control implementation is still at prototype/stub level.
+- Control exists as a working prototype (`mimolo/control_proto`) with:
+  - lifecycle controls (start/stop/restart),
+  - instance actions (add/duplicate/remove/configure),
+  - a widget panel/testbed path,
+  - persistent IPC transport to reduce connection churn and overhead.
 
 Intent to preserve:
 - Control should be the user-facing control plane.
@@ -94,6 +98,8 @@ Cross-cutting behavior to preserve:
 - No shell command construction from untrusted strings.
 - Operations-side validation for package/install actions.
 - Clear diagnostics for failures and policy rejections.
+- Prefer persistent, bounded IPC flows over connection-spam polling patterns.
+- Favor architectural fixes over retry/noise masking.
 
 ## 10. Non-Goals
 This document is intentionally not:
@@ -109,7 +115,8 @@ When implementation changes land:
 4. Classify entries under `Added`, `Changed`, `Fixed`, or `Breaking`.
 5. When a planned workflow item is implemented, update:
   - `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
-6. Keep this unified workflow document stable unless workflow intent itself changes.
+6. Keep `developer_docs/8_Future_Roadmap_and_Summary.md` strategic-only.
+7. Keep this unified workflow document stable unless workflow intent itself changes.
 
 ## 12. Source Inputs Merged Into This Document
 Primary reference sources:
