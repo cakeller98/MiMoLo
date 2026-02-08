@@ -35,6 +35,8 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 - Added persistent config-save support in core config utilities via `save_config(...)`.
 - Added Control proto panel actions for agent-instance add, duplicate, remove, and configure workflows.
 - Added per-card top-right icon controls in Control proto: duplicate (`⧉`), delete (`−`), configure (`⚙`).
+- Added non-breaking widget IPC command stubs in Operations runtime for `get_widget_manifest`, `request_widget_render`, and `dispatch_widget_action` returning structured `not_implemented_yet` responses.
+- Added runtime IPC stub tests in `tests/test_runtime_widget_ipc_stubs.py` to lock stable command names and response shape for early Control integration.
 
 ### Changed
 - Archived legacy `start_*.sh` and `start_*.ps1` scripts under `archive/start_scripts/`.

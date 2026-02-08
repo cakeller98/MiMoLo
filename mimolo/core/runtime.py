@@ -828,6 +828,91 @@ class Runtime:
                 },
             }
 
+        if cmd in {
+            "get_widget_manifest",
+            "request_widget_render",
+            "dispatch_widget_action",
+        }:
+            plugin_id_raw = request.get("plugin_id")
+            plugin_id = (
+                str(plugin_id_raw).strip() if plugin_id_raw is not None else ""
+            )
+            if not plugin_id:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "missing_plugin_id",
+                }
+
+            instance_id_raw = request.get("instance_id")
+            instance_id = (
+                str(instance_id_raw).strip()
+                if instance_id_raw is not None
+                else ""
+            )
+            if not instance_id:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "missing_instance_id",
+                }
+
+            response_data: dict[str, Any] = {
+                "accepted": False,
+                "status": "not_implemented_yet",
+                "plugin_id": plugin_id,
+                "instance_id": instance_id,
+                "spec": "developer_docs/control_dev/WIDGET_RENDER_IPC_MIN_SPEC.md",
+            }
+
+            if cmd == "get_widget_manifest":
+                response_data["widget"] = {
+                    "supports_render": False,
+                    "default_aspect_ratio": "16:9",
+                    "min_refresh_ms": 1000,
+                    "supported_actions": [],
+                    "content_modes": ["html_fragment_v1"],
+                }
+            elif cmd == "request_widget_render":
+                request_id_raw = request.get("request_id")
+                request_id = (
+                    str(request_id_raw).strip()
+                    if request_id_raw is not None and str(request_id_raw).strip()
+                    else None
+                )
+                mode_raw = request.get("mode")
+                mode = (
+                    str(mode_raw).strip()
+                    if mode_raw is not None and str(mode_raw).strip()
+                    else "html_fragment_v1"
+                )
+                response_data["request_id"] = request_id
+                response_data["render"] = {
+                    "mode": mode,
+                    "html": "",
+                    "ttl_ms": 0,
+                    "state_token": None,
+                    "warnings": ["not_implemented_yet"],
+                }
+            elif cmd == "dispatch_widget_action":
+                action_raw = request.get("action")
+                action = (
+                    str(action_raw).strip()
+                    if action_raw is not None and str(action_raw).strip()
+                    else None
+                )
+                response_data["action"] = action
+
+            return {
+                "ok": False,
+                "cmd": cmd,
+                "timestamp": now,
+                "error": "not_implemented_yet",
+                "data": response_data,
+            }
+
         return {
             "ok": False,
             "cmd": cmd,
