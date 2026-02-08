@@ -4,6 +4,11 @@
 
 # Control Specification
 
+> For the current minimal archive/restore IPC command set, see:
+> `developer_docs/control_dev/ARCHIVE_RESTORE_IPC_MIN_SPEC.md`
+> For the current minimal widget render IPC command set, see:
+> `developer_docs/control_dev/WIDGET_RENDER_IPC_MIN_SPEC.md`
+
 > **Document Version:** 0.3  
 > **Target Framework:** MiMoLo v0.3+  
 > **Last Updated:** November 2025  
