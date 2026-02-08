@@ -40,7 +40,8 @@ This guide applies to:
 ## Configuration Security
 - Store config files with owner-only permissions where possible.
 - If the config controls executable paths, treat config updates as privileged.
-- Document any allowlists or signatures if introduced.
+- Enforce plugin signature and allowlist policy for release install/launch paths.
+- Unsafe sideload mode must be explicit opt-in, warning-gated, and non-default.
 
 ## Logging and Data Handling
 - Log directory should be `0700`.

@@ -21,6 +21,11 @@ It provides:
 Agents communicate via **Agent JLP**: JSON Lines over stdin/stdout.  
 Each line is a complete, self-contained JSON object.
 
+Protocol note:
+- Agent JLP defines communication compatibility, not distribution trust.
+- Release install/run policy is defined separately in:
+  `developer_docs/agent_dev/PLUGIN_TRUST_AND_SIGNING_POLICY.md`.
+
 ---
 
 ## 2. Transport Rules
@@ -33,6 +38,12 @@ Each line is a complete, self-contained JSON object.
 | **Validation**             | Collector validates messages against `mimolo-agent-schema.json`.                 |
 | **Compression / Encoding** | None (raw text).                                                                 |
 | **Termination**            | Agent exits on `{"cmd":"shutdown"}` or end-of-input.                             |
+
+### 2.1 Trust Boundary Clarification
+
+- Protocol-compliant plugins are not automatically trusted for release distribution.
+- Install/launch authorization is enforced by Operations policy (signature + allowlist).
+- Developer unsafe sideload mode is an explicit override path and is not default behavior.
 
 ---
 

@@ -4,9 +4,10 @@
 
 ## Extensibility and Plugin Development
 
-MiMoLo’s plugin ecosystem is intentionally open and language-agnostic.  
-Any executable that communicates via Agent JLP (JSON Lines over stdin/stdout) and adheres to the defined message schema can operate as a Agent.  
-This allows developers to extend the system without modifying core code—each agent is independently testable, replaceable, and sandboxed within its own process space.
+MiMoLo’s plugin ecosystem is capability-open and language-agnostic.  
+Any executable that communicates via Agent JLP (JSON Lines over stdin/stdout) can be protocol-compatible as an Agent.  
+Distribution trust is a separate policy concern: release installs/runs are governed by signed + allowlisted package policy.  
+This allows developers to extend system behavior without modifying core code while retaining runtime trust boundaries.
 
 ---
 
@@ -73,4 +74,3 @@ By adhering to a simple, schema-driven interface, developers can introduce new A
 This modular independence is the foundation of MiMoLo’s scalability and long-term maintainability.
 
 ### ...next [[7_Constraints_and_Performance_Etiquette]]
-

@@ -29,6 +29,8 @@ needs explanation, we can remove it.
 - Agents are installed into the Agents area and communicate with Operations.
 - Reporters are installed into the Reporters area and primarily communicate with Control.
 - Archivists (if introduced) would be installed into Operations and communicate with Operations.
+- Release mode is signed + allowlisted only for install/run.
+- Unsafe sideload mode is explicit opt-in for local development/testing only.
 
 ## Notes
 - **Legacy plugins** refer only to the deprecated in-process, one-way monitor model.

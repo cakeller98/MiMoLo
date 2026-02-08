@@ -29,6 +29,7 @@ Protocol reality tracker:
 4. Plugin ecosystem hardening
 - Move scaffold agents to production-grade behavior and tests.
 - Strengthen package install/upgrade lifecycle and integrity policy.
+- Keep release distribution trust closed-by-default (signed + allowlisted).
 - Preserve cross-platform behavior expectations for both runtime and plugin tooling.
 
 5. Security and resilience defaults

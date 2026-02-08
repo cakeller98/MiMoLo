@@ -9,6 +9,7 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 - Added canonical artifact lifecycle contract at `developer_docs/agent_dev/ARTIFACT_STORAGE_AND_RETENTION_CONTRACT.md`.
 - Added minimal archive/restore IPC contract for Control <-> Operations at `developer_docs/control_dev/ARCHIVE_RESTORE_IPC_MIN_SPEC.md`.
 - Added minimal widget render/action IPC contract for Control <-> Operations and Agent bridge at `developer_docs/control_dev/WIDGET_RENDER_IPC_MIN_SPEC.md`.
+- Added plugin distribution trust policy at `developer_docs/agent_dev/PLUGIN_TRUST_AND_SIGNING_POLICY.md` (signed+allowlisted release mode, explicit unsafe developer sideload mode).
 
 ### Changed
 - Updated storage conventions in `developer_docs/agent_dev/DATA_STORAGE_CONVENTIONS.md` to enforce lightweight event payloads plus per-plugin/per-instance artifact layout.
@@ -20,6 +21,14 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 - Updated `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md` to reflect current Control prototype capabilities and persistent IPC reliability intent.
 - Updated `developer_docs/agent_dev/PROTOCOL_IMPLEMENTATION_STATUS.md` to reflect persistent Control IPC transport, request-id correlation behavior, and current widget IPC stub reality.
 - Updated `developer_docs/2026.02.05 NOTES/README.md` to point explicitly to canonical backlog and strategic roadmap locations.
+- Updated active docs to clarify doctrine as capability-open but trust-closed distribution posture:
+  - `developer_docs/agent_dev/AGENT_DEV_GUIDE.md`
+  - `developer_docs/agent_dev/AGENT_PROTOCOL_SPEC.md`
+  - `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`
+  - `developer_docs/TERMINOLOGY_MAP.md`
+  - `developer_docs/security_agent.md`
+  - `developer_docs/8_Future_Roadmap_and_Summary.md`
+- Updated `developer_docs/6_Extensibility_and_Plugin_Development.md` historical reference wording to avoid contradictory "open ecosystem" interpretation against current trust policy.
 
 ## 2026-02-06
 

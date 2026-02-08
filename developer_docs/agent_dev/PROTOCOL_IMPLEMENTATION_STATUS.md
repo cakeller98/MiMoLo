@@ -76,6 +76,10 @@ Correlation behavior:
 4. Widget render bridge:
 - IPC widget command names and response shapes exist, but Operations does not yet complete the full agent-render bridge.
 
+5. Trust policy enforcement:
+- Signed/allowlisted release policy is documented, but end-to-end enforcement coverage (install-time and launch-time) is still in progress.
+- Source policy: `developer_docs/agent_dev/PLUGIN_TRUST_AND_SIGNING_POLICY.md`
+
 ## 5. Storage Contract Alignment
 
 Implemented now:

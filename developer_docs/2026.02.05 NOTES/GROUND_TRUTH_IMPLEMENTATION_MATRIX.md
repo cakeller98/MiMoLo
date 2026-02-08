@@ -129,6 +129,19 @@ Verification snapshot:
 - Done when:
   - `mimolo-control` reaches functional parity for core runtime controls and stable IPC integration.
 
+6. Repository-wide path handling normalization audit (Python + TypeScript)
+- Done when:
+  - Python path handling is standardized on `pathlib`-safe semantics for composition and validation.
+  - TypeScript/Electron path handling is standardized on `path` module semantics with no brittle separator assumptions.
+  - Existing brittle path-separator/string path joins are cataloged, remediated, and regression-tested cross-platform.
+
+7. Plugin trust boundary and capability-gated isolation model
+- Done when:
+  - Plugin architecture is documented as contract-first and self-contained: plugin interoperability occurs only via the Operations communication contract.
+  - Shared code with Operations/Control is optional SDK/base-class convenience only, not a compatibility requirement.
+  - Operations owns access mediation: plugins request capabilities (for example folder access) and receive only approved, scoped paths/tokens.
+  - Plugin runtime model is explicit about isolation baseline (separate process) and additional sandbox controls for untrusted plugins.
+
 ## 4) Canonical Planning Rules
 
 - This file is the canonical active backlog/todo for implementation tracking.

@@ -2,7 +2,7 @@
 
 > **Document Version:** 0.3  
 > **Target Framework:** MiMoLo v0.3+  
-> **Last Updated:** November 2025  
+> **Last Updated:** 2026-02-08  
 > **Status:** Living document
 
 ---
@@ -24,7 +24,8 @@ The orchestrator (the “collector”) aggregates these events into human-readab
 - Modular: each plugin is isolated and replaceable  
 - Predictable: all agents communicate via Agent JLP (JSON Lines)  
 - Minimal overhead: hundreds – thousands of agents can coexist without noticeable impact on system **headroom**  
-- Cross-language: any executable that speaks Agent JLP can be a valid MiMoLo agent  
+- Capability-open: any executable that speaks Agent JLP can be protocol-compatible as a MiMoLo agent  
+- Distribution safety: release builds run signed + allowlisted plugins only  
 
 ---
 
@@ -43,6 +44,19 @@ The orchestrator provides common runtime context via environment variables:
 - `MIMOLO_AGENT_LABEL` — registered label from the config (TOML key)
 - `MIMOLO_AGENT_ID` — per-instance unique id
 - `MIMOLO_DATA_DIR` — OS-appropriate MiMoLo data root
+
+### 2.6 Distribution and Trust Policy (Required)
+Protocol compatibility and distribution trust are different concerns:
+- Agent JLP compatibility decides whether an executable can technically interoperate.
+- Signing/allowlist policy decides whether a package is allowed to install/run in release mode.
+
+Current policy:
+- Release mode: signed + allowlisted plugins only.
+- Developer mode: unsafe sideloading allowed only with explicit warning/acknowledgment.
+- Operations is enforcement authority for install-time and launch-time trust checks.
+
+Reference policy:
+- `developer_docs/agent_dev/PLUGIN_TRUST_AND_SIGNING_POLICY.md`
 
 ### 2.2 Lifecycle
 Each agent runs **three cooperative loops**:
@@ -147,12 +161,14 @@ The collector aggregates these and can classify agents as *slowpoke*, *degraded*
 - Perform any computation or creative experiment.  
 - Implement custom self-tuning logic.  
 - Emit additional message types (`log`, `metric`, `custom`).  
+- Build and run unsigned agents locally only in explicit unsafe developer mode.  
 
 🚫 You *must not*  
 - Consume excessive CPU or RAM.  
 - Write to user output (console, UI) unless explicitly configured.  
 - Hang on blocking operations.  
 - Modify files outside your configured watch scope.
+- Assume protocol compliance alone grants distribution trust in release builds.
 
 ---
 
@@ -205,4 +221,3 @@ For implementation details, see:
 ---
 
 **Note**: Legacy synchronous plugins are not supported in v0.3+.
-

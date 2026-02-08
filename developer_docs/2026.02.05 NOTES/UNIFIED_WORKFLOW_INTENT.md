@@ -43,6 +43,12 @@ Behavioral flow:
 4. Operations returns result/status to Control.
 5. Control updates UI state and available actions.
 
+Trust and policy posture:
+- Capability openness: protocol-compatible plugins can be developed in any language.
+- Release distribution trust is closed-by-default:
+  - install/run requires signed + allowlisted packages.
+- Developer unsafe sideloading is explicit opt-in and should display warning each launch/session.
+
 Operational policy intent:
 - Install and upgrade logic belongs to Operations.
 - Control should not unpack/deploy payloads directly.
