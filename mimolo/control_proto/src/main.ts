@@ -1115,6 +1115,20 @@ function buildHtml(): string {
         if (!instance || !instance.config) {
           return DEFAULT_WIDGET_AUTO_REFRESH_MS;
         }
+        const effectiveHeartbeatRaw = instance.config.effective_heartbeat_interval_s;
+        if (
+          typeof effectiveHeartbeatRaw === "number" &&
+          Number.isFinite(effectiveHeartbeatRaw) &&
+          effectiveHeartbeatRaw > 0
+        ) {
+          return Math.max(1000, Math.round(effectiveHeartbeatRaw * 1000));
+        }
+        if (typeof effectiveHeartbeatRaw === "string") {
+          const parsedEffective = Number(effectiveHeartbeatRaw);
+          if (Number.isFinite(parsedEffective) && parsedEffective > 0) {
+            return Math.max(1000, Math.round(parsedEffective * 1000));
+          }
+        }
         const heartbeatRaw = instance.config.heartbeat_interval_s;
         if (typeof heartbeatRaw === "number" && Number.isFinite(heartbeatRaw) && heartbeatRaw > 0) {
           return Math.max(1000, Math.round(heartbeatRaw * 1000));

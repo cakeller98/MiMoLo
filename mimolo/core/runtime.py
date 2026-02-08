@@ -367,14 +367,34 @@ class Runtime:
         """Return configured agent instances with state and editable config."""
         instances: dict[str, dict[str, Any]] = {}
         for label, plugin_cfg in self.config.plugins.items():
+            config_data = plugin_cfg.model_dump()
+            if plugin_cfg.plugin_type == "agent":
+                config_data["effective_heartbeat_interval_s"] = (
+                    self._effective_heartbeat_interval_s(plugin_cfg)
+                )
+                config_data["effective_agent_flush_interval_s"] = (
+                    self._effective_agent_flush_interval_s(plugin_cfg)
+                )
             instances[label] = {
                 "label": label,
                 "state": self._agent_states.get(label, "inactive"),
                 "detail": self._agent_state_details.get(label, "configured"),
                 "template_id": self._infer_template_id(label, plugin_cfg),
-                "config": plugin_cfg.model_dump(),
+                "config": config_data,
             }
         return instances
+
+    def _effective_interval_s(self, requested_interval_s: float) -> float:
+        """Apply global chatter floor to an agent-provided interval."""
+        return max(self.config.monitor.poll_tick_s, requested_interval_s)
+
+    def _effective_heartbeat_interval_s(self, plugin_cfg: PluginConfig) -> float:
+        """Effective heartbeat cadence after global floor enforcement."""
+        return self._effective_interval_s(plugin_cfg.heartbeat_interval_s)
+
+    def _effective_agent_flush_interval_s(self, plugin_cfg: PluginConfig) -> float:
+        """Effective periodic flush cadence after global floor enforcement."""
+        return self._effective_interval_s(plugin_cfg.agent_flush_interval_s)
 
     def _next_available_label(self, base_label: str) -> str:
         """Generate a unique config label for a new agent instance."""
@@ -1290,7 +1310,7 @@ class Runtime:
             plugin_config = self.config.plugins.get(label)
             if plugin_config and plugin_config.plugin_type == "agent":
                 last_flush = self.agent_last_flush.get(label)
-                flush_interval = plugin_config.agent_flush_interval_s
+                flush_interval = self._effective_agent_flush_interval_s(plugin_config)
 
                 # Send flush if interval elapsed or never flushed
                 if last_flush is None or (now - last_flush).total_seconds() >= flush_interval:
