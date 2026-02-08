@@ -1,0 +1,24 @@
+{
+  "sources": [
+    {
+      "id": "client_folder_activity",
+      "path": "client_folder_activity",
+      "ver": "0.1.1"
+    },
+    {
+      "id": "agent_example",
+      "path": "agent_example",
+      "ver": "0.3.1"
+    },
+    {
+      "id": "agent_template",
+      "path": "agent_template",
+      "ver": "0.3.1"
+    },
+    {
+      "id": "screen_tracker",
+      "path": "screen_tracker",
+      "ver": "0.1.1"
+    }
+  ]
+}

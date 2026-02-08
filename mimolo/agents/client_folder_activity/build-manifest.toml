@@ -1,0 +1,5 @@
+plugin_id = "client_folder_activity"
+name = "Client Folder Activity"
+version = "0.1.1"
+entry = "files/client_folder_activity.py"
+files = ["client_folder_activity.py"]

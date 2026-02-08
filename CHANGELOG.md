@@ -3,6 +3,27 @@
 All notable changes to this project will be documented in this file.
 Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md`.
 
+## 2026-02-08
+
+### Added
+- Added Control proto widget bridge handlers (`mml:get-widget-manifest`, `mml:request-widget-render`) to forward widget requests from renderer to Operations IPC.
+- Added per-agent widget canvas panel controls in Control proto cards:
+  - manual `update` button for on-demand manifest/render requests
+  - `pause`/`play` toggle for per-widget auto-refresh
+- Added periodic widget polling in Control proto that requests:
+  - `get_widget_manifest`
+  - `request_widget_render`
+  for each active instance.
+- Added runnable plugin scaffolds under `mimolo/agents/` for:
+  - `client_folder_activity` (folder metadata polling with bounded summary payloads)
+  - `screen_tracker` (artifact-reference screenshot summaries)
+- Added plugin build manifests for `client_folder_activity` and `screen_tracker`.
+- Added these plugin entries to `mimolo/agents/sources.json` so local source inventory includes both.
+
+### Changed
+- Updated Control proto agent cards to display widget-manifest status and widget-render placeholder state from Operations responses.
+- Kept widget canvas rendering security-first: renderer currently shows validated placeholder state text, not direct fragment injection.
+
 ## 2026-01-31
 
 ### Breaking

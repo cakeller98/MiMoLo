@@ -278,6 +278,46 @@ function buildHtml(): string {
       .agent-actions button:hover {
         background: #2d3b55;
       }
+      .widget-head {
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .widget-controls {
+        display: flex;
+        gap: 6px;
+      }
+      .mini-btn {
+        background: #222d42;
+        color: var(--text);
+        border: 1px solid #33405a;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 10px;
+        padding: 4px 7px;
+        cursor: pointer;
+      }
+      .mini-btn:hover {
+        background: #2b3a55;
+      }
+      .widget-canvas {
+        margin-top: 8px;
+        border: 1px solid #31415b;
+        border-radius: 6px;
+        background: #101722;
+        min-height: 72px;
+        max-height: 130px;
+        overflow: auto;
+        padding: 8px;
+        font-size: 11px;
+        color: #b8c3d6;
+        line-height: 1.35;
+      }
+      .widget-muted {
+        color: #7f8ca0;
+      }
       .modal-overlay {
         position: fixed;
         inset: 0;
@@ -378,6 +418,8 @@ function buildHtml(): string {
       const cards = new Map();
       const instancesByLabel = new Map();
       const templatesById = new Map();
+      const widgetPausedLabels = new Set();
+      const widgetInFlight = new Set();
 
       const lines = [];
       const maxLines = 1800;
@@ -537,6 +579,109 @@ function buildHtml(): string {
         }, 180);
       }
 
+      function getWidgetIdentity(label) {
+        const instance = instancesByLabel.get(label);
+        const templateRaw = instance && typeof instance.template_id === "string" ? instance.template_id : "";
+        const pluginId = templateRaw && templateRaw.trim().length > 0 ? templateRaw.trim() : label;
+        return {
+          plugin_id: pluginId,
+          instance_id: label,
+        };
+      }
+
+      function setWidgetPaused(label, paused) {
+        if (paused) {
+          widgetPausedLabels.add(label);
+        } else {
+          widgetPausedLabels.delete(label);
+        }
+        const card = cards.get(label);
+        if (!card) return;
+        const toggle = card.querySelector(".js-widget-toggle");
+        if (!toggle) return;
+        toggle.textContent = paused ? "play" : "pause";
+        toggle.title = paused ? "Resume widget auto-refresh" : "Pause widget auto-refresh";
+      }
+
+      async function refreshWidgetForLabel(label, manualRequest) {
+        if (!ipcRenderer) {
+          return;
+        }
+        if (widgetInFlight.has(label)) {
+          return;
+        }
+        const card = cards.get(label);
+        if (!card) {
+          return;
+        }
+        const manifestEl = card.querySelector(".js-widget-manifest");
+        const renderStatusEl = card.querySelector(".js-widget-status");
+        const canvasEl = card.querySelector(".js-widget-canvas");
+        if (!manifestEl || !renderStatusEl || !canvasEl) {
+          return;
+        }
+        const identity = getWidgetIdentity(label);
+        const requestId = label + "-" + Date.now();
+        widgetInFlight.add(label);
+        if (manualRequest) {
+          append("[widget] manual update requested for " + label);
+        }
+        try {
+          const manifest = await ipcRenderer.invoke("mml:get-widget-manifest", identity);
+          if (manifest && manifest.data && manifest.data.widget) {
+            const widget = manifest.data.widget;
+            const supports = widget.supports_render === true ? "yes" : "no";
+            const ratio = typeof widget.default_aspect_ratio === "string" ? widget.default_aspect_ratio : "n/a";
+            manifestEl.textContent = "manifest: supports_render=" + supports + ", aspect=" + ratio;
+          } else {
+            manifestEl.textContent = "manifest: unavailable";
+          }
+
+          const renderResponse = await ipcRenderer.invoke("mml:request-widget-render", {
+            ...identity,
+            request_id: requestId,
+            mode: "html_fragment_v1",
+            canvas: {
+              aspect_ratio: "16:9",
+              max_width_px: 960,
+              max_height_px: 540,
+            },
+          });
+          const render = renderResponse && renderResponse.data ? renderResponse.data.render : null;
+          const warningText = render && Array.isArray(render.warnings) && render.warnings.length > 0
+            ? render.warnings.join(", ")
+            : (renderResponse && renderResponse.error ? String(renderResponse.error) : "no_status");
+          renderStatusEl.textContent = "render: " + warningText;
+
+          if (render && typeof render.html === "string" && render.html.trim().length > 0) {
+            const length = render.html.length;
+            canvasEl.textContent = "render fragment ready (" + length + " bytes)";
+            canvasEl.classList.remove("widget-muted");
+          } else {
+            canvasEl.textContent = "widget canvas waiting: " + warningText;
+            canvasEl.classList.add("widget-muted");
+          }
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : "widget_refresh_failed";
+          manifestEl.textContent = "manifest: error";
+          renderStatusEl.textContent = "render: error";
+          canvasEl.textContent = "widget error: " + detail;
+          canvasEl.classList.add("widget-muted");
+          append("[widget] " + label + " refresh failed: " + detail);
+        } finally {
+          widgetInFlight.delete(label);
+        }
+      }
+
+      function refreshWidgetsAuto() {
+        for (const label of cards.keys()) {
+          if (widgetPausedLabels.has(label)) {
+            continue;
+          }
+          void refreshWidgetForLabel(label, false);
+        }
+      }
+
       async function sendCommand(payload) {
         if (!ipcRenderer) {
           append("[ui] ipc renderer unavailable");
@@ -672,6 +817,16 @@ function buildHtml(): string {
             <button data-action="stop_agent">stop</button>
             <button data-action="restart_agent">restart</button>
           </div>
+          <div class="widget-head">
+            <div class="signal-text">widget canvas</div>
+            <div class="widget-controls">
+              <button class="mini-btn js-widget-refresh" title="Request widget update">update</button>
+              <button class="mini-btn js-widget-toggle" title="Pause widget auto-refresh">pause</button>
+            </div>
+          </div>
+          <div class="widget-canvas js-widget-canvas widget-muted">widget canvas waiting: pending</div>
+          <div class="agent-detail js-widget-manifest">manifest: pending</div>
+          <div class="agent-detail js-widget-status">render: pending</div>
         \`;
         el.querySelectorAll("button[data-action]").forEach((button) => {
           button.addEventListener("click", async () => {
@@ -709,6 +864,16 @@ function buildHtml(): string {
         cfg.addEventListener("click", () => {
           void configureLabel(label);
         });
+        const widgetRefresh = el.querySelector(".js-widget-refresh");
+        const widgetToggle = el.querySelector(".js-widget-toggle");
+        widgetRefresh.addEventListener("click", () => {
+          void refreshWidgetForLabel(label, true);
+        });
+        widgetToggle.addEventListener("click", () => {
+          const paused = widgetPausedLabels.has(label);
+          setWidgetPaused(label, !paused);
+        });
+        setWidgetPaused(label, false);
         cardsRoot.appendChild(el);
         cards.set(label, el);
         return el;
@@ -720,6 +885,7 @@ function buildHtml(): string {
         for (const label of labels) {
           const instance = instances[label];
           instancesByLabel.set(label, instance);
+          const isNewCard = !cards.has(label);
           const card = ensureCard(label);
           const life = card.querySelector(".js-life");
           const stateText = card.querySelector(".js-state-text");
@@ -729,6 +895,9 @@ function buildHtml(): string {
           applyLifeClass(life, state);
           stateText.textContent = state;
           detail.textContent = info;
+          if (isNewCard) {
+            void refreshWidgetForLabel(label, false);
+          }
         }
 
         for (const [label, card] of cards.entries()) {
@@ -736,6 +905,8 @@ function buildHtml(): string {
           card.remove();
           cards.delete(label);
           instancesByLabel.delete(label);
+          widgetPausedLabels.delete(label);
+          widgetInFlight.delete(label);
         }
       }
 
@@ -775,6 +946,9 @@ function buildHtml(): string {
         setInterval(() => {
           void refreshTemplatesCache();
         }, 4500);
+        setInterval(() => {
+          refreshWidgetsAuto();
+        }, 1500);
         ipcRenderer.on("ops:status", (_event, payload) => {
           setStatus(payload.state + " - " + payload.detail);
         });
@@ -1126,6 +1300,68 @@ async function runAgentCommand(
   return response;
 }
 
+function coerceNonEmptyString(raw: unknown): string | null {
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+async function getWidgetManifest(
+  payload: Record<string, unknown>,
+): Promise<IpcResponsePayload> {
+  const pluginId = coerceNonEmptyString(payload.plugin_id);
+  const instanceId = coerceNonEmptyString(payload.instance_id);
+  if (!pluginId || !instanceId) {
+    return {
+      ok: false,
+      error: !pluginId ? "missing_plugin_id" : "missing_instance_id",
+    };
+  }
+  return sendIpcCommand(
+    "get_widget_manifest",
+    {
+      plugin_id: pluginId,
+      instance_id: instanceId,
+    },
+    instanceId,
+  );
+}
+
+async function requestWidgetRender(
+  payload: Record<string, unknown>,
+): Promise<IpcResponsePayload> {
+  const pluginId = coerceNonEmptyString(payload.plugin_id);
+  const instanceId = coerceNonEmptyString(payload.instance_id);
+  if (!pluginId || !instanceId) {
+    return {
+      ok: false,
+      error: !pluginId ? "missing_plugin_id" : "missing_instance_id",
+    };
+  }
+
+  const requestId = coerceNonEmptyString(payload.request_id);
+  const mode = coerceNonEmptyString(payload.mode) || "html_fragment_v1";
+  const canvasRaw = payload.canvas;
+  const canvas =
+    canvasRaw && typeof canvasRaw === "object"
+      ? (canvasRaw as Record<string, unknown>)
+      : {};
+
+  return sendIpcCommand(
+    "request_widget_render",
+    {
+      plugin_id: pluginId,
+      instance_id: instanceId,
+      request_id: requestId || `${instanceId}-${Date.now()}`,
+      mode,
+      canvas,
+    },
+    instanceId,
+  );
+}
+
 function startBackgroundLoops(): void {
   void loadInitialSnapshot();
   void pumpOpsLog();
@@ -1195,6 +1431,26 @@ ipcMain.handle("mml:list-agent-templates", async () => {
     ok: true,
     templates,
   };
+});
+
+ipcMain.handle("mml:get-widget-manifest", (_event, payload: unknown) => {
+  if (!payload || typeof payload !== "object") {
+    return {
+      ok: false,
+      error: "invalid_widget_payload",
+    };
+  }
+  return getWidgetManifest(payload as Record<string, unknown>);
+});
+
+ipcMain.handle("mml:request-widget-render", (_event, payload: unknown) => {
+  if (!payload || typeof payload !== "object") {
+    return {
+      ok: false,
+      error: "invalid_widget_payload",
+    };
+  }
+  return requestWidgetRender(payload as Record<string, unknown>);
 });
 
 ipcMain.handle("mml:agent-command", (_event, payload: unknown) => {
