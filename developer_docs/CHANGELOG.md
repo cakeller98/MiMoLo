@@ -21,6 +21,10 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 - Updated `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md` to reflect current Control prototype capabilities and persistent IPC reliability intent.
 - Updated `developer_docs/agent_dev/PROTOCOL_IMPLEMENTATION_STATUS.md` to reflect persistent Control IPC transport, request-id correlation behavior, and current widget IPC stub reality.
 - Updated `developer_docs/2026.02.05 NOTES/README.md` to point explicitly to canonical backlog and strategic roadmap locations.
+- Updated plugin install posture documentation for Control:
+  - release/default mode does not expose runtime zip sideload install UI.
+  - runtime sideload remains developer-mode-only with explicit unsafe warning requirements.
+  - backlog matrix now reflects `+ Add` template-list ground truth and `--dev`-gated sideload behavior.
 - Updated active docs to clarify doctrine as capability-open but trust-closed distribution posture:
   - `developer_docs/agent_dev/AGENT_DEV_GUIDE.md`
   - `developer_docs/agent_dev/AGENT_PROTOCOL_SPEC.md`

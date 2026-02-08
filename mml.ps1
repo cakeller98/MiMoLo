@@ -3,12 +3,15 @@
 #   .\mml.ps1 [command]
 #   .\mml.ps1 --no-cache [command]
 #   .\mml.ps1 --rebuild-dist [command]
+#   .\mml.ps1 --dev [command]
 #   .\mml.ps1 operations -- --once
 #   .\mml.ps1 all-proto
 #   .\mml.ps1 all-control
+#   .\mml.ps1 bundle-app -- --target proto
 
 param(
     [switch]$NoCache,
+    [switch]$Dev,
     [string]$Command = "",
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$ArgsRest
@@ -28,6 +31,14 @@ $SocketWaitSeconds = 8
 $PortableRootDefault = Join-Path $PSScriptRoot "temp_debug"
 $ConfigPortableRoot = ""
 $ConfigDeployAgentsDefault = ""
+$ConfigBundleTargetDefault = ""
+$ConfigBundleOutDir = ""
+$ConfigBundleVersionDefault = ""
+$ConfigBundleAppNameProto = ""
+$ConfigBundleAppNameControl = ""
+$ConfigBundleBundleIdProto = ""
+$ConfigBundleBundleIdControl = ""
+$ConfigBundleDevModeDefault = ""
 if ($IsWindows) {
     $DefaultIpcPath = Join-Path $env:TEMP "mimolo\operations.sock"
     $DefaultOpsLogPath = Join-Path $env:TEMP "mimolo\operations.log"
@@ -78,6 +89,14 @@ function Load-LauncherConfig {
     }
     $script:ConfigPortableRoot = Get-TomlValue -Path $ConfigFile -Key "portable_root" -Fallback ""
     $script:ConfigDeployAgentsDefault = Get-TomlValue -Path $ConfigFile -Key "deploy_agents_default" -Fallback ""
+    $script:ConfigBundleTargetDefault = Get-TomlValue -Path $ConfigFile -Key "bundle_target_default" -Fallback ""
+    $script:ConfigBundleOutDir = Get-TomlValue -Path $ConfigFile -Key "bundle_out_dir" -Fallback ""
+    $script:ConfigBundleVersionDefault = Get-TomlValue -Path $ConfigFile -Key "bundle_version_default" -Fallback ""
+    $script:ConfigBundleAppNameProto = Get-TomlValue -Path $ConfigFile -Key "bundle_app_name_proto" -Fallback ""
+    $script:ConfigBundleAppNameControl = Get-TomlValue -Path $ConfigFile -Key "bundle_app_name_control" -Fallback ""
+    $script:ConfigBundleBundleIdProto = Get-TomlValue -Path $ConfigFile -Key "bundle_bundle_id_proto" -Fallback ""
+    $script:ConfigBundleBundleIdControl = Get-TomlValue -Path $ConfigFile -Key "bundle_bundle_id_control" -Fallback ""
+    $script:ConfigBundleDevModeDefault = Get-TomlValue -Path $ConfigFile -Key "bundle_dev_mode_default" -Fallback ""
 }
 
 function Resolve-AllCommand {
@@ -183,9 +202,14 @@ function Invoke-NoCachePreflight {
 
 Load-LauncherConfig
 
-# Back-compat parse if user passes --no-cache/--rebuild-dist positionally.
-if ($Command -eq "--no-cache" -or $Command -eq "--rebuild-dist") {
-    $NoCache = $true
+# Back-compat parse if user passes global flags positionally.
+if ($Command -eq "--no-cache" -or $Command -eq "--rebuild-dist" -or $Command -eq "--dev") {
+    if ($Command -eq "--dev") {
+        $Dev = $true
+    }
+    else {
+        $NoCache = $true
+    }
     if ($ArgsRest.Count -gt 0) {
         $Command = $ArgsRest[0]
         if ($ArgsRest.Count -gt 1) {
@@ -207,6 +231,10 @@ if ($ArgsRest.Count -gt 0) {
             $NoCache = $true
             continue
         }
+        if ($arg -eq "--dev") {
+            $Dev = $true
+            continue
+        }
         $filtered += $arg
     }
     $ArgsRest = $filtered
@@ -217,6 +245,15 @@ if (-not $env:MIMOLO_IPC_PATH) {
 }
 if (-not $env:MIMOLO_OPS_LOG_PATH) {
     $env:MIMOLO_OPS_LOG_PATH = $DefaultOpsLogPath
+}
+if (-not $env:MIMOLO_REPO_ROOT) {
+    $env:MIMOLO_REPO_ROOT = $PSScriptRoot
+}
+if ($Dev.IsPresent) {
+    $env:MIMOLO_CONTROL_DEV_MODE = "1"
+}
+elseif (-not $env:MIMOLO_CONTROL_DEV_MODE) {
+    $env:MIMOLO_CONTROL_DEV_MODE = "0"
 }
 
 if ($env:MIMOLO_IPC_PATH.Length -gt 100) {
@@ -239,14 +276,27 @@ if ([string]::IsNullOrWhiteSpace($Command)) {
 $Command = Resolve-AllCommand -InputCommand $Command.ToLowerInvariant()
 
 function Show-Usage {
+    $displayPortableRoot = if ([string]::IsNullOrWhiteSpace($ConfigPortableRoot)) { "./temp_debug" } else { $ConfigPortableRoot }
+    $displaySeedAgents = if ([string]::IsNullOrWhiteSpace($ConfigDeployAgentsDefault)) { "agent_template,agent_example" } else { $ConfigDeployAgentsDefault }
+    $displayBundleTarget = if ([string]::IsNullOrWhiteSpace($ConfigBundleTargetDefault)) { "proto" } else { $ConfigBundleTargetDefault }
+    $displayBundleOutDir = if ([string]::IsNullOrWhiteSpace($ConfigBundleOutDir)) { "./temp_debug/bundles/macos" } else { $ConfigBundleOutDir }
+    $displayBundleVersion = if ([string]::IsNullOrWhiteSpace($ConfigBundleVersionDefault)) { "<package version>" } else { $ConfigBundleVersionDefault }
+    $displayBundleNameProto = if ([string]::IsNullOrWhiteSpace($ConfigBundleAppNameProto)) { "mimolo-proto (v<package_version>).app" } else { $ConfigBundleAppNameProto }
+    $displayBundleNameControl = if ([string]::IsNullOrWhiteSpace($ConfigBundleAppNameControl)) { "MiMoLo.app" } else { $ConfigBundleAppNameControl }
+    $displayBundleIdProto = if ([string]::IsNullOrWhiteSpace($ConfigBundleBundleIdProto)) { "com.mimolo.control.proto.dev" } else { $ConfigBundleBundleIdProto }
+    $displayBundleIdControl = if ([string]::IsNullOrWhiteSpace($ConfigBundleBundleIdControl)) { "com.mimolo.control.dev" } else { $ConfigBundleBundleIdControl }
+    $displayBundleDevMode = if ([string]::IsNullOrWhiteSpace($ConfigBundleDevModeDefault)) { "<inherit launcher env/--dev>" } else { $ConfigBundleDevModeDefault }
+
     Write-Host "MiMoLo Control Dev Launcher"
     Write-Host ""
     Write-Host "Commands:"
     Write-Host "  [no command] Use default_command from mml.toml"
     Write-Host "  --no-cache  Global flag: cleanup and rebuild portable artifacts before launch"
     Write-Host "  --rebuild-dist Alias for --no-cache"
+    Write-Host "  --dev       Global flag: enable developer-mode plugin zip install in Control/proto"
     Write-Host "  prepare     Build/sync portable bin artifacts and seed default agents"
     Write-Host "  cleanup     Remove temp_debug, all dist folders, and all __pycache__ folders"
+    Write-Host "  bundle-app  Build macOS .app bundle via scripts/bundle_app.sh"
     Write-Host "  env         Show current MIMOLO_IPC_PATH and launch commands"
     Write-Host "  operations  Launch Operations (orchestrator): poetry run python -m mimolo.cli monitor"
     Write-Host "  control     Launch Electron Control app (mimolo-control)"
@@ -255,6 +305,21 @@ function Show-Usage {
     Write-Host "  all-proto   Launch Operations in background, wait for IPC socket, then launch proto"
     Write-Host "  all-control Launch Operations in background, then launch Control app"
     Write-Host "  help        Show this message"
+    Write-Host ""
+    Write-Host "Defaults from mml.toml:"
+    Write-Host "  default_command=$DefaultCommand"
+    Write-Host "  default_stack=$DefaultStack"
+    Write-Host "  socket_wait_seconds=$SocketWaitSeconds"
+    Write-Host "  portable_root=$displayPortableRoot"
+    Write-Host "  deploy_agents_default=$displaySeedAgents"
+    Write-Host "  bundle_target_default=$displayBundleTarget"
+    Write-Host "  bundle_out_dir=$displayBundleOutDir"
+    Write-Host "  bundle_version_default=$displayBundleVersion"
+    Write-Host "  bundle_app_name_proto=$displayBundleNameProto"
+    Write-Host "  bundle_app_name_control=$displayBundleNameControl"
+    Write-Host "  bundle_bundle_id_proto=$displayBundleIdProto"
+    Write-Host "  bundle_bundle_id_control=$displayBundleIdControl"
+    Write-Host "  bundle_dev_mode_default=$displayBundleDevMode"
 }
 
 function Launch-Operations {
@@ -290,6 +355,7 @@ function Launch-Control {
     }
 
     Write-Host "[dev-stack] MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
+    Write-Host "[dev-stack] MIMOLO_CONTROL_DEV_MODE=$env:MIMOLO_CONTROL_DEV_MODE"
     Push-Location "mimolo-control"
     try {
         npm run start
@@ -326,6 +392,7 @@ function Launch-Proto {
 
     Write-Host "[dev-stack] MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
     Write-Host "[dev-stack] MIMOLO_OPS_LOG_PATH=$env:MIMOLO_OPS_LOG_PATH"
+    Write-Host "[dev-stack] MIMOLO_CONTROL_DEV_MODE=$env:MIMOLO_CONTROL_DEV_MODE"
     Push-Location "mimolo/control_proto"
     try {
         npm run start
@@ -333,6 +400,16 @@ function Launch-Proto {
     finally {
         Pop-Location
     }
+}
+
+function Invoke-BundleApp {
+    param([string[]]$BundleArgs)
+
+    $bundleScript = Join-Path $PSScriptRoot "scripts/bundle_app.ps1"
+    if (-not (Test-Path -LiteralPath $bundleScript)) {
+        throw "[dev-stack] missing bundle script: $bundleScript"
+    }
+    & $bundleScript @BundleArgs
 }
 
 function Wait-ForIpcSocket {
@@ -439,9 +516,20 @@ switch ($Command) {
         Write-Host ('$env:MIMOLO_IPC_PATH="' + $env:MIMOLO_IPC_PATH + '"')
         Write-Host "MIMOLO_OPS_LOG_PATH=$env:MIMOLO_OPS_LOG_PATH"
         Write-Host ('$env:MIMOLO_OPS_LOG_PATH="' + $env:MIMOLO_OPS_LOG_PATH + '"')
+        Write-Host "MIMOLO_REPO_ROOT=$env:MIMOLO_REPO_ROOT"
+        Write-Host ('$env:MIMOLO_REPO_ROOT="' + $env:MIMOLO_REPO_ROOT + '"')
         Write-Host "default_command=$DefaultCommand"
         Write-Host "default_stack=$DefaultStack"
         Write-Host "socket_wait_seconds=$SocketWaitSeconds"
+        Write-Host "control_dev_mode=$env:MIMOLO_CONTROL_DEV_MODE"
+        Write-Host "bundle_target_default=$(if ([string]::IsNullOrWhiteSpace($ConfigBundleTargetDefault)) { 'proto' } else { $ConfigBundleTargetDefault })"
+        Write-Host "bundle_out_dir=$(if ([string]::IsNullOrWhiteSpace($ConfigBundleOutDir)) { './temp_debug/bundles/macos' } else { $ConfigBundleOutDir })"
+        Write-Host "bundle_version_default=$ConfigBundleVersionDefault"
+        Write-Host "bundle_app_name_proto=$ConfigBundleAppNameProto"
+        Write-Host "bundle_app_name_control=$ConfigBundleAppNameControl"
+        Write-Host "bundle_bundle_id_proto=$(if ([string]::IsNullOrWhiteSpace($ConfigBundleBundleIdProto)) { 'com.mimolo.control.proto.dev' } else { $ConfigBundleBundleIdProto })"
+        Write-Host "bundle_bundle_id_control=$(if ([string]::IsNullOrWhiteSpace($ConfigBundleBundleIdControl)) { 'com.mimolo.control.dev' } else { $ConfigBundleBundleIdControl })"
+        Write-Host "bundle_dev_mode_default=$ConfigBundleDevModeDefault"
         Write-Host "no_cache_supported=true"
         Write-Host ""
         Write-Host "Launch commands:"
@@ -450,11 +538,13 @@ switch ($Command) {
         Write-Host "  .\mml.ps1 cleanup"
         Write-Host "  .\mml.ps1 --no-cache [command]"
         Write-Host "  .\mml.ps1 --rebuild-dist [command]"
+        Write-Host "  .\mml.ps1 --dev [command]"
         Write-Host "  .\mml.ps1 operations"
         Write-Host "  .\mml.ps1 control"
         Write-Host "  .\mml.ps1 proto"
         Write-Host "  .\mml.ps1 all-proto"
         Write-Host "  .\mml.ps1 all-control"
+        Write-Host "  .\mml.ps1 bundle-app -- --target proto"
     }
     "operations" {
         Invoke-NoCachePreflight
@@ -469,6 +559,10 @@ switch ($Command) {
     }
     "cleanup" {
         Invoke-Cleanup
+    }
+    "bundle-app" {
+        Invoke-NoCachePreflight
+        Invoke-BundleApp -BundleArgs $ArgsRest
     }
     "control" {
         Invoke-NoCachePreflight

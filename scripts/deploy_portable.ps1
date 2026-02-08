@@ -173,6 +173,8 @@ if (-not $NoBuild.IsPresent) {
 Write-Host "[deploy] syncing runtime artifacts..."
 Sync-File -SourcePath (Join-Path $repoRoot "mml.sh") -DestinationPath (Join-Path $BinDir "mml.sh")
 Sync-File -SourcePath (Join-Path $repoRoot "mml.ps1") -DestinationPath (Join-Path $BinDir "mml.ps1")
+Sync-File -SourcePath (Join-Path $repoRoot "scripts/bundle_app.sh") -DestinationPath (Join-Path $BinDir "scripts/bundle_app.sh")
+Sync-File -SourcePath (Join-Path $repoRoot "scripts/bundle_app.ps1") -DestinationPath (Join-Path $BinDir "scripts/bundle_app.ps1")
 Sync-File -SourcePath (Join-Path $repoRoot "mml.toml") -DestinationPath (Join-Path $BinDir "mml.toml")
 Sync-File -SourcePath (Join-Path $repoRoot "pyproject.toml") -DestinationPath (Join-Path $BinDir "pyproject.toml")
 if (Test-Path -LiteralPath (Join-Path $repoRoot "poetry.lock")) {
@@ -196,6 +198,7 @@ Sync-Directory `
 
 try {
     & chmod +x (Join-Path $BinDir "mml.sh") 2>$null | Out-Null
+    & chmod +x (Join-Path $BinDir "scripts/bundle_app.sh") 2>$null | Out-Null
 }
 catch {
     # chmod may not exist on Windows.

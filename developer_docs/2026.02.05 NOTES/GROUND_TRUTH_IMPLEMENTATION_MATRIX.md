@@ -41,8 +41,10 @@ Verification snapshot:
   - operations log stream view
   - per-instance cards with start/stop/restart
   - per-instance duplicate/delete/configure
+  - `+ Add` modal uses the live template registry as ground-truth source for instance creation
   - widget panel on each card with manual update + pause/play
   - persistent IPC channel with bounded queued requests and timeout handling
+  - plugin zip install UI is disabled by default and enabled only in explicit developer mode (`MIMOLO_CONTROL_DEV_MODE=1`, for example via `mml.sh --dev`)
 - Evidence:
   - `mimolo/control_proto/src/main.ts`
 
@@ -86,7 +88,8 @@ Verification snapshot:
 2. Install/upgrade lifecycle from packaged zips
 - Status: Planned / partial
 - Gap:
-  - packaging exists, but full Operations-managed install registry, upgrade policy, and Control UX flow are not complete.
+  - packaging exists, but full Operations-managed install registry, upgrade policy, and release-grade Control UX flow are not complete.
+  - current default flow is distribution/build-time plugin seeding; runtime zip sideload is intentionally developer-mode-only.
 
 3. Archive/restore/purge workflow with explicit permission gates
 - Status: Planned / partial

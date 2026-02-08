@@ -1,6 +1,8 @@
 import electronDefault, * as electronNamespace from "electron";
-import { readFile, stat } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import net from "node:net";
+import path from "node:path";
 
 const electronRuntime = (
   (electronDefault as unknown as Record<string, unknown>) ??
@@ -19,6 +21,7 @@ if (!app || !BrowserWindow || !dialog || !ipcMain) {
 
 interface RuntimeProcess {
   env: Record<string, string | undefined>;
+  cwd?: () => string;
   platform?: string;
 }
 
@@ -84,6 +87,20 @@ interface PendingIpcRequest {
   trafficLabel?: string;
 }
 
+type OperationsProcessState = "running" | "stopped" | "starting" | "stopping" | "error";
+
+interface OperationsControlSnapshot {
+  detail: string;
+  managed: boolean;
+  pid: number | null;
+  state: OperationsProcessState;
+  timestamp: string;
+}
+
+interface OperationsControlRequest {
+  action: "start" | "stop" | "restart" | "status";
+}
+
 const maybeRuntimeProcess = (globalThis as { process?: RuntimeProcess }).process;
 
 if (!maybeRuntimeProcess) {
@@ -91,8 +108,22 @@ if (!maybeRuntimeProcess) {
 }
 const runtimeProcess: RuntimeProcess = maybeRuntimeProcess;
 
+function parseEnabledEnv(raw: string | undefined): boolean {
+  if (!raw) {
+    return false;
+  }
+  const normalized = raw.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+}
+
 const ipcPath = runtimeProcess.env.MIMOLO_IPC_PATH || "";
 const opsLogPath = runtimeProcess.env.MIMOLO_OPS_LOG_PATH || "";
+const controlDevMode = parseEnabledEnv(runtimeProcess.env.MIMOLO_CONTROL_DEV_MODE);
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 let logCursor = 0;
@@ -107,6 +138,17 @@ let lastStatus: OpsStatusPayload = {
 };
 
 let lastAgentInstances: Record<string, AgentInstanceSnapshot> = {};
+let opsLogWarningPrinted = false;
+let opsLogWriteQueue: Promise<void> = Promise.resolve();
+let operationsProcess: ReturnType<typeof spawn> | null = null;
+let operationsStopRequested = false;
+let operationsControlState: OperationsControlSnapshot = {
+  state: "stopped",
+  detail: "not_managed",
+  managed: false,
+  pid: null,
+  timestamp: new Date().toISOString(),
+};
 
 const IPC_REQUEST_TIMEOUT_MS = 1500;
 const IPC_MAX_PENDING_REQUESTS = 256;
@@ -167,6 +209,39 @@ function buildHtml(): string {
       }
       .row strong { color: var(--text); }
       #status { color: var(--accent); }
+      .top-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 3px;
+      }
+      .ops-global {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .ops-btn {
+        background: #253047;
+        color: var(--text);
+        border: 1px solid #33405a;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 10px;
+        padding: 4px 7px;
+        cursor: pointer;
+      }
+      .ops-btn:hover {
+        background: #2d3b55;
+      }
+      .ops-btn:disabled {
+        cursor: default;
+        opacity: 0.65;
+      }
+      .ops-process-state {
+        font-size: 11px;
+        color: var(--muted);
+      }
       .main {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 390px;
@@ -215,6 +290,9 @@ function buildHtml(): string {
         margin-top: 4px;
         font-size: 11px;
         color: var(--muted);
+      }
+      .dev-warning {
+        color: #d4b25c;
       }
       .add-btn {
         background: #22324a;
@@ -484,10 +562,25 @@ function buildHtml(): string {
   <body>
     <div class="shell">
       <div class="top">
-        <div class="row"><strong>MiMoLo Control Proto</strong> - operations stream viewer</div>
+        <div class="top-head">
+          <div class="row"><strong>MiMoLo Control Proto</strong> - operations stream viewer</div>
+          <div class="ops-global">
+            <button class="ops-btn" id="opsStartBtn" title="Start Operations">Start Ops</button>
+            <button class="ops-btn" id="opsStopBtn" title="Stop Operations">Stop Ops</button>
+            <button class="ops-btn" id="opsRestartBtn" title="Restart Operations">Restart Ops</button>
+            <div class="light light-inactive" id="globalTxRx" title="Global tx/rx"></div>
+            <div class="signal-text">tx/rx</div>
+          </div>
+        </div>
+        <div class="row ops-process-state">Ops process: <span id="opsProcessState">stopped - not_managed</span></div>
         <div class="row">IPC: <span id="ipcPath"></span></div>
         <div class="row">Ops log: <span id="opsLogPath"></span></div>
         <div class="row">Status: <span id="status">starting</span></div>
+        ${
+          controlDevMode
+            ? `<div class="row dev-warning"><strong>Dev mode:</strong> unsigned zip plugin sideload is enabled (signature allowlist is not implemented yet).</div>`
+            : ""
+        }
       </div>
       <div class="main">
         <div class="log-pane"><pre id="log"></pre></div>
@@ -496,26 +589,40 @@ function buildHtml(): string {
             <div class="controls-row">
               <div class="controls-title">Agent Control Panel</div>
               <div class="controls-actions">
-                <button class="install-btn" id="installPluginBtn" title="Install or upgrade plugin zip">Install</button>
+                ${
+                  controlDevMode
+                    ? `<button class="install-btn" id="installPluginBtn" title="Install or upgrade plugin zip (developer mode only)">Install (dev)</button>`
+                    : ""
+                }
                 <button class="add-btn" id="addAgentBtn" title="Add agent instance">+ Add</button>
               </div>
             </div>
-            <div class="controls-sub">Per-instance controls and configuration</div>
+            <div class="controls-sub">Per-instance controls and configuration from registered templates</div>
           </div>
           <div class="cards" id="cards"></div>
         </div>
       </div>
     </div>
-    <div id="dropHint" class="drop-hint" hidden>Drop plugin zip to install</div>
+    ${
+      controlDevMode
+        ? `<div id="dropHint" class="drop-hint" hidden>Drop plugin zip to install (developer mode)</div>`
+        : ""
+    }
     <div id="modalHost"></div>
     <div id="toastHost" class="toast-host"></div>
     <script>
       const electronRuntime = typeof require === "function" ? require("electron") : null;
       const ipcRenderer = electronRuntime ? electronRuntime.ipcRenderer : null;
+      const installDevMode = ${controlDevMode ? "true" : "false"};
       const statusEl = document.getElementById("status");
       const logEl = document.getElementById("log");
+      const opsProcessStateEl = document.getElementById("opsProcessState");
       const ipcPathEl = document.getElementById("ipcPath");
       const opsLogPathEl = document.getElementById("opsLogPath");
+      const opsStartBtn = document.getElementById("opsStartBtn");
+      const opsStopBtn = document.getElementById("opsStopBtn");
+      const opsRestartBtn = document.getElementById("opsRestartBtn");
+      const globalTxRx = document.getElementById("globalTxRx");
       const cardsRoot = document.getElementById("cards");
       const addAgentBtn = document.getElementById("addAgentBtn");
       const installPluginBtn = document.getElementById("installPluginBtn");
@@ -528,7 +635,6 @@ function buildHtml(): string {
       const widgetPausedLabels = new Set();
       const widgetInFlight = new Set();
       const widgetManifestLoaded = new Set();
-      let dropDepth = 0;
 
       const lines = [];
       const maxLines = 1800;
@@ -542,6 +648,52 @@ function buildHtml(): string {
 
       function setStatus(text) {
         statusEl.textContent = text;
+      }
+
+      function renderOpsProcessState(state) {
+        if (!opsProcessStateEl) {
+          return;
+        }
+        const stateText = state && typeof state.state === "string" ? state.state : "unknown";
+        const detailText = state && typeof state.detail === "string" ? state.detail : "unknown";
+        const managedText = state && state.managed === true ? "managed" : "external_or_stopped";
+        const pidText = state && typeof state.pid === "number" ? " pid=" + String(state.pid) : "";
+        opsProcessStateEl.textContent = stateText + " - " + detailText + " (" + managedText + ")" + pidText;
+
+        if (opsStartBtn) {
+          opsStartBtn.disabled = stateText === "running" || stateText === "starting";
+        }
+        if (opsStopBtn) {
+          opsStopBtn.disabled = stateText === "stopped" || stateText === "stopping";
+        }
+        if (opsRestartBtn) {
+          opsRestartBtn.disabled = stateText === "starting" || stateText === "stopping";
+        }
+      }
+
+      async function runOpsControl(action) {
+        if (!ipcRenderer) {
+          append("[ops] control failed: ipc renderer unavailable");
+          return;
+        }
+        try {
+          const response = await ipcRenderer.invoke("mml:ops-control", { action });
+          if (response && response.state) {
+            renderOpsProcessState(response.state);
+          }
+          if (!response || !response.ok) {
+            const errText = response && response.error ? String(response.error) : "ops_control_failed";
+            append("[ops] " + action + " failed: " + errText);
+            return;
+          }
+          const detail = response && response.state && response.state.detail
+            ? String(response.state.detail)
+            : "ok";
+          append("[ops] " + action + " -> " + detail);
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : "ops_control_failed";
+          append("[ops] " + action + " failed: " + detail);
+        }
       }
 
       function showToast(message, kind) {
@@ -699,6 +851,18 @@ function buildHtml(): string {
         setTimeout(() => {
           txrx.classList.remove("tx-flash", "rx-flash");
           txrx.classList.add("light-inactive");
+        }, 180);
+      }
+
+      function pulseGlobalTxRx(direction) {
+        if (!globalTxRx) {
+          return;
+        }
+        globalTxRx.classList.remove("tx-flash", "rx-flash");
+        globalTxRx.classList.add(direction === "tx" ? "tx-flash" : "rx-flash");
+        setTimeout(() => {
+          globalTxRx.classList.remove("tx-flash", "rx-flash");
+          globalTxRx.classList.add("light-inactive");
         }, 180);
       }
 
@@ -896,6 +1060,11 @@ function buildHtml(): string {
       }
 
       async function showInstallDialog(initialZipPath) {
+        if (!installDevMode) {
+          append("[install] blocked: developer mode is required");
+          showToast("Plugin zip install is disabled outside --dev mode", "warn");
+          return;
+        }
         if (!ipcRenderer) {
           append("[ui] install failed: ipc renderer unavailable");
           return;
@@ -1115,6 +1284,11 @@ function buildHtml(): string {
       }
 
       async function installArchivePassive(zipPath) {
+        if (!installDevMode) {
+          append("[install] blocked: drag/drop install requires developer mode");
+          showToast("Drag/drop install is disabled outside --dev mode", "warn");
+          return;
+        }
         if (!ipcRenderer) {
           append("[install] failed: ipc renderer unavailable");
           return;
@@ -1332,6 +1506,7 @@ function buildHtml(): string {
           ipcPathEl.textContent = state.ipcPath || "(unset)";
           opsLogPathEl.textContent = state.opsLogPath || "(unset)";
           setStatus(state.status.state + " - " + state.status.detail);
+          renderOpsProcessState(state.opsControl || {});
           renderInstances(state.instances || {});
         } catch (err) {
           const detail = err instanceof Error ? err.message : "initial_state_failed";
@@ -1344,6 +1519,24 @@ function buildHtml(): string {
       if (!ipcRenderer) {
         append("[proto] electron ipcRenderer unavailable in renderer");
       } else {
+        if (opsStartBtn) {
+          opsStartBtn.addEventListener("click", () => {
+            void runOpsControl("start");
+          });
+        }
+        if (opsStopBtn) {
+          opsStopBtn.addEventListener("click", () => {
+            void runOpsControl("stop");
+          });
+        }
+        if (opsRestartBtn) {
+          opsRestartBtn.addEventListener("click", () => {
+            void runOpsControl("restart");
+          });
+        }
+        if (installDevMode) {
+          append("[dev] unsigned plugin zip install enabled (signature allowlist is not implemented yet)");
+        }
         if (!addAgentBtn) {
           append("[ui] add button not found in DOM");
         } else {
@@ -1351,14 +1544,17 @@ function buildHtml(): string {
             void showAddDialog();
           });
         }
-        if (!installPluginBtn) {
-          append("[ui] install button not found in DOM");
-        } else {
-          installPluginBtn.addEventListener("click", () => {
-            void showInstallDialog("");
-          });
+        if (installDevMode) {
+          if (!installPluginBtn) {
+            append("[ui] install button not found in DOM (developer mode)");
+          } else {
+            installPluginBtn.addEventListener("click", () => {
+              void showInstallDialog("");
+            });
+          }
         }
-        if (dropHint) {
+        if (installDevMode && dropHint) {
+          let dropDepth = 0;
           const showDropHint = () => {
             dropHint.hidden = false;
           };
@@ -1421,11 +1617,19 @@ function buildHtml(): string {
           renderInstances(payload.instances || {});
         });
 
+        ipcRenderer.on("ops:process", (_event, payload) => {
+          renderOpsProcessState(payload || {});
+        });
+
         ipcRenderer.on("ops:traffic", (_event, payload) => {
-          if (!payload || !payload.label) {
+          if (!payload) {
             return;
           }
-          pulseTxRx(payload.label, payload.direction === "tx" ? "tx" : "rx");
+          const direction = payload.direction === "tx" ? "tx" : "rx";
+          pulseGlobalTxRx(direction);
+          if (payload.label) {
+            pulseTxRx(payload.label, direction);
+          }
         });
       }
     </script>
@@ -1450,6 +1654,341 @@ function publishTraffic(direction: "tx" | "rx", label?: string): void {
     timestamp: new Date().toISOString(),
   };
   mainWindow.webContents.send("ops:traffic", payload);
+}
+
+function publishOperationsControlState(): void {
+  if (!mainWindow) {
+    return;
+  }
+  mainWindow.webContents.send("ops:process", operationsControlState);
+}
+
+function setOperationsControlState(
+  state: OperationsProcessState,
+  detail: string,
+  managed: boolean,
+  pid: number | null,
+): void {
+  if (
+    operationsControlState.state === state &&
+    operationsControlState.detail === detail &&
+    operationsControlState.managed === managed &&
+    operationsControlState.pid === pid
+  ) {
+    return;
+  }
+  operationsControlState = {
+    state,
+    detail,
+    managed,
+    pid,
+    timestamp: new Date().toISOString(),
+  };
+  publishOperationsControlState();
+}
+
+function appendOpsLogChunk(rawChunk: unknown): void {
+  if (!opsLogPath) {
+    return;
+  }
+  const chunk =
+    typeof rawChunk === "string"
+      ? rawChunk
+      : (rawChunk && typeof rawChunk === "object" && "toString" in rawChunk
+        ? String((rawChunk as { toString: () => string }).toString())
+        : "");
+  if (chunk.length === 0) {
+    return;
+  }
+  opsLogWriteQueue = opsLogWriteQueue
+    .then(() => writeFile(opsLogPath, chunk, { flag: "a" }))
+    .catch(() => {
+      // Keep the write chain alive on transient write failures.
+    });
+}
+
+function quoteBashArg(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function buildOperationsStartCommand(): { args: string[]; command: string } {
+  const configPath = runtimeProcess.env.MIMOLO_RUNTIME_CONFIG_PATH || "";
+  const override = runtimeProcess.env.MIMOLO_OPERATIONS_START_CMD || "";
+  const defaultCmd = configPath
+    ? `exec poetry run python -m mimolo.cli monitor --config ${quoteBashArg(configPath)}`
+    : "exec poetry run python -m mimolo.cli monitor";
+  const shellCommand = override.trim().length > 0 ? override.trim() : defaultCmd;
+  if (runtimeProcess.platform === "win32") {
+    return {
+      command: "pwsh",
+      args: ["-NoProfile", "-Command", shellCommand],
+    };
+  }
+  return {
+    command: "bash",
+    args: ["-lc", shellCommand],
+  };
+}
+
+async function startOperationsProcess(): Promise<{
+  error?: string;
+  ok: boolean;
+  state: OperationsControlSnapshot;
+}> {
+  if (operationsProcess) {
+    setOperationsControlState(
+      "running",
+      "already_running_managed",
+      true,
+      typeof operationsProcess.pid === "number" ? operationsProcess.pid : null,
+    );
+    return {
+      ok: true,
+      state: operationsControlState,
+    };
+  }
+
+  if (lastStatus.state === "connected") {
+    setOperationsControlState("running", "external_unmanaged", false, null);
+    return {
+      ok: false,
+      error: "operations_running_unmanaged",
+      state: operationsControlState,
+    };
+  }
+
+  const cwdRaw = runtimeProcess.env.MIMOLO_REPO_ROOT || "";
+  const spawnCwd = cwdRaw.trim().length > 0
+    ? cwdRaw.trim()
+    : (typeof runtimeProcess.cwd === "function" ? runtimeProcess.cwd() : undefined);
+
+  setOperationsControlState("starting", "launching", true, null);
+  if (opsLogPath) {
+    try {
+      await mkdir(path.dirname(opsLogPath), { recursive: true });
+      await writeFile(opsLogPath, "", { flag: "a" });
+      appendOpsLogChunk("\n[control] starting operations process\n");
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "ops_log_init_failed";
+      publishLine(`[ops-log] init failed before spawn: ${detail}`);
+    }
+  }
+
+  const launch = buildOperationsStartCommand();
+  try {
+    const child = spawn(launch.command, launch.args, {
+      cwd: spawnCwd,
+      env: runtimeProcess.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    operationsStopRequested = false;
+    operationsProcess = child;
+    setOperationsControlState(
+      "running",
+      "spawned_by_control",
+      true,
+      typeof child.pid === "number" ? child.pid : null,
+    );
+
+    if (child.stdout) {
+      child.stdout.on("data", (chunk: unknown) => {
+        appendOpsLogChunk(chunk);
+      });
+    }
+    if (child.stderr) {
+      child.stderr.on("data", (chunk: unknown) => {
+        appendOpsLogChunk(chunk);
+      });
+    }
+
+    child.on("error", (err: { message?: string }) => {
+      if (operationsProcess !== child) {
+        return;
+      }
+      operationsProcess = null;
+      operationsStopRequested = false;
+      const detail = err && typeof err.message === "string"
+        ? err.message
+        : "spawn_failed";
+      setOperationsControlState("error", `spawn_error:${detail}`, true, null);
+      publishLine(`[ops] spawn failed: ${detail}`);
+    });
+
+    child.on("exit", (code: number | null, signal: string | null) => {
+      if (operationsProcess !== child) {
+        return;
+      }
+      operationsProcess = null;
+      const stopRequested = operationsStopRequested;
+      operationsStopRequested = false;
+      if (stopRequested) {
+        setOperationsControlState("stopped", "stopped_by_control", false, null);
+        return;
+      }
+      if (code === 0) {
+        setOperationsControlState("stopped", "exited_clean", false, null);
+        return;
+      }
+      const detail = `exited_unexpectedly(code=${String(code)},signal=${String(signal)})`;
+      setOperationsControlState("error", detail, false, null);
+    });
+
+    return {
+      ok: true,
+      state: operationsControlState,
+    };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "spawn_failed";
+    setOperationsControlState("error", `spawn_failed:${detail}`, true, null);
+    return {
+      ok: false,
+      error: "spawn_failed",
+      state: operationsControlState,
+    };
+  }
+}
+
+function waitForProcessExit(
+  processRef: ReturnType<typeof spawn>,
+  timeoutMs: number,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(value);
+    };
+
+    processRef.on("exit", () => {
+      finish(true);
+    });
+
+    setTimeout(() => {
+      finish(false);
+    }, timeoutMs);
+  });
+}
+
+async function stopOperationsProcess(): Promise<{
+  error?: string;
+  ok: boolean;
+  state: OperationsControlSnapshot;
+}> {
+  if (!operationsProcess) {
+    if (lastStatus.state === "connected") {
+      setOperationsControlState("running", "external_unmanaged", false, null);
+      return {
+        ok: false,
+        error: "operations_not_managed",
+        state: operationsControlState,
+      };
+    }
+    setOperationsControlState("stopped", "not_managed", false, null);
+    return {
+      ok: true,
+      state: operationsControlState,
+    };
+  }
+
+  const child = operationsProcess;
+  operationsStopRequested = true;
+  setOperationsControlState(
+    "stopping",
+    "stop_requested",
+    true,
+    typeof child.pid === "number" ? child.pid : null,
+  );
+
+  try {
+    child.kill("SIGTERM");
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "kill_failed";
+    setOperationsControlState("error", `stop_failed:${detail}`, true, null);
+    return {
+      ok: false,
+      error: "stop_failed",
+      state: operationsControlState,
+    };
+  }
+
+  const exitedGracefully = await waitForProcessExit(child, 5000);
+  if (!exitedGracefully && operationsProcess === child) {
+    try {
+      child.kill("SIGKILL");
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "kill_force_failed";
+      setOperationsControlState("error", `force_stop_failed:${detail}`, true, null);
+      return {
+        ok: false,
+        error: "force_stop_failed",
+        state: operationsControlState,
+      };
+    }
+    await waitForProcessExit(child, 1500);
+  }
+
+  if (operationsProcess === child) {
+    operationsProcess = null;
+    operationsStopRequested = false;
+    setOperationsControlState("stopped", "stopped_by_control", false, null);
+  }
+  return {
+    ok: true,
+    state: operationsControlState,
+  };
+}
+
+async function controlOperations(
+  request: OperationsControlRequest,
+): Promise<{
+  error?: string;
+  ok: boolean;
+  state: OperationsControlSnapshot;
+}> {
+  if (request.action === "status") {
+    return {
+      ok: true,
+      state: operationsControlState,
+    };
+  }
+  if (request.action === "start") {
+    return startOperationsProcess();
+  }
+  if (request.action === "stop") {
+    return stopOperationsProcess();
+  }
+  if (request.action === "restart") {
+    const stopResult = await stopOperationsProcess();
+    if (!stopResult.ok && stopResult.error !== "operations_not_managed") {
+      return stopResult;
+    }
+    return startOperationsProcess();
+  }
+  return {
+    ok: false,
+    error: "invalid_ops_action",
+    state: operationsControlState,
+  };
+}
+
+function haltManagedOperationsForShutdown(): void {
+  if (!operationsProcess) {
+    return;
+  }
+  const child = operationsProcess;
+  operationsStopRequested = true;
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Ignore shutdown-time kill failures.
+    }
+  }
 }
 
 function publishInstances(
@@ -1838,12 +2377,21 @@ async function refreshIpcStatus(): Promise<void> {
     const response = await sendIpcCommand("ping");
     if (response.ok) {
       setStatus("connected", "ipc_ready");
+      if (!operationsProcess) {
+        setOperationsControlState("running", "external_unmanaged", false, null);
+      }
       return;
     }
     setStatus("disconnected", response.error || "ipc_unavailable");
+    if (!operationsProcess) {
+      setOperationsControlState("stopped", "not_managed", false, null);
+    }
   } catch (err) {
     const detail = err instanceof Error ? err.message : "ipc_unavailable";
     setStatus("disconnected", detail);
+    if (!operationsProcess) {
+      setOperationsControlState("stopped", "not_managed", false, null);
+    }
   }
 }
 
@@ -1898,12 +2446,33 @@ async function pumpOpsLog(): Promise<void> {
       }
     }
   } catch (err) {
+    if (
+      err &&
+      typeof err === "object" &&
+      "code" in err &&
+      (err as { code?: string }).code === "ENOENT"
+    ) {
+      if (!opsLogWarningPrinted) {
+        publishLine(`[ops-log] waiting for file: ${opsLogPath}`);
+        opsLogWarningPrinted = true;
+      }
+      return;
+    }
     const detail = err instanceof Error ? err.message : "ops_log_read_failed";
-    setStatus("disconnected", `ops_log_error:${detail}`);
+    publishLine(`[ops-log] read failed: ${detail}`);
   }
 }
 
 async function loadInitialSnapshot(): Promise<void> {
+  if (opsLogPath) {
+    try {
+      await mkdir(path.dirname(opsLogPath), { recursive: true });
+      await writeFile(opsLogPath, "", { flag: "a" });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "ops_log_init_failed";
+      publishLine(`[ops-log] init failed: ${detail}`);
+    }
+  }
   await refreshIpcStatus();
   try {
     const registeredResponse = await sendIpcCommand("get_registered_plugins");
@@ -2004,6 +2573,16 @@ async function requestWidgetRender(
 async function inspectPluginArchive(
   payload: Record<string, unknown>,
 ): Promise<IpcResponsePayload> {
+  if (!controlDevMode) {
+    return {
+      ok: false,
+      error: "dev_mode_required",
+      data: {
+        detail:
+          "plugin zip inspection/install is disabled outside developer mode",
+      },
+    };
+  }
   const zipPath = coerceNonEmptyString(payload.zip_path);
   if (!zipPath) {
     return {
@@ -2019,6 +2598,16 @@ async function inspectPluginArchive(
 async function installPluginArchive(
   payload: Record<string, unknown>,
 ): Promise<IpcResponsePayload> {
+  if (!controlDevMode) {
+    return {
+      ok: false,
+      error: "dev_mode_required",
+      data: {
+        detail:
+          "plugin zip inspection/install is disabled outside developer mode",
+      },
+    };
+  }
   const zipPath = coerceNonEmptyString(payload.zip_path);
   if (!zipPath) {
     return {
@@ -2079,6 +2668,7 @@ function stopBackgroundLoops(): void {
     clearInterval(instanceTimer);
     instanceTimer = null;
   }
+  haltManagedOperationsForShutdown();
   stopPersistentIpc();
 }
 
@@ -2108,8 +2698,36 @@ ipcMain.handle("mml:initial-state", () => {
     ipcPath,
     opsLogPath,
     status: lastStatus,
+    opsControl: operationsControlState,
     instances: lastAgentInstances,
   };
+});
+
+ipcMain.handle("mml:ops-control", async (_event, payload: unknown) => {
+  if (!payload || typeof payload !== "object") {
+    return {
+      ok: false,
+      error: "invalid_ops_payload",
+      state: operationsControlState,
+    };
+  }
+  const raw = payload as Record<string, unknown>;
+  const actionRaw = raw.action;
+  if (
+    actionRaw !== "start" &&
+    actionRaw !== "stop" &&
+    actionRaw !== "restart" &&
+    actionRaw !== "status"
+  ) {
+    return {
+      ok: false,
+      error: "invalid_ops_action",
+      state: operationsControlState,
+    };
+  }
+  return controlOperations({
+    action: actionRaw,
+  });
 });
 
 ipcMain.handle("mml:list-agent-templates", async () => {
@@ -2141,6 +2759,13 @@ ipcMain.handle("mml:request-widget-render", (_event, payload: unknown) => {
 });
 
 ipcMain.handle("mml:pick-plugin-archive", async () => {
+  if (!controlDevMode) {
+    return {
+      ok: false,
+      error: "dev_mode_required",
+      detail: "plugin zip install is disabled outside developer mode",
+    };
+  }
   if (!mainWindow) {
     return {
       ok: false,

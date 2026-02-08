@@ -57,6 +57,19 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
   - alias `--rebuild-dist`
   - explicit `cleanup` command
   - explicit `prepare` command in PowerShell launcher
+- Added macOS bundle utility scripts for dev packaging:
+  - `scripts/bundle_app.sh` (primary implementation)
+  - `scripts/bundle_app.ps1` (PowerShell wrapper)
+- Added `bundle-app` launcher verb in `mml.sh` and `mml.ps1` to dispatch to bundle utility scripts.
+- Added `mml.toml` bundle defaults for bundle generation:
+  - `bundle_target_default`
+  - `bundle_out_dir`
+  - `bundle_version_default`
+  - `bundle_app_name_proto`
+  - `bundle_app_name_control`
+  - `bundle_bundle_id_proto`
+  - `bundle_bundle_id_control`
+  - `bundle_dev_mode_default`
 - Added launcher self-repair behavior for Electron startup:
   - auto-install Electron runtime via `npm ci` in `mimolo-control` when missing
   - auto-build missing `dist/main.js` for `mimolo-control` and `mimolo/control_proto`
@@ -86,6 +99,30 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 - Updated Control proto with non-blocking installer status toasts for passive drag/drop install flow.
 - Updated launcher cleanup logic to avoid deleting `node_modules/**` artifacts while still clearing repo build caches.
 - Updated default non-Windows IPC socket behavior to use short `/tmp/mimolo/operations.sock` paths with length-guard fallback to avoid AF_UNIX path-length failures in portable mode.
+- Updated Control proto install UX policy enforcement:
+  - `+ Add` remains the default instance-management flow driven by template registry ground truth.
+  - plugin zip install UI/drag-drop path is now disabled by default and gated behind developer mode (`MIMOLO_CONTROL_DEV_MODE=1`).
+  - added explicit developer-mode warning that signature allowlist enforcement is not yet implemented for sideload flow.
+- Updated launchers `mml.sh` and `mml.ps1` with global `--dev` flag to propagate Control dev-install mode without changing default `all-proto` startup behavior.
+- Updated portable deploy utilities to sync bundle scripts into portable bin (`temp_debug/bin/scripts/`) so `bundle-app` remains available from portable launchers.
+- Updated launcher `help` output to include a final `Defaults from mml.toml` section for fast visibility of active launcher/bundle defaults.
+- Updated `scripts/bundle_app.sh` to read bundle defaults from `mml.toml` when corresponding CLI options are not provided.
+- Updated Control proto status handling so missing/uninitialized ops log files no longer force transport status to `disconnected`; IPC connectivity remains the source of truth.
+- Updated Control proto startup to initialize the configured ops log path directory/file when possible, and report log-read issues in the stream instead of masking IPC status.
+- Updated `bundle-app` output to print a shell-safe quoted `open "<path>.app"` launch command for app names that include spaces/parentheses.
+- Updated Control proto header with global Operations controls:
+  - `Start Ops`
+  - `Stop Ops`
+  - `Restart Ops`
+  with process-state display (`running/stopped/starting/stopping/error`) and managed/unmanaged ownership detail.
+- Updated Control proto to support app-owned Operations process lifecycle:
+  - start/stop/restart handlers in Electron main process (`mml:ops-control`)
+  - managed process stdout/stderr append into configured ops log path for stream viewer continuity
+  - safe refusal to kill externally managed Operations instances.
+- Updated Control proto global TX/RX indicator behavior:
+  - header-level tx/rx light now pulses for all IPC traffic
+  - per-agent tx/rx lights continue to pulse when request traffic is label-scoped.
+- Updated launcher/bundle environment propagation to include `MIMOLO_REPO_ROOT`, improving in-app Operations start reliability from bundled app launches.
 
 ## 2026-01-31
 

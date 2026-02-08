@@ -59,9 +59,10 @@ Launch-time gate (Operations):
 
 ## 6. UX Intent for Control
 
-- Drag/drop and file-picker install UX remain supported for user ergonomics.
-- In release mode, install attempts for unsigned/unallowlisted plugins are rejected with clear diagnostics.
-- In unsafe developer mode, install can proceed after explicit warning/acknowledgment.
+- In release/default mode, Control does not expose runtime zip sideload install UI.
+- Distribution/build-time plugin deployment is the normal path.
+- In unsafe developer mode (`--dev` launcher flag), file-picker and drag/drop zip install UX can be enabled for local testing.
+- Developer mode must display an explicit warning each launch/session that signature allowlist enforcement is not implemented yet for that flow.
 
 ## 7. Relationship to Other Docs
 
@@ -70,4 +71,3 @@ Launch-time gate (Operations):
   `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
 - Workflow intent:
   `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`
-

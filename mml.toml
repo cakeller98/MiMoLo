@@ -13,8 +13,28 @@
   portable_root = "./temp_debug"
 
   # Agents seeded by portable deploy script when preparing runtime artifacts.
-  # Keep this small for baseline testing; add others manually through Control install flow.
+  # Keep this small for baseline testing; add others manually via deploy tooling
+  # (or explicitly in developer mode when testing sideload flow).
   deploy_agents_default = "agent_template,agent_example"
+
+  # Developer-mode plugin zip install for Control/proto is enabled per launch via:
+  #   ./mml.sh --dev ...
+  #   .\mml.ps1 --dev ...
+  # Default behavior keeps zip install disabled.
+
+  # ---------------------------
+  # macOS bundle-app defaults
+  # ---------------------------
+  # Used by scripts/bundle_app.sh (and launcher bundle-app verbs).
+  # Leave blank to use built-in defaults.
+  bundle_target_default = "proto"
+  bundle_out_dir = "./temp_debug/bundles/macos"
+  bundle_version_default = ""
+  bundle_app_name_proto = ""
+  bundle_app_name_control = "MiMoLo.app"
+  bundle_bundle_id_proto = "com.mimolo.control.proto.dev"
+  bundle_bundle_id_control = "com.mimolo.control.dev"
+  bundle_dev_mode_default = ""
 
   # Optional explicit overrides; leave blank to derive from portable_root.
   # data_dir = "./temp_debug/user_home/mimolo"

@@ -4,9 +4,11 @@
 #   ./mml.sh [command]
 #   ./mml.sh --no-cache [command]
 #   ./mml.sh --rebuild-dist [command]
+#   ./mml.sh --dev [command]
 #   ./mml.sh operations [monitor args...]
 #   ./mml.sh all-proto [monitor args...]
 #   ./mml.sh all-control [monitor args...]
+#   ./mml.sh bundle-app [bundle args...]
 
 set -euo pipefail
 
@@ -30,8 +32,17 @@ CONFIG_MONITOR_LOG_DIR=""
 CONFIG_MONITOR_JOURNAL_DIR=""
 CONFIG_MONITOR_CACHE_DIR=""
 CONFIG_DEPLOY_AGENTS_DEFAULT=""
+CONFIG_BUNDLE_TARGET_DEFAULT=""
+CONFIG_BUNDLE_OUT_DIR=""
+CONFIG_BUNDLE_VERSION_DEFAULT=""
+CONFIG_BUNDLE_APP_NAME_PROTO=""
+CONFIG_BUNDLE_APP_NAME_CONTROL=""
+CONFIG_BUNDLE_BUNDLE_ID_PROTO=""
+CONFIG_BUNDLE_BUNDLE_ID_CONTROL=""
+CONFIG_BUNDLE_DEV_MODE_DEFAULT=""
 EFFECTIVE_PORTABLE_ROOT=""
 NO_CACHE=0
+DEV_MODE=0
 IPC_SOCKET_MAX_LENGTH=100
 
 trim() {
@@ -74,6 +85,14 @@ load_launcher_config() {
   CONFIG_MONITOR_JOURNAL_DIR="$(get_toml_value "monitor_journal_dir" "")"
   CONFIG_MONITOR_CACHE_DIR="$(get_toml_value "monitor_cache_dir" "")"
   CONFIG_DEPLOY_AGENTS_DEFAULT="$(get_toml_value "deploy_agents_default" "")"
+  CONFIG_BUNDLE_TARGET_DEFAULT="$(get_toml_value "bundle_target_default" "")"
+  CONFIG_BUNDLE_OUT_DIR="$(get_toml_value "bundle_out_dir" "")"
+  CONFIG_BUNDLE_VERSION_DEFAULT="$(get_toml_value "bundle_version_default" "")"
+  CONFIG_BUNDLE_APP_NAME_PROTO="$(get_toml_value "bundle_app_name_proto" "")"
+  CONFIG_BUNDLE_APP_NAME_CONTROL="$(get_toml_value "bundle_app_name_control" "")"
+  CONFIG_BUNDLE_BUNDLE_ID_PROTO="$(get_toml_value "bundle_bundle_id_proto" "")"
+  CONFIG_BUNDLE_BUNDLE_ID_CONTROL="$(get_toml_value "bundle_bundle_id_control" "")"
+  CONFIG_BUNDLE_DEV_MODE_DEFAULT="$(get_toml_value "bundle_dev_mode_default" "")"
 }
 
 normalize_all_command() {
@@ -109,6 +128,7 @@ apply_environment_defaults() {
 
   export MIMOLO_DATA_DIR="${MIMOLO_DATA_DIR:-${CONFIG_DATA_DIR:-$derived_data_dir}}"
   export MIMOLO_BIN_DIR="${MIMOLO_BIN_DIR:-${CONFIG_BIN_DIR:-$derived_bin_dir}}"
+  export MIMOLO_REPO_ROOT="${MIMOLO_REPO_ROOT:-$SCRIPT_DIR}"
   export PATH="${MIMOLO_BIN_DIR}:${PATH}"
 
   local derived_runtime_config="${MIMOLO_DATA_DIR}/operations/mimolo.portable.toml"
@@ -241,6 +261,16 @@ maybe_reset_and_prepare() {
   run_prepare
 }
 
+apply_dev_mode_env() {
+  if [[ "$DEV_MODE" -eq 1 ]]; then
+    export MIMOLO_CONTROL_DEV_MODE="1"
+    return
+  fi
+  if [[ -z "${MIMOLO_CONTROL_DEV_MODE:-}" ]]; then
+    export MIMOLO_CONTROL_DEV_MODE="0"
+  fi
+}
+
 ensure_control_build() {
   if ! (cd "$SCRIPT_DIR/mimolo-control" && npx --no-install electron --version >/dev/null 2>&1); then
     echo "[dev-stack] Electron runtime missing for mimolo-control; running npm ci..."
@@ -277,15 +307,27 @@ ensure_prepared() {
 }
 
 print_usage() {
-  cat <<'EOF'
+  local display_portable_root="${CONFIG_PORTABLE_ROOT:-./temp_debug}"
+  local display_seed_agents="${CONFIG_DEPLOY_AGENTS_DEFAULT:-agent_template,agent_example}"
+  local display_bundle_target="${CONFIG_BUNDLE_TARGET_DEFAULT:-proto}"
+  local display_bundle_out_dir="${CONFIG_BUNDLE_OUT_DIR:-./temp_debug/bundles/macos}"
+  local display_bundle_version="${CONFIG_BUNDLE_VERSION_DEFAULT:-<package version>}"
+  local display_bundle_name_proto="${CONFIG_BUNDLE_APP_NAME_PROTO:-mimolo-proto (v<package_version>).app}"
+  local display_bundle_name_control="${CONFIG_BUNDLE_APP_NAME_CONTROL:-MiMoLo.app}"
+  local display_bundle_id_proto="${CONFIG_BUNDLE_BUNDLE_ID_PROTO:-com.mimolo.control.proto.dev}"
+  local display_bundle_id_control="${CONFIG_BUNDLE_BUNDLE_ID_CONTROL:-com.mimolo.control.dev}"
+  local display_bundle_dev_mode="${CONFIG_BUNDLE_DEV_MODE_DEFAULT:-<inherit launcher env/--dev>}"
+  cat <<EOF
 MiMoLo Portable Dev Launcher
 
 Commands:
   [no command] Use default_command from mml.toml
   --no-cache  Global flag: cleanup and rebuild portable artifacts before launch
   --rebuild-dist Alias for --no-cache
+  --dev       Global flag: enable developer-mode plugin zip install in Control/proto
   prepare     Build/sync portable bin artifacts and seed default agents
   cleanup     Remove temp_debug, all dist folders, and all __pycache__ folders
+  bundle-app  Build macOS .app bundle for proto/control via scripts/bundle_app.sh
   env         Show effective environment and launch commands
   operations  Launch Operations (orchestrator): poetry run python -m mimolo.cli monitor
   control     Launch Electron Control app (mimolo-control)
@@ -303,13 +345,31 @@ Examples:
   ./mml.sh
   ./mml.sh --no-cache
   ./mml.sh --rebuild-dist
+  ./mml.sh --dev all-proto
   ./mml.sh --no-cache all-proto
+  ./mml.sh bundle-app
+  ./mml.sh --dev bundle-app --target proto
   ./mml.sh prepare
   ./mml.sh cleanup
   ./mml.sh env
   ./mml.sh operations --once
   ./mml.sh proto
   ./mml.sh all-proto
+
+Defaults from mml.toml:
+  default_command=$DEFAULT_COMMAND
+  default_stack=$DEFAULT_STACK
+  socket_wait_seconds=$SOCKET_WAIT_SECONDS
+  portable_root=$display_portable_root
+  deploy_agents_default=$display_seed_agents
+  bundle_target_default=$display_bundle_target
+  bundle_out_dir=$display_bundle_out_dir
+  bundle_version_default=$display_bundle_version
+  bundle_app_name_proto=$display_bundle_name_proto
+  bundle_app_name_control=$display_bundle_name_control
+  bundle_bundle_id_proto=$display_bundle_id_proto
+  bundle_bundle_id_control=$display_bundle_id_control
+  bundle_dev_mode_default=$display_bundle_dev_mode
 EOF
 }
 
@@ -331,6 +391,7 @@ launch_control() {
   echo "[dev-stack] MIMOLO_DATA_DIR=$MIMOLO_DATA_DIR"
   echo "[dev-stack] MIMOLO_BIN_DIR=$MIMOLO_BIN_DIR"
   echo "[dev-stack] MIMOLO_IPC_PATH=$MIMOLO_IPC_PATH"
+  echo "[dev-stack] MIMOLO_CONTROL_DEV_MODE=$MIMOLO_CONTROL_DEV_MODE"
   (cd "$SCRIPT_DIR/mimolo-control" && env -u ELECTRON_RUN_AS_NODE npm run start)
 }
 
@@ -342,7 +403,26 @@ launch_proto() {
   echo "[dev-stack] MIMOLO_BIN_DIR=$MIMOLO_BIN_DIR"
   echo "[dev-stack] MIMOLO_IPC_PATH=$MIMOLO_IPC_PATH"
   echo "[dev-stack] MIMOLO_OPS_LOG_PATH=$MIMOLO_OPS_LOG_PATH"
+  echo "[dev-stack] MIMOLO_CONTROL_DEV_MODE=$MIMOLO_CONTROL_DEV_MODE"
   (cd "$SCRIPT_DIR/mimolo/control_proto" && env -u ELECTRON_RUN_AS_NODE npm run start)
+}
+
+launch_bundle_app() {
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    if [[ ! -f "$SCRIPT_DIR/scripts/bundle_app.sh" ]]; then
+      echo "[dev-stack] missing bundle script: $SCRIPT_DIR/scripts/bundle_app.sh" >&2
+      exit 2
+    fi
+    "$SCRIPT_DIR/scripts/bundle_app.sh" "$@"
+    return
+  fi
+  ensure_portable_layout
+  ensure_prepared
+  if [[ ! -x "$SCRIPT_DIR/scripts/bundle_app.sh" ]]; then
+    echo "[dev-stack] missing or non-executable bundle script: $SCRIPT_DIR/scripts/bundle_app.sh" >&2
+    exit 2
+  fi
+  "$SCRIPT_DIR/scripts/bundle_app.sh" "$@"
 }
 
 wait_for_ipc_socket() {
@@ -438,14 +518,22 @@ apply_environment_defaults
 if [[ "$#" -gt 0 ]]; then
   filtered_args=()
   for arg in "$@"; do
-    if [[ "$arg" == "--no-cache" || "$arg" == "--rebuild-dist" ]]; then
-      NO_CACHE=1
-      continue
-    fi
+    case "$arg" in
+      --no-cache|--rebuild-dist)
+        NO_CACHE=1
+        continue
+        ;;
+      --dev)
+        DEV_MODE=1
+        continue
+        ;;
+    esac
     filtered_args+=("$arg")
   done
   set -- "${filtered_args[@]}"
 fi
+
+apply_dev_mode_env
 
 COMMAND=""
 if [[ "$#" -gt 0 ]]; then
@@ -464,6 +552,7 @@ case "$COMMAND" in
     ensure_portable_layout
     echo "MIMOLO_DATA_DIR=$MIMOLO_DATA_DIR"
     echo "MIMOLO_BIN_DIR=$MIMOLO_BIN_DIR"
+    echo "MIMOLO_REPO_ROOT=$MIMOLO_REPO_ROOT"
     echo "MIMOLO_RUNTIME_CONFIG_PATH=$MIMOLO_RUNTIME_CONFIG_PATH"
     echo "MIMOLO_CONFIG_SOURCE_PATH=$MIMOLO_CONFIG_SOURCE_PATH"
     echo "MIMOLO_IPC_PATH=$MIMOLO_IPC_PATH"
@@ -474,6 +563,15 @@ case "$COMMAND" in
     echo "default_command=$DEFAULT_COMMAND"
     echo "default_stack=$DEFAULT_STACK"
     echo "socket_wait_seconds=$SOCKET_WAIT_SECONDS"
+    echo "control_dev_mode=$MIMOLO_CONTROL_DEV_MODE"
+    echo "bundle_target_default=${CONFIG_BUNDLE_TARGET_DEFAULT:-proto}"
+    echo "bundle_out_dir=${CONFIG_BUNDLE_OUT_DIR:-./temp_debug/bundles/macos}"
+    echo "bundle_version_default=${CONFIG_BUNDLE_VERSION_DEFAULT:-}"
+    echo "bundle_app_name_proto=${CONFIG_BUNDLE_APP_NAME_PROTO:-}"
+    echo "bundle_app_name_control=${CONFIG_BUNDLE_APP_NAME_CONTROL:-}"
+    echo "bundle_bundle_id_proto=${CONFIG_BUNDLE_BUNDLE_ID_PROTO:-com.mimolo.control.proto.dev}"
+    echo "bundle_bundle_id_control=${CONFIG_BUNDLE_BUNDLE_ID_CONTROL:-com.mimolo.control.dev}"
+    echo "bundle_dev_mode_default=${CONFIG_BUNDLE_DEV_MODE_DEFAULT:-}"
     echo "no_cache_supported=true"
     echo
     echo "Launch commands:"
@@ -482,11 +580,13 @@ case "$COMMAND" in
     echo "  ./mml.sh cleanup"
     echo "  ./mml.sh --no-cache [command]"
     echo "  ./mml.sh --rebuild-dist [command]"
+    echo "  ./mml.sh --dev [command]"
     echo "  ./mml.sh operations"
     echo "  ./mml.sh control"
     echo "  ./mml.sh proto"
     echo "  ./mml.sh all-proto"
     echo "  ./mml.sh all-control"
+    echo "  ./mml.sh bundle-app [bundle args]"
     ;;
   operations)
     maybe_reset_and_prepare
@@ -501,6 +601,10 @@ case "$COMMAND" in
     ;;
   cleanup)
     cleanup_artifacts
+    ;;
+  bundle-app)
+    maybe_reset_and_prepare
+    launch_bundle_app "$@"
     ;;
   control)
     maybe_reset_and_prepare

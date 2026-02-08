@@ -134,6 +134,8 @@ fi
 
 echo "[deploy] syncing runtime artifacts..."
 sync_file "$REPO_ROOT/mml.sh" "$BIN_DIR/mml.sh"
+sync_file "$REPO_ROOT/scripts/bundle_app.sh" "$BIN_DIR/scripts/bundle_app.sh"
+sync_file "$REPO_ROOT/scripts/bundle_app.ps1" "$BIN_DIR/scripts/bundle_app.ps1"
 sync_file "$REPO_ROOT/mml.toml" "$BIN_DIR/mml.toml"
 sync_file "$REPO_ROOT/pyproject.toml" "$BIN_DIR/pyproject.toml"
 if [[ -f "$REPO_ROOT/poetry.lock" ]]; then
@@ -144,6 +146,7 @@ sync_dir "$REPO_ROOT/mimolo/control_proto/dist/" "$BIN_DIR/control_proto/dist/"
 sync_dir "$REPO_ROOT/mimolo/" "$BIN_DIR/runtime/mimolo/"
 
 chmod +x "$BIN_DIR/mml.sh" || true
+chmod +x "$BIN_DIR/scripts/bundle_app.sh" || true
 
 echo "[deploy] seeding agents: $AGENTS_TO_SEED"
 poetry run python - <<'PY' "$REPO_ROOT" "$DATA_DIR" "$AGENTS_TO_SEED"
