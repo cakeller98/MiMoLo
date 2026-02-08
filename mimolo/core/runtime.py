@@ -27,6 +27,7 @@ from mimolo.core.cooldown import CooldownTimer
 from mimolo.core.errors import SinkError
 from mimolo.core.event import Event
 from mimolo.core.ipc import MAX_SOCKET_PATH_LENGTH
+from mimolo.core.plugin_store import PluginStore
 from mimolo.core.sink import ConsoleSink, create_sink
 
 AgentLifecycleState = Literal["running", "shutting-down", "inactive", "error"]
@@ -88,6 +89,7 @@ class Runtime:
         self._ipc_stop_event = threading.Event()
         self._ipc_thread: threading.Thread | None = None
         self._ipc_server_socket: socket.socket | None = None
+        self._plugin_store = PluginStore()
 
     def _start_agents(self) -> None:
         """Spawn Agent plugins from config."""
@@ -226,10 +228,32 @@ class Runtime:
 
     def _infer_template_id(self, label: str, plugin_cfg: PluginConfig) -> str:
         """Infer template id from args path, falling back to label."""
+        local_agents_root = (Path(__file__).parent.parent / "agents").resolve()
+        installed_agents_root = (self._plugin_store.plugins_root / "agents").resolve()
         for arg in plugin_cfg.args:
-            if "/" not in arg or not arg.endswith(".py"):
+            if not arg.endswith(".py"):
                 continue
-            head = arg.split("/", 1)[0].strip()
+
+            script_path = Path(arg)
+            if script_path.is_absolute():
+                try:
+                    resolved = script_path.resolve()
+                except OSError:
+                    resolved = script_path
+                for root in (installed_agents_root, local_agents_root):
+                    try:
+                        relative = resolved.relative_to(root)
+                    except ValueError:
+                        continue
+                    if relative.parts:
+                        candidate = relative.parts[0].strip()
+                        if candidate:
+                            return candidate
+
+            normalized = arg.replace("\\", "/")
+            if "/" not in normalized:
+                continue
+            head = normalized.split("/", 1)[0].strip()
             if head:
                 return head
         return label
@@ -271,6 +295,57 @@ class Runtime:
                         "launch_in_separate_terminal": False,
                     },
                 }
+
+        # Installed plugins in app-data are source-of-truth for deployed artifacts.
+        try:
+            installed_agents = self._plugin_store.list_installed("agents")
+        except ValueError:
+            installed_agents = []
+        installed_agents_root = (self._plugin_store.plugins_root / "agents").resolve()
+        for installed_entry in installed_agents:
+            plugin_id_raw = installed_entry.get("plugin_id")
+            plugin_id = (
+                str(plugin_id_raw).strip()
+                if plugin_id_raw is not None and str(plugin_id_raw).strip()
+                else ""
+            )
+            latest_path_raw = installed_entry.get("latest_path")
+            latest_path_text = (
+                str(latest_path_raw).strip()
+                if latest_path_raw is not None and str(latest_path_raw).strip()
+                else ""
+            )
+            latest_entry_raw = installed_entry.get("latest_entry")
+            latest_entry = (
+                str(latest_entry_raw).strip()
+                if latest_entry_raw is not None and str(latest_entry_raw).strip()
+                else ""
+            )
+            if not plugin_id or not latest_path_text or not latest_entry:
+                continue
+
+            script_path = (Path(latest_path_text) / latest_entry).resolve()
+            if not script_path.exists() or not script_path.is_file():
+                continue
+            try:
+                script_path.relative_to(installed_agents_root)
+            except ValueError:
+                continue
+
+            script_abs = str(script_path)
+            templates[plugin_id] = {
+                "template_id": plugin_id,
+                "script": script_abs,
+                "default_config": {
+                    "enabled": True,
+                    "plugin_type": "agent",
+                    "executable": "poetry",
+                    "args": ["run", "python", script_abs],
+                    "heartbeat_interval_s": 15.0,
+                    "agent_flush_interval_s": 60.0,
+                    "launch_in_separate_terminal": False,
+                },
+            }
 
         # Ensure all currently-configured templates remain selectable even if
         # their source directory is moved/renamed.
@@ -630,6 +705,119 @@ class Runtime:
                 "timestamp": now,
                 "data": {
                     "templates": self._discover_agent_templates(),
+                },
+            }
+
+        if cmd == "list_installed_plugins":
+            plugin_class_raw = request.get("plugin_class")
+            plugin_class = (
+                str(plugin_class_raw).strip().lower()
+                if plugin_class_raw is not None and str(plugin_class_raw).strip()
+                else "all"
+            )
+            try:
+                installed = self._plugin_store.list_installed(plugin_class)
+            except ValueError as e:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": str(e),
+                }
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "timestamp": now,
+                "data": {
+                    "plugin_class": plugin_class,
+                    "installed_plugins": installed,
+                    "source_of_truth": "filesystem",
+                    "registry_role": "cache_only",
+                },
+            }
+
+        if cmd == "inspect_plugin_archive":
+            zip_path_raw = request.get("zip_path")
+            zip_path = (
+                str(zip_path_raw).strip()
+                if zip_path_raw is not None and str(zip_path_raw).strip()
+                else ""
+            )
+            if not zip_path:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "missing_zip_path",
+                }
+
+            ok, detail, payload = self._plugin_store.inspect_plugin_archive(
+                Path(zip_path)
+            )
+            if not ok:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": detail,
+                    "data": payload,
+                }
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "timestamp": now,
+                "data": {
+                    "accepted": True,
+                    "inspection": payload,
+                    "source_of_truth": "filesystem",
+                    "registry_role": "cache_only",
+                },
+            }
+
+        if cmd in {"install_plugin", "upgrade_plugin"}:
+            zip_path_raw = request.get("zip_path")
+            zip_path = (
+                str(zip_path_raw).strip()
+                if zip_path_raw is not None and str(zip_path_raw).strip()
+                else ""
+            )
+            if not zip_path:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "missing_zip_path",
+                }
+
+            plugin_class_raw = request.get("plugin_class")
+            plugin_class = (
+                str(plugin_class_raw).strip().lower()
+                if plugin_class_raw is not None and str(plugin_class_raw).strip()
+                else "agents"
+            )
+
+            ok, detail, payload = self._plugin_store.install_plugin_archive(
+                Path(zip_path),
+                plugin_class,
+                require_newer=(cmd == "upgrade_plugin"),
+            )
+            if not ok:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": detail,
+                    "data": payload,
+                }
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "timestamp": now,
+                "data": {
+                    "accepted": True,
+                    "install_result": payload,
+                    "source_of_truth": "filesystem",
+                    "registry_role": "cache_only",
                 },
             }
 

@@ -50,8 +50,44 @@ declare module "electron" {
     exposeInMainWorld(key: string, api: unknown): void;
   }
 
+  export interface OpenDialogOptions {
+    title?: string;
+    properties?: string[];
+    filters?: Array<{
+      name: string;
+      extensions: string[];
+    }>;
+  }
+
+  export interface OpenDialogReturnValue {
+    canceled: boolean;
+    filePaths: string[];
+  }
+
+  export interface Dialog {
+    showOpenDialog(
+      browserWindow: BrowserWindow,
+      options: OpenDialogOptions
+    ): Promise<OpenDialogReturnValue>;
+  }
+
   export const app: App;
   export const ipcMain: IpcMain;
   export const ipcRenderer: IpcRenderer;
   export const contextBridge: ContextBridge;
+  export const dialog: Dialog;
+  const electronDefault: {
+    app: App;
+    BrowserWindow: typeof BrowserWindow;
+    ipcMain: IpcMain;
+    ipcRenderer: IpcRenderer;
+    contextBridge: ContextBridge;
+    dialog: Dialog;
+  };
+  export default electronDefault;
+}
+
+declare module "electron/main" {
+  const electronMain: typeof import("electron");
+  export default electronMain;
 }

@@ -44,3 +44,11 @@ declare module "node:fs/promises" {
   ): Promise<string>;
   export function stat(path: string): Promise<Stats>;
 }
+
+declare module "module" {
+  interface RequireFn {
+    (id: string): unknown;
+  }
+
+  export function createRequire(filename: string): RequireFn;
+}

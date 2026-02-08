@@ -25,12 +25,57 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
   - request-id tagging on control requests for stable response correlation
 - Added runtime IPC response request-id echo support in `mimolo/core/runtime.py` for persistent-client correlation.
 - Added runtime IPC connection-serving threads so one long-lived client no longer blocks all other IPC clients.
+- Added filesystem-ground-truth plugin installation store support in `mimolo/core/plugin_store.py` under:
+  - `<MIMOLO_DATA_DIR>/operations/plugins/agents/<plugin_id>/<version>/`
+  - `<MIMOLO_DATA_DIR>/operations/plugins/reporters/<plugin_id>/<version>/`
+  - `<MIMOLO_DATA_DIR>/operations/plugins/widgets/<plugin_id>/<version>/`
+- Added Operations IPC commands for plugin deployment lifecycle:
+  - `list_installed_plugins`
+  - `inspect_plugin_archive`
+  - `install_plugin`
+  - `upgrade_plugin`
+- Added Control proto plugin-install UX:
+  - `Install` button modal with archive inspection + class/action selection
+  - drag-and-drop `.zip` archive support
+  - native file picker integration for archive selection
+- Added plugin install/upgrade tests and runtime IPC tests:
+  - `tests/test_plugin_store.py`
+  - `tests/test_runtime_plugin_install_ipc.py`
+  - `tests/test_runtime_template_discovery.py`
+- Added portable runtime path helpers in `mimolo/common/paths.py`:
+  - `MIMOLO_DATA_DIR` override support
+  - `MIMOLO_BIN_DIR` override support (`get_mimolo_bin_dir`)
+- Added portable deployment utility `scripts/deploy_portable.sh` that:
+  - incrementally syncs runtime artifacts into portable `bin/`
+  - writes `deploy-manifest.json`
+  - seeds default agents into portable plugin storage
+- Added cross-platform PowerShell deploy utility `scripts/deploy_portable.ps1`:
+  - compatible with `pwsh` on macOS/Windows/Linux
+  - same incremental sync + default agent seeding behavior as shell deploy script
 
 ### Changed
 - Updated Control proto agent cards to display widget-manifest status and widget-render placeholder state from Operations responses.
 - Kept widget canvas rendering security-first: renderer currently shows validated placeholder state text, not direct fragment injection.
 - Reduced widget polling chatter by caching manifest fetches per instance and increasing auto-refresh interval.
 - Removed redundant renderer-side `initial-state` polling loop; renderer now uses event-driven updates after initial hydrate.
+- Clarified runtime plugin deployment semantics in responses: filesystem is ground truth and registry is cache-only metadata.
+- Updated runtime agent template discovery to include installed agent plugins from app-data storage.
+- Updated agent process script-path resolution to allow only trusted roots:
+  - workspace `mimolo/agents`
+  - installed plugins under `<MIMOLO_DATA_DIR>/operations/plugins/agents`
+- Updated CLI monitor command to honor env overrides for monitor paths:
+  - `MIMOLO_MONITOR_LOG_DIR`
+  - `MIMOLO_MONITOR_JOURNAL_DIR`
+  - `MIMOLO_MONITOR_CACHE_DIR`
+- Updated `mml.sh` portable launcher behavior:
+  - always sets `MIMOLO_DATA_DIR` and `MIMOLO_BIN_DIR`
+  - seeds and uses `MIMOLO_RUNTIME_CONFIG_PATH` unless `--config` is passed explicitly
+  - routes IPC path, operations stream log, and monitor log/journal/cache directories into portable data root
+  - adds `prepare` command and one-time auto-prepare when portable deploy manifest is missing
+- Updated portable deploy defaults to seed only baseline agents:
+  - `agent_template`
+  - `agent_example`
+- Updated Control proto with non-blocking installer status toasts for passive drag/drop install flow.
 
 ## 2026-01-31
 

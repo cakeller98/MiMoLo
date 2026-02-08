@@ -180,6 +180,48 @@ class AgentProcessManager:
         self.config = config
         self.agents: dict[str, AgentHandle] = {}
 
+    def _allowed_agent_roots(self) -> tuple[Path, Path]:
+        """Return filesystem roots allowed for agent script execution."""
+        workspace_agents_root = (Path(__file__).parent.parent / "agents").resolve()
+        installed_agents_root = (
+            get_mimolo_data_dir() / "operations" / "plugins" / "agents"
+        ).resolve()
+        return workspace_agents_root, installed_agents_root
+
+    def _is_within_root(self, target: Path, root: Path) -> bool:
+        """Check whether target is within root after path normalization."""
+        try:
+            target.relative_to(root)
+            return True
+        except ValueError:
+            return False
+
+    def _resolve_agent_script_arg(self, arg: str) -> str:
+        """Resolve one python script arg inside allowed roots."""
+        candidate = Path(arg)
+        allowed_roots = self._allowed_agent_roots()
+
+        probe_paths: list[Path]
+        if candidate.is_absolute():
+            probe_paths = [candidate]
+        else:
+            probe_paths = [root / candidate for root in allowed_roots]
+
+        for probe in probe_paths:
+            try:
+                resolved = probe.resolve()
+            except OSError:
+                continue
+            if not resolved.exists() or not resolved.is_file():
+                continue
+            if any(self._is_within_root(resolved, root) for root in allowed_roots):
+                return str(resolved)
+
+        allowed_text = ", ".join(str(root) for root in allowed_roots)
+        raise FileNotFoundError(
+            f"Agent script not found or outside allowed roots: {arg} (allowed_roots: {allowed_text})"
+        )
+
     def spawn_agent(self, label: str, plugin_config: Any) -> AgentHandle:
         """Spawn a Agent subprocess.
 
@@ -190,20 +232,11 @@ class AgentProcessManager:
         Returns:
             AgentHandle for managing the subprocess
         """
-        # Resolve agent script path - only allow from agents directory
+        # Resolve agent script path - only allow from trusted agent roots.
         args_with_resolved_path: list[str] = []
         for arg in plugin_config.args:
             if arg.endswith(".py"):
-                # Resolve within agents
-                agents_root = Path(__file__).parent.parent / "agents"
-                agents_path = (agents_root / arg).resolve()
-
-                if agents_path.exists() and agents_path.is_relative_to(agents_root.resolve()):
-                    args_with_resolved_path.append(str(agents_path))
-                else:
-                    raise FileNotFoundError(
-                        f"Agent script not found: {arg} (searched agents)"
-                    )
+                args_with_resolved_path.append(self._resolve_agent_script_arg(arg))
             else:
                 args_with_resolved_path.append(arg)
 

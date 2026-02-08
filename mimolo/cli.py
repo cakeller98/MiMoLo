@@ -9,6 +9,7 @@ Commands:
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from datetime import UTC, datetime
@@ -18,7 +19,7 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from mimolo.core.config import load_config_or_default
+from mimolo.core.config import Config, load_config_or_default
 from mimolo.core.errors import ConfigError
 from mimolo.core.event import Event
 from mimolo.core.ipc import check_platform_support
@@ -39,6 +40,21 @@ def _check_platform_or_exit() -> None:
         console.print("\n[dim]Your platform is not supported.[/dim]")
         sys.exit(1)
     console.print(f"[dim]Platform check: {reason}[/dim]")
+
+
+def _apply_monitor_env_overrides(config: Config) -> None:
+    """Apply optional monitor path overrides from environment."""
+    log_dir = os.getenv("MIMOLO_MONITOR_LOG_DIR")
+    if log_dir is not None and log_dir.strip():
+        config.monitor.log_dir = log_dir.strip()
+
+    journal_dir = os.getenv("MIMOLO_MONITOR_JOURNAL_DIR")
+    if journal_dir is not None and journal_dir.strip():
+        config.monitor.journal_dir = journal_dir.strip()
+
+    cache_dir = os.getenv("MIMOLO_MONITOR_CACHE_DIR")
+    if cache_dir is not None and cache_dir.strip():
+        config.monitor.cache_dir = cache_dir.strip()
 
 app = typer.Typer(
     name="mimolo",
@@ -87,6 +103,7 @@ def monitor(
 
         # Load config
         config = load_config_or_default(config_path)
+        _apply_monitor_env_overrides(config)
 
         # Initialize orchestrator logging (for internal diagnostics)
         init_orchestrator_logging(verbosity=config.monitor.console_verbosity)

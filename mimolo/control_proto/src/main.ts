@@ -1,6 +1,21 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import electronDefault, * as electronNamespace from "electron";
 import { readFile, stat } from "node:fs/promises";
 import net from "node:net";
+
+const electronRuntime = (
+  (electronDefault as unknown as Record<string, unknown>) ??
+  (electronNamespace as unknown as Record<string, unknown>)
+) as Record<string, unknown>;
+const electronFallback = electronNamespace as unknown as Record<string, unknown>;
+const app = (electronRuntime.app ?? electronFallback.app) as typeof import("electron").app;
+const BrowserWindow = (
+  electronRuntime.BrowserWindow ?? electronFallback.BrowserWindow
+) as typeof import("electron").BrowserWindow;
+const dialog = (electronRuntime.dialog ?? electronFallback.dialog) as typeof import("electron").dialog;
+const ipcMain = (electronRuntime.ipcMain ?? electronFallback.ipcMain) as typeof import("electron").ipcMain;
+if (!app || !BrowserWindow || !dialog || !ipcMain) {
+  throw new Error("electron_runtime_exports_unavailable");
+}
 
 interface RuntimeProcess {
   env: Record<string, string | undefined>;
@@ -79,7 +94,7 @@ const runtimeProcess: RuntimeProcess = maybeRuntimeProcess;
 const ipcPath = runtimeProcess.env.MIMOLO_IPC_PATH || "";
 const opsLogPath = runtimeProcess.env.MIMOLO_OPS_LOG_PATH || "";
 
-let mainWindow: BrowserWindow | null = null;
+let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 let logCursor = 0;
 let statusTimer: ReturnType<typeof setInterval> | null = null;
 let logTimer: ReturnType<typeof setInterval> | null = null;
@@ -186,6 +201,11 @@ function buildHtml(): string {
         justify-content: space-between;
         gap: 10px;
       }
+      .controls-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
       .controls-title {
         font-size: 12px;
         font-weight: 700;
@@ -207,10 +227,64 @@ function buildHtml(): string {
         cursor: pointer;
       }
       .add-btn:hover { background: #2a3d59; }
+      .install-btn {
+        background: #29422f;
+        color: var(--text);
+        border: 1px solid #3a6643;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 11px;
+        padding: 5px 8px;
+        cursor: pointer;
+      }
+      .install-btn:hover { background: #35533c; }
       .cards {
         padding: 10px;
         overflow-y: auto;
         min-height: 0;
+      }
+      .drop-hint {
+        position: fixed;
+        inset: 0;
+        z-index: 2100;
+        background: rgba(8, 11, 16, 0.72);
+        border: 2px dashed #4d6f56;
+        color: #b5dfc1;
+        font-size: 14px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        letter-spacing: 0.03em;
+      }
+      .toast-host {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        z-index: 2200;
+        display: grid;
+        gap: 8px;
+        pointer-events: none;
+      }
+      .toast {
+        border: 1px solid #33405a;
+        border-radius: 8px;
+        background: rgba(16, 22, 32, 0.95);
+        color: var(--text);
+        font-size: 11px;
+        line-height: 1.3;
+        padding: 8px 10px;
+        min-width: 240px;
+        max-width: 420px;
+      }
+      .toast-ok {
+        border-color: #3d7a50;
+      }
+      .toast-warn {
+        border-color: #8f7a33;
+      }
+      .toast-err {
+        border-color: #8e4040;
       }
       .agent-card {
         border: 1px solid var(--border);
@@ -421,7 +495,10 @@ function buildHtml(): string {
           <div class="controls-head">
             <div class="controls-row">
               <div class="controls-title">Agent Control Panel</div>
-              <button class="add-btn" id="addAgentBtn" title="Add agent instance">+ Add</button>
+              <div class="controls-actions">
+                <button class="install-btn" id="installPluginBtn" title="Install or upgrade plugin zip">Install</button>
+                <button class="add-btn" id="addAgentBtn" title="Add agent instance">+ Add</button>
+              </div>
             </div>
             <div class="controls-sub">Per-instance controls and configuration</div>
           </div>
@@ -429,7 +506,9 @@ function buildHtml(): string {
         </div>
       </div>
     </div>
+    <div id="dropHint" class="drop-hint" hidden>Drop plugin zip to install</div>
     <div id="modalHost"></div>
+    <div id="toastHost" class="toast-host"></div>
     <script>
       const electronRuntime = typeof require === "function" ? require("electron") : null;
       const ipcRenderer = electronRuntime ? electronRuntime.ipcRenderer : null;
@@ -439,13 +518,17 @@ function buildHtml(): string {
       const opsLogPathEl = document.getElementById("opsLogPath");
       const cardsRoot = document.getElementById("cards");
       const addAgentBtn = document.getElementById("addAgentBtn");
+      const installPluginBtn = document.getElementById("installPluginBtn");
+      const dropHint = document.getElementById("dropHint");
       const modalHost = document.getElementById("modalHost");
+      const toastHost = document.getElementById("toastHost");
       const cards = new Map();
       const instancesByLabel = new Map();
       const templatesById = new Map();
       const widgetPausedLabels = new Set();
       const widgetInFlight = new Set();
       const widgetManifestLoaded = new Set();
+      let dropDepth = 0;
 
       const lines = [];
       const maxLines = 1800;
@@ -459,6 +542,20 @@ function buildHtml(): string {
 
       function setStatus(text) {
         statusEl.textContent = text;
+      }
+
+      function showToast(message, kind) {
+        if (!toastHost) {
+          return;
+        }
+        const toast = document.createElement("div");
+        const tone = kind === "ok" ? "toast-ok" : (kind === "err" ? "toast-err" : "toast-warn");
+        toast.className = "toast " + tone;
+        toast.textContent = message;
+        toastHost.appendChild(toast);
+        setTimeout(() => {
+          toast.remove();
+        }, 2800);
       }
 
       function showModal(build) {
@@ -798,6 +895,290 @@ function buildHtml(): string {
         }
       }
 
+      async function showInstallDialog(initialZipPath) {
+        if (!ipcRenderer) {
+          append("[ui] install failed: ipc renderer unavailable");
+          return;
+        }
+
+        await showModal((card, close) => {
+          const title = document.createElement("div");
+          title.className = "modal-title";
+          title.textContent = "Install or upgrade plugin";
+
+          const body = document.createElement("div");
+          body.className = "modal-body";
+
+          const zipLabel = document.createElement("label");
+          zipLabel.textContent = "Plugin zip path";
+          const zipInput = document.createElement("input");
+          zipInput.placeholder = "/path/to/plugin.zip";
+          if (typeof initialZipPath === "string" && initialZipPath.trim().length > 0) {
+            zipInput.value = initialZipPath.trim();
+          }
+          zipLabel.appendChild(zipInput);
+
+          const zipActions = document.createElement("div");
+          zipActions.className = "modal-actions";
+          zipActions.style.marginTop = "0";
+          zipActions.style.justifyContent = "space-between";
+          const inspectBtn = document.createElement("button");
+          inspectBtn.textContent = "Inspect";
+          const browseBtn = document.createElement("button");
+          browseBtn.textContent = "Browse…";
+          zipActions.appendChild(inspectBtn);
+          zipActions.appendChild(browseBtn);
+
+          const classLabel = document.createElement("label");
+          classLabel.textContent = "Plugin class";
+          const classSelect = document.createElement("select");
+          classSelect.disabled = true;
+          classLabel.appendChild(classSelect);
+
+          const actionLabel = document.createElement("label");
+          actionLabel.textContent = "Action";
+          const actionSelect = document.createElement("select");
+          actionSelect.disabled = true;
+          const actionInstall = document.createElement("option");
+          actionInstall.value = "install";
+          actionInstall.textContent = "install";
+          const actionUpgrade = document.createElement("option");
+          actionUpgrade.value = "upgrade";
+          actionUpgrade.textContent = "upgrade";
+          actionSelect.appendChild(actionInstall);
+          actionSelect.appendChild(actionUpgrade);
+          actionLabel.appendChild(actionSelect);
+
+          const details = document.createElement("textarea");
+          details.readOnly = true;
+          details.value = "Inspect a plugin archive to validate it and choose install/upgrade.";
+
+          body.appendChild(zipLabel);
+          body.appendChild(zipActions);
+          body.appendChild(classLabel);
+          body.appendChild(actionLabel);
+          body.appendChild(details);
+
+          const actions = document.createElement("div");
+          actions.className = "modal-actions";
+          const cancelBtn = document.createElement("button");
+          cancelBtn.textContent = "Cancel";
+          cancelBtn.addEventListener("click", () => close(null));
+          const installBtn = document.createElement("button");
+          installBtn.textContent = "Run";
+          installBtn.disabled = true;
+          actions.appendChild(cancelBtn);
+          actions.appendChild(installBtn);
+
+          card.appendChild(title);
+          card.appendChild(body);
+          card.appendChild(actions);
+
+          async function runInspection() {
+            const zipPath = zipInput.value.trim();
+            if (!zipPath) {
+              details.value = "Select a zip path first.";
+              installBtn.disabled = true;
+              classSelect.disabled = true;
+              actionSelect.disabled = true;
+              return;
+            }
+
+            details.value = "Inspecting archive...";
+            installBtn.disabled = true;
+            classSelect.disabled = true;
+            actionSelect.disabled = true;
+
+            try {
+              const response = await ipcRenderer.invoke("mml:inspect-plugin-archive", {
+                zip_path: zipPath,
+              });
+              if (!(response && response.ok && response.data && response.data.inspection)) {
+                const errText = response && response.error ? String(response.error) : "inspection_failed";
+                details.value = "Inspection failed: " + errText;
+                return;
+              }
+
+              const inspection = response.data.inspection;
+              const allowedRaw = Array.isArray(inspection.allowed_plugin_classes)
+                ? inspection.allowed_plugin_classes
+                : [];
+              const allowed = allowedRaw
+                .map((v) => String(v))
+                .filter((v) => v === "agents" || v === "reporters" || v === "widgets");
+              classSelect.innerHTML = "";
+              for (const pluginClass of allowed) {
+                const option = document.createElement("option");
+                option.value = pluginClass;
+                option.textContent = pluginClass;
+                classSelect.appendChild(option);
+              }
+              if (classSelect.options.length === 0) {
+                const fallback = document.createElement("option");
+                fallback.value = "agents";
+                fallback.textContent = "agents";
+                classSelect.appendChild(fallback);
+              }
+              const suggestedClass = typeof inspection.suggested_plugin_class === "string"
+                ? inspection.suggested_plugin_class
+                : "agents";
+              classSelect.value = classSelect.querySelector('option[value="' + suggestedClass + '"]')
+                ? suggestedClass
+                : classSelect.options[0].value;
+
+              const suggestedAction = inspection.suggested_action === "upgrade" ? "upgrade" : "install";
+              actionSelect.value = suggestedAction;
+
+              classSelect.disabled = false;
+              actionSelect.disabled = false;
+              installBtn.disabled = false;
+
+              const latest = inspection.latest_installed_version_for_suggested_class || "none";
+              const manifestClass = inspection.manifest_plugin_class || "(not declared)";
+              details.value = [
+                "validated",
+                "plugin_id: " + String(inspection.plugin_id || ""),
+                "version: " + String(inspection.version || ""),
+                "entry: " + String(inspection.entry || ""),
+                "manifest_plugin_class: " + String(manifestClass),
+                "suggested_plugin_class: " + String(suggestedClass),
+                "latest_installed_version: " + String(latest),
+                "suggested_action: " + String(suggestedAction),
+              ].join("\\n");
+            } catch (err) {
+              const detail = err instanceof Error ? err.message : "inspection_failed";
+              details.value = "Inspection failed: " + detail;
+            }
+          }
+
+          inspectBtn.addEventListener("click", () => {
+            void runInspection();
+          });
+
+          browseBtn.addEventListener("click", async () => {
+            try {
+              const response = await ipcRenderer.invoke("mml:pick-plugin-archive");
+              if (
+                response &&
+                response.ok &&
+                typeof response.zip_path === "string" &&
+                response.zip_path.trim().length > 0
+              ) {
+                zipInput.value = response.zip_path.trim();
+                await runInspection();
+              }
+            } catch (err) {
+              const detail = err instanceof Error ? err.message : "browse_failed";
+              details.value = "Browse failed: " + detail;
+            }
+          });
+
+          installBtn.addEventListener("click", async () => {
+            const zipPath = zipInput.value.trim();
+            const pluginClass = classSelect.value.trim() || "agents";
+            const action = actionSelect.value === "upgrade" ? "upgrade" : "install";
+            if (!zipPath) {
+              details.value = "Zip path is required.";
+              return;
+            }
+            details.value = "Running " + action + "...";
+            try {
+              const response = await ipcRenderer.invoke("mml:install-plugin", {
+                action,
+                plugin_class: pluginClass,
+                zip_path: zipPath,
+              });
+              if (!response || !response.ok) {
+                const errText = response && response.error ? String(response.error) : "install_failed";
+                details.value = "Install failed: " + errText;
+                append("[ipc] plugin install failed: " + errText);
+                return;
+              }
+              const result = response.data && response.data.install_result ? response.data.install_result : {};
+              const pluginId = typeof result.plugin_id === "string" ? result.plugin_id : "unknown_plugin";
+              const version = typeof result.version === "string" ? result.version : "unknown_version";
+              append("[ipc] plugin " + action + " complete: " + pluginId + "@" + version + " (" + pluginClass + ")");
+              void refreshTemplatesCache();
+              close({ ok: true });
+            } catch (err) {
+              const detail = err instanceof Error ? err.message : "install_failed";
+              details.value = "Install failed: " + detail;
+              append("[ipc] plugin install failed: " + detail);
+            }
+          });
+
+          zipInput.focus();
+          if (zipInput.value.trim().length > 0) {
+            void runInspection();
+          }
+        });
+      }
+
+      async function installArchivePassive(zipPath) {
+        if (!ipcRenderer) {
+          append("[install] failed: ipc renderer unavailable");
+          return;
+        }
+        const normalized = typeof zipPath === "string" ? zipPath.trim() : "";
+        if (!normalized) {
+          append("[install] failed: zip path missing");
+          showToast("Install failed: zip path missing", "err");
+          return;
+        }
+        if (!normalized.toLowerCase().endsWith(".zip")) {
+          append("[install] skipped non-zip: " + normalized);
+          showToast("Skipped non-zip drop", "warn");
+          return;
+        }
+
+        append("[install] drop accepted: " + normalized);
+        showToast("Drop accepted: inspecting archive", "warn");
+        try {
+          const inspectResponse = await ipcRenderer.invoke("mml:inspect-plugin-archive", {
+            zip_path: normalized,
+          });
+          if (!(inspectResponse && inspectResponse.ok && inspectResponse.data && inspectResponse.data.inspection)) {
+            const errText = inspectResponse && inspectResponse.error ? String(inspectResponse.error) : "inspection_failed";
+            append("[install] inspect failed: " + errText);
+            showToast("Inspect failed: " + errText, "err");
+            return;
+          }
+
+          const inspection = inspectResponse.data.inspection;
+          const pluginId = typeof inspection.plugin_id === "string" ? inspection.plugin_id : "unknown_plugin";
+          const version = typeof inspection.version === "string" ? inspection.version : "unknown_version";
+          const pluginClass = typeof inspection.suggested_plugin_class === "string"
+            ? inspection.suggested_plugin_class
+            : "agents";
+          const action = inspection.suggested_action === "upgrade" ? "upgrade" : "install";
+          append("[install] validated " + pluginId + "@" + version + " (" + pluginClass + ", " + action + ")");
+          showToast("Validated " + pluginId + "@" + version + " (" + action + ")", "ok");
+
+          const installResponse = await ipcRenderer.invoke("mml:install-plugin", {
+            action,
+            plugin_class: pluginClass,
+            zip_path: normalized,
+          });
+          if (!installResponse || !installResponse.ok) {
+            const errText = installResponse && installResponse.error ? String(installResponse.error) : "install_failed";
+            append("[install] failed: " + errText);
+            showToast("Install failed: " + errText, "err");
+            return;
+          }
+
+          const result = installResponse.data && installResponse.data.install_result ? installResponse.data.install_result : {};
+          const installedPluginId = typeof result.plugin_id === "string" ? result.plugin_id : pluginId;
+          const installedVersion = typeof result.version === "string" ? result.version : version;
+          append("[install] complete: " + installedPluginId + "@" + installedVersion + " (" + pluginClass + ")");
+          showToast("Installed " + installedPluginId + "@" + installedVersion, "ok");
+          await refreshTemplatesCache();
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : "install_failed";
+          append("[install] failed: " + detail);
+          showToast("Install failed: " + detail, "err");
+        }
+      }
+
       async function refreshTemplatesCache() {
         if (!ipcRenderer) {
           return;
@@ -968,6 +1349,57 @@ function buildHtml(): string {
         } else {
           addAgentBtn.addEventListener("click", () => {
             void showAddDialog();
+          });
+        }
+        if (!installPluginBtn) {
+          append("[ui] install button not found in DOM");
+        } else {
+          installPluginBtn.addEventListener("click", () => {
+            void showInstallDialog("");
+          });
+        }
+        if (dropHint) {
+          const showDropHint = () => {
+            dropHint.hidden = false;
+          };
+          const hideDropHint = () => {
+            dropHint.hidden = true;
+          };
+          window.addEventListener("dragenter", (event) => {
+            event.preventDefault();
+            dropDepth += 1;
+            showDropHint();
+          });
+          window.addEventListener("dragover", (event) => {
+            event.preventDefault();
+            showDropHint();
+          });
+          window.addEventListener("dragleave", (event) => {
+            event.preventDefault();
+            dropDepth = Math.max(0, dropDepth - 1);
+            if (dropDepth === 0 && event.relatedTarget === null) {
+              hideDropHint();
+            }
+          });
+          window.addEventListener("drop", (event) => {
+            event.preventDefault();
+            dropDepth = 0;
+            hideDropHint();
+            const files = event.dataTransfer && event.dataTransfer.files
+              ? event.dataTransfer.files
+              : null;
+            if (!files || files.length === 0) {
+              append("[install] drop ignored: no files");
+              return;
+            }
+            for (const file of files) {
+              const droppedPath = typeof file.path === "string" ? file.path.trim() : "";
+              if (!droppedPath) {
+                append("[install] dropped item has no local file path");
+                continue;
+              }
+              void installArchivePassive(droppedPath);
+            }
           });
         }
         void refreshTemplatesCache();
@@ -1569,6 +2001,53 @@ async function requestWidgetRender(
   );
 }
 
+async function inspectPluginArchive(
+  payload: Record<string, unknown>,
+): Promise<IpcResponsePayload> {
+  const zipPath = coerceNonEmptyString(payload.zip_path);
+  if (!zipPath) {
+    return {
+      ok: false,
+      error: "missing_zip_path",
+    };
+  }
+  return sendIpcCommand("inspect_plugin_archive", {
+    zip_path: zipPath,
+  });
+}
+
+async function installPluginArchive(
+  payload: Record<string, unknown>,
+): Promise<IpcResponsePayload> {
+  const zipPath = coerceNonEmptyString(payload.zip_path);
+  if (!zipPath) {
+    return {
+      ok: false,
+      error: "missing_zip_path",
+    };
+  }
+
+  const actionRaw = coerceNonEmptyString(payload.action);
+  const cmd = actionRaw === "upgrade" ? "upgrade_plugin" : "install_plugin";
+  const pluginClassRaw = coerceNonEmptyString(payload.plugin_class) || "agents";
+  const pluginClass = pluginClassRaw.toLowerCase();
+  if (
+    pluginClass !== "agents" &&
+    pluginClass !== "reporters" &&
+    pluginClass !== "widgets"
+  ) {
+    return {
+      ok: false,
+      error: "invalid_plugin_class",
+    };
+  }
+
+  return sendIpcCommand(cmd, {
+    zip_path: zipPath,
+    plugin_class: pluginClass,
+  });
+}
+
 function startBackgroundLoops(): void {
   void loadInitialSnapshot();
   void pumpOpsLog();
@@ -1659,6 +2138,50 @@ ipcMain.handle("mml:request-widget-render", (_event, payload: unknown) => {
     };
   }
   return requestWidgetRender(payload as Record<string, unknown>);
+});
+
+ipcMain.handle("mml:pick-plugin-archive", async () => {
+  if (!mainWindow) {
+    return {
+      ok: false,
+      error: "window_unavailable",
+    };
+  }
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Select MiMoLo plugin archive",
+    properties: ["openFile"],
+    filters: [{ name: "Zip archives", extensions: ["zip"] }],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return {
+      ok: true,
+      zip_path: null,
+    };
+  }
+  return {
+    ok: true,
+    zip_path: result.filePaths[0],
+  };
+});
+
+ipcMain.handle("mml:inspect-plugin-archive", (_event, payload: unknown) => {
+  if (!payload || typeof payload !== "object") {
+    return {
+      ok: false,
+      error: "invalid_plugin_payload",
+    };
+  }
+  return inspectPluginArchive(payload as Record<string, unknown>);
+});
+
+ipcMain.handle("mml:install-plugin", (_event, payload: unknown) => {
+  if (!payload || typeof payload !== "object") {
+    return {
+      ok: false,
+      error: "invalid_plugin_payload",
+    };
+  }
+  return installPluginArchive(payload as Record<string, unknown>);
 });
 
 ipcMain.handle("mml:agent-command", (_event, payload: unknown) => {

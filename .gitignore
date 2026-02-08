@@ -141,3 +141,6 @@ logs/
 watched_folder/
 demo/
 
+
+# Portable runtime artifacts
+temp_debug/

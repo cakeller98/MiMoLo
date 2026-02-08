@@ -9,11 +9,20 @@
   # Seconds to wait for IPC socket readiness before launching proto in all-proto mode.
   socket_wait_seconds = 8
 
-  # Optional fixed IPC path override.
-  # Leave empty to use OS temp path defaults:
-  #   macOS/Linux: ${TMPDIR:-/tmp}/mimolo/operations.sock
-  #   Windows:     $env:TEMP\mimolo\operations.sock
-  ipc_path = "/tmp/mimolo/operations.sock"
+  # Portable-test root; all writable runtime state is rooted here by default.
+  portable_root = "./temp_debug"
 
-  # Operations console output log consumed by control_proto Electron viewer.
-  operations_log_path = "/tmp/mimolo/operations.log"
+  # Agents seeded by portable deploy script when preparing runtime artifacts.
+  # Keep this small for baseline testing; add others manually through Control install flow.
+  deploy_agents_default = "agent_template,agent_example"
+
+  # Optional explicit overrides; leave blank to derive from portable_root.
+  # data_dir = "./temp_debug/user_home/mimolo"
+  # bin_dir = "./temp_debug/bin"
+  # runtime_config_path = "./temp_debug/user_home/mimolo/operations/mimolo.portable.toml"
+  # config_source_path = "./mimolo.toml"
+  # ipc_path = "./temp_debug/user_home/mimolo/runtime/operations.sock"
+  # operations_log_path = "./temp_debug/user_home/mimolo/runtime/operations.log"
+  # monitor_log_dir = "./temp_debug/user_home/mimolo/operations/logs"
+  # monitor_journal_dir = "./temp_debug/user_home/mimolo/operations/journals"
+  # monitor_cache_dir = "./temp_debug/user_home/mimolo/operations/cache"
