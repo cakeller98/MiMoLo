@@ -116,7 +116,7 @@ class Runtime:
         self._start_agents()
         self.console.print("[bold green]MiMoLo starting...[/bold green]")
         self.console.print(f"Cooldown: {self.config.monitor.cooldown_seconds}s")
-        self.console.print(f"Poll tick: {self.config.monitor.poll_tick_ms}ms")
+        self.console.print(f"Poll tick: {self.config.monitor.poll_tick_s}s")
 
         agent_count = len(self.agent_manager.agents)
         self.console.print(f"Agents: {agent_count}")
@@ -136,7 +136,7 @@ class Runtime:
                         break
 
                 # Sleep for poll tick duration
-                time.sleep(self.config.monitor.poll_tick_ms / 1000.0)
+                time.sleep(self.config.monitor.poll_tick_s)
 
         except KeyboardInterrupt:
             self.console.print("\n[yellow]Shutting down...[/yellow]")

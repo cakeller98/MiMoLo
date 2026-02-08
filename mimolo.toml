@@ -5,8 +5,8 @@
   # Cooldown duration in seconds - segment closes after this period with no resetting events
   cooldown_seconds = 600.0
 
-  # Polling tick interval in milliseconds
-  poll_tick_ms = 200.0
+  # Polling tick interval in seconds
+  poll_tick_s = 0.2
 
   # Directory for log files (will be created if doesn't exist)
   log_dir = "./logs"

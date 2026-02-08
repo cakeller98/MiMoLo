@@ -145,6 +145,14 @@ Verification snapshot:
   - Operations owns access mediation: plugins request capabilities (for example folder access) and receive only approved, scoped paths/tokens.
   - Plugin runtime model is explicit about isolation baseline (separate process) and additional sandbox controls for untrusted plugins.
 
+8. Optional indicator intent-dot for request lifecycle diagnostics (deferred)
+- Done when:
+  - request lifecycle states (`queued`, `dispatching`, `timeout`, `completed`) are exposed as explicit telemetry events.
+  - Control can render a distinct intent/queue signal that does not overlap with transport truth indicators.
+- Deferred reason:
+  - current priority is strict semantic honesty for transport indicators (`tx/rx` for actual transport events, plus separate background activity signal).
+  - adding an intent dot before queue telemetry exists would create ambiguous UI semantics.
+
 ## 4) Canonical Planning Rules
 
 - This file is the canonical active backlog/todo for implementation tracking.

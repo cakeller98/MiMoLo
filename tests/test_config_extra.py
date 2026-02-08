@@ -31,7 +31,7 @@ def test_create_default_config_yaml_and_load(tmp_path: Path) -> None:
     create_default_config(path)
     assert path.exists()
     cfg = load_config(path)
-    assert cfg.monitor.poll_tick_ms > 0
+    assert cfg.monitor.poll_tick_s > 0
 
 
 def test_invalid_log_dir_parent_raises() -> None:

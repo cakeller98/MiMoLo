@@ -27,7 +27,7 @@ class MonitorConfig(BaseModel):
     agent_heartbeat_timeout_s: float = 30.0  # Miss threshold
 
     cooldown_seconds: float = Field(default=600.0, gt=0)
-    poll_tick_ms: float = Field(default=200.0, gt=0)
+    poll_tick_s: float = Field(default=0.2, gt=0)
     log_dir: str = Field(default="./logs")
     log_format: str = "jsonl"
     console_verbosity: Literal["debug", "info", "warning", "error"] = Field(default="info")

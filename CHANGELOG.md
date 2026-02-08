@@ -119,10 +119,25 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
   - start/stop/restart handlers in Electron main process (`mml:ops-control`)
   - managed process stdout/stderr append into configured ops log path for stream viewer continuity
   - safe refusal to kill externally managed Operations instances.
-- Updated Control proto global TX/RX indicator behavior:
-  - header-level tx/rx light now pulses for all IPC traffic
-  - per-agent tx/rx lights continue to pulse when request traffic is label-scoped.
+- Updated Control proto IPC indicator semantics to be transport-truthful and role-separated:
+  - interactive transport indicators are split into separate `tx` and `rx` lights (global and per-instance)
+  - `tx`/`rx` lights now pulse only from actual Operations socket write/response events
+  - `bg` is now a static communication-state indicator (not an activity pulse):
+    - green-outline = online
+    - red solid = offline/error
+    - dark gray = shutdown/not managed
+  - renderer-side pre/post invoke flashing was removed to avoid non-transport “fake” pulses
+  - indicator pulses now use a fixed 4-step fade (`0.9 -> 0.6 -> 0.3 -> 0.1`, 200ms per step) with non-blocking retrigger semantics (no queued blink backlog).
+  - widget auto-refresh is now state-aware and interval-aware:
+    - automatic widget requests run only for `running` instances
+    - cadence derives from each instance `heartbeat_interval_s` (fallback: 15s)
+    - stopped/inactive/error instances no longer generate label-scoped auto-refresh traffic.
 - Updated launcher/bundle environment propagation to include `MIMOLO_REPO_ROOT`, improving in-app Operations start reliability from bundled app launches.
+- Updated monitor timing units to seconds-only with immediate hard cut:
+  - renamed config key `monitor.poll_tick_ms` -> `monitor.poll_tick_s`
+  - runtime loop now sleeps on `poll_tick_s` directly
+  - default project config and getting-started examples now use seconds
+  - removed test references to millisecond poll-tick naming.
 
 ## 2026-01-31
 

@@ -20,7 +20,7 @@ MiMoLo v0.3+ is **Agent only**. Legacy synchronous plugins are removed and not s
 ```python
 class MonitorConfig(BaseModel):
     cooldown_seconds: float = 600.0
-    poll_tick_ms: float = 200.0
+    poll_tick_s: float = 0.2
     log_dir: str = "./logs"
     log_format: str = "jsonl"
     console_verbosity: str = "info"
@@ -688,5 +688,4 @@ args = ["-m", "mimolo.agents.agent_folderwatch", "--watch-dirs", "/projects"]
 ✅ **Risk mitigation** - can pause or rollback at any checkpoint  
 
 This is a **production-grade migration strategy** rather than a research prototype approach.
-
 

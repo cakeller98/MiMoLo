@@ -74,9 +74,12 @@ interface IpcResponsePayload {
 
 interface IpcTrafficPayload {
   direction: "tx" | "rx";
+  kind: IpcTrafficClass;
   label?: string;
   timestamp: string;
 }
+
+type IpcTrafficClass = "interactive" | "background";
 
 interface PendingIpcRequest {
   id: string;
@@ -84,6 +87,7 @@ interface PendingIpcRequest {
   reject: (reason: Error) => void;
   resolve: (value: IpcResponsePayload) => void;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
+  trafficClass: IpcTrafficClass;
   trafficLabel?: string;
 }
 
@@ -423,8 +427,18 @@ function buildHtml(): string {
       .light-shutting-down { background: var(--shutting); box-shadow: 0 0 8px rgba(214, 184, 69, 0.6); }
       .light-inactive { background: var(--neutral); box-shadow: none; }
       .light-error { background: var(--error); box-shadow: 0 0 8px rgba(217, 76, 76, 0.65); }
-      .tx-flash { background: #2fcf70; box-shadow: 0 0 10px rgba(47, 207, 112, 0.8); }
-      .rx-flash { background: #d94c4c; box-shadow: 0 0 10px rgba(217, 76, 76, 0.8); }
+      .light-bg-online {
+        background: var(--neutral);
+        box-shadow: inset 0 0 0 1px rgba(47, 207, 112, 0.9), 0 0 6px rgba(47, 207, 112, 0.35);
+      }
+      .light-bg-offline {
+        background: var(--error);
+        box-shadow: 0 0 8px rgba(217, 76, 76, 0.65);
+      }
+      .light-small {
+        width: 7px;
+        height: 7px;
+      }
       .agent-meta {
         margin-top: 7px;
         display: flex;
@@ -568,8 +582,12 @@ function buildHtml(): string {
             <button class="ops-btn" id="opsStartBtn" title="Start Operations">Start Ops</button>
             <button class="ops-btn" id="opsStopBtn" title="Stop Operations">Stop Ops</button>
             <button class="ops-btn" id="opsRestartBtn" title="Restart Operations">Restart Ops</button>
-            <div class="light light-inactive" id="globalTxRx" title="Global tx/rx"></div>
-            <div class="signal-text">tx/rx</div>
+            <div class="light light-inactive light-small" id="globalBgActivity" title="Background polling activity"></div>
+            <div class="signal-text">bg</div>
+            <div class="light light-inactive" id="globalTxLight" title="Global tx"></div>
+            <div class="signal-text">tx</div>
+            <div class="light light-inactive" id="globalRxLight" title="Global rx"></div>
+            <div class="signal-text">rx</div>
           </div>
         </div>
         <div class="row ops-process-state">Ops process: <span id="opsProcessState">stopped - not_managed</span></div>
@@ -622,7 +640,9 @@ function buildHtml(): string {
       const opsStartBtn = document.getElementById("opsStartBtn");
       const opsStopBtn = document.getElementById("opsStopBtn");
       const opsRestartBtn = document.getElementById("opsRestartBtn");
-      const globalTxRx = document.getElementById("globalTxRx");
+      const globalBgActivity = document.getElementById("globalBgActivity");
+      const globalTxLight = document.getElementById("globalTxLight");
+      const globalRxLight = document.getElementById("globalRxLight");
       const cardsRoot = document.getElementById("cards");
       const addAgentBtn = document.getElementById("addAgentBtn");
       const installPluginBtn = document.getElementById("installPluginBtn");
@@ -635,6 +655,7 @@ function buildHtml(): string {
       const widgetPausedLabels = new Set();
       const widgetInFlight = new Set();
       const widgetManifestLoaded = new Set();
+      const widgetNextAutoRefreshAt = new Map();
 
       const lines = [];
       const maxLines = 1800;
@@ -648,6 +669,42 @@ function buildHtml(): string {
 
       function setStatus(text) {
         statusEl.textContent = text;
+      }
+
+      function setBgLightState(lightEl, state) {
+        if (!lightEl) {
+          return;
+        }
+        lightEl.classList.remove("light-bg-online", "light-bg-offline", "light-inactive");
+        if (state === "online") {
+          lightEl.classList.add("light-bg-online");
+          return;
+        }
+        if (state === "offline") {
+          lightEl.classList.add("light-bg-offline");
+          return;
+        }
+        lightEl.classList.add("light-inactive");
+      }
+
+      function applyGlobalBgState(opsState, opsDetail) {
+        if (!globalBgActivity) {
+          return;
+        }
+        if (opsState === "connected") {
+          setBgLightState(globalBgActivity, "online");
+          return;
+        }
+        if (opsState === "disconnected") {
+          const detail = typeof opsDetail === "string" ? opsDetail : "";
+          if (detail === "not_managed" || detail === "stopped_by_control") {
+            setBgLightState(globalBgActivity, "neutral");
+            return;
+          }
+          setBgLightState(globalBgActivity, "offline");
+          return;
+        }
+        setBgLightState(globalBgActivity, "neutral");
       }
 
       function renderOpsProcessState(state) {
@@ -841,29 +898,110 @@ function buildHtml(): string {
         light.classList.add("light-" + state);
       }
 
-      function pulseTxRx(label, direction) {
-        const card = cards.get(label);
-        if (!card) return;
-        const txrx = card.querySelector(".js-txrx");
-        if (!txrx) return;
-        txrx.classList.remove("tx-flash", "rx-flash");
-        txrx.classList.add(direction === "tx" ? "tx-flash" : "rx-flash");
-        setTimeout(() => {
-          txrx.classList.remove("tx-flash", "rx-flash");
-          txrx.classList.add("light-inactive");
-        }, 180);
+      const INDICATOR_FADE_LEVELS = [0.9, 0.6, 0.3, 0.1];
+      const INDICATOR_FADE_STEP_MS = 200;
+      const WIDGET_AUTO_TICK_MS = 250;
+      const DEFAULT_WIDGET_AUTO_REFRESH_MS = 15000;
+      const INDICATOR_COLORS = {
+        tx: { bg: "#2fcf70", glow: "47, 207, 112" },
+        rx: { bg: "#d94c4c", glow: "217, 76, 76" },
+        bg: { bg: "#7ba0cf", glow: "123, 160, 207" },
+      };
+
+      function createActivityIndicator(lightEl, palette) {
+        if (!lightEl) {
+          return {
+            trigger: function noop() {},
+          };
+        }
+        const state = {
+          active: false,
+          stepIndex: 0,
+          timer: null,
+        };
+
+        function resetVisual() {
+          lightEl.classList.add("light-inactive");
+          lightEl.style.opacity = "1";
+          lightEl.style.background = "";
+          lightEl.style.boxShadow = "";
+        }
+
+        function applyVisual(level) {
+          lightEl.classList.remove("light-inactive");
+          lightEl.style.opacity = String(level);
+          lightEl.style.background = palette.bg;
+          lightEl.style.boxShadow = "0 0 10px rgba(" + palette.glow + ", " + String(level) + ")";
+        }
+
+        function scheduleNextTick() {
+          state.timer = setTimeout(() => {
+            runTick();
+          }, INDICATOR_FADE_STEP_MS);
+        }
+
+        function runTick() {
+          state.timer = null;
+          if (!state.active) {
+            resetVisual();
+            return;
+          }
+
+          const level = INDICATOR_FADE_LEVELS[state.stepIndex];
+          applyVisual(level);
+          state.stepIndex += 1;
+
+          if (state.stepIndex < INDICATOR_FADE_LEVELS.length) {
+            scheduleNextTick();
+            return;
+          }
+
+          state.active = false;
+          resetVisual();
+        }
+
+        return {
+          trigger() {
+            if (state.timer) {
+              clearTimeout(state.timer);
+              state.timer = null;
+            }
+            state.active = true;
+            state.stepIndex = 0;
+            runTick();
+          },
+        };
       }
 
-      function pulseGlobalTxRx(direction) {
-        if (!globalTxRx) {
-          return;
+      const globalTxIndicator = createActivityIndicator(globalTxLight, INDICATOR_COLORS.tx);
+      const globalRxIndicator = createActivityIndicator(globalRxLight, INDICATOR_COLORS.rx);
+      const perAgentTxIndicators = new Map();
+      const perAgentRxIndicators = new Map();
+
+      function getAgentIndicator(label, mapRef, selector, palette) {
+        const existing = mapRef.get(label);
+        if (existing) {
+          return existing;
         }
-        globalTxRx.classList.remove("tx-flash", "rx-flash");
-        globalTxRx.classList.add(direction === "tx" ? "tx-flash" : "rx-flash");
-        setTimeout(() => {
-          globalTxRx.classList.remove("tx-flash", "rx-flash");
-          globalTxRx.classList.add("light-inactive");
-        }, 180);
+        const card = cards.get(label);
+        if (!card) {
+          return null;
+        }
+        const txrx = card.querySelector(selector);
+        if (!txrx) {
+          return null;
+        }
+        const indicator = createActivityIndicator(txrx, palette);
+        mapRef.set(label, indicator);
+        return indicator;
+      }
+
+      function getAgentTxIndicator(label) {
+        return getAgentIndicator(label, perAgentTxIndicators, ".js-tx", INDICATOR_COLORS.tx);
+      }
+
+      function getAgentRxIndicator(label) {
+        return getAgentIndicator(label, perAgentRxIndicators, ".js-rx", INDICATOR_COLORS.rx);
       }
 
       function getWidgetIdentity(label) {
@@ -916,7 +1054,10 @@ function buildHtml(): string {
         try {
           const shouldFetchManifest = manualRequest || !widgetManifestLoaded.has(label);
           if (shouldFetchManifest) {
-            const manifest = await ipcRenderer.invoke("mml:get-widget-manifest", identity);
+            const manifest = await ipcRenderer.invoke("mml:get-widget-manifest", {
+              ...identity,
+              manual: manualRequest,
+            });
             if (manifest && manifest.data && manifest.data.widget) {
               const widget = manifest.data.widget;
               const supports = widget.supports_render === true ? "yes" : "no";
@@ -932,6 +1073,7 @@ function buildHtml(): string {
             ...identity,
             request_id: requestId,
             mode: "html_fragment_v1",
+            manual: manualRequest,
             canvas: {
               aspect_ratio: "16:9",
               max_width_px: 960,
@@ -961,14 +1103,48 @@ function buildHtml(): string {
           append("[widget] " + label + " refresh failed: " + detail);
         } finally {
           widgetInFlight.delete(label);
+          if (manualRequest) {
+            const instance = instancesByLabel.get(label);
+            const nextMs = resolveWidgetAutoRefreshMs(instance);
+            widgetNextAutoRefreshAt.set(label, Date.now() + nextMs);
+          }
         }
       }
 
+      function resolveWidgetAutoRefreshMs(instance) {
+        if (!instance || !instance.config) {
+          return DEFAULT_WIDGET_AUTO_REFRESH_MS;
+        }
+        const heartbeatRaw = instance.config.heartbeat_interval_s;
+        if (typeof heartbeatRaw === "number" && Number.isFinite(heartbeatRaw) && heartbeatRaw > 0) {
+          return Math.max(1000, Math.round(heartbeatRaw * 1000));
+        }
+        if (typeof heartbeatRaw === "string") {
+          const parsed = Number(heartbeatRaw);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            return Math.max(1000, Math.round(parsed * 1000));
+          }
+        }
+        return DEFAULT_WIDGET_AUTO_REFRESH_MS;
+      }
+
       function refreshWidgetsAuto() {
+        const now = Date.now();
         for (const label of cards.keys()) {
           if (widgetPausedLabels.has(label)) {
             continue;
           }
+          const instance = instancesByLabel.get(label);
+          const state = instance && typeof instance.state === "string" ? instance.state : "inactive";
+          if (state !== "running") {
+            continue;
+          }
+          const nextAllowedAt = widgetNextAutoRefreshAt.get(label);
+          if (typeof nextAllowedAt === "number" && now < nextAllowedAt) {
+            continue;
+          }
+          const intervalMs = resolveWidgetAutoRefreshMs(instance);
+          widgetNextAutoRefreshAt.set(label, now + intervalMs);
           void refreshWidgetForLabel(label, false);
         }
       }
@@ -978,13 +1154,10 @@ function buildHtml(): string {
           append("[ui] ipc renderer unavailable");
           return { ok: false, error: "ipc_renderer_unavailable" };
         }
-        if (payload.label) pulseTxRx(payload.label, "tx");
         try {
           const response = await ipcRenderer.invoke("mml:agent-command", payload);
-          if (payload.label) pulseTxRx(payload.label, "rx");
           return response;
         } catch (err) {
-          if (payload.label) pulseTxRx(payload.label, "rx");
           const detail = err instanceof Error ? err.message : "command_failed";
           return { ok: false, error: detail };
         }
@@ -1392,8 +1565,16 @@ function buildHtml(): string {
               <div class="signal-text js-state-text">inactive</div>
             </div>
             <div class="signal-group">
-              <div class="light light-inactive js-txrx"></div>
-              <div class="signal-text">tx/rx</div>
+              <div class="light light-inactive js-tx"></div>
+              <div class="signal-text">tx</div>
+            </div>
+            <div class="signal-group">
+              <div class="light light-inactive js-rx"></div>
+              <div class="signal-text">rx</div>
+            </div>
+            <div class="signal-group">
+              <div class="light light-inactive light-small js-bg"></div>
+              <div class="signal-text">bg</div>
             </div>
           </div>
           <div class="agent-detail js-detail">configured</div>
@@ -1477,11 +1658,27 @@ function buildHtml(): string {
           const detail = card.querySelector(".js-detail");
           const state = instance && instance.state ? instance.state : "inactive";
           const info = instance && instance.detail ? instance.detail : "configured";
+          const bgLight = card.querySelector(".js-bg");
           applyLifeClass(life, state);
           stateText.textContent = state;
           detail.textContent = info;
+          if (state === "running") {
+            setBgLightState(bgLight, "online");
+          } else if (state === "error") {
+            setBgLightState(bgLight, "offline");
+          } else {
+            setBgLightState(bgLight, "neutral");
+          }
           if (isNewCard) {
-            void refreshWidgetForLabel(label, false);
+            if (state === "running") {
+              const intervalMs = resolveWidgetAutoRefreshMs(instance);
+              widgetNextAutoRefreshAt.set(label, Date.now() + intervalMs);
+              void refreshWidgetForLabel(label, false);
+            } else {
+              widgetNextAutoRefreshAt.delete(label);
+            }
+          } else if (state !== "running") {
+            widgetNextAutoRefreshAt.delete(label);
           }
         }
 
@@ -1493,6 +1690,9 @@ function buildHtml(): string {
           widgetPausedLabels.delete(label);
           widgetInFlight.delete(label);
           widgetManifestLoaded.delete(label);
+          widgetNextAutoRefreshAt.delete(label);
+          perAgentTxIndicators.delete(label);
+          perAgentRxIndicators.delete(label);
         }
       }
 
@@ -1506,6 +1706,7 @@ function buildHtml(): string {
           ipcPathEl.textContent = state.ipcPath || "(unset)";
           opsLogPathEl.textContent = state.opsLogPath || "(unset)";
           setStatus(state.status.state + " - " + state.status.detail);
+          applyGlobalBgState(state.status.state, state.status.detail);
           renderOpsProcessState(state.opsControl || {});
           renderInstances(state.instances || {});
         } catch (err) {
@@ -1604,9 +1805,10 @@ function buildHtml(): string {
         }, 4500);
         setInterval(() => {
           refreshWidgetsAuto();
-        }, 2500);
+        }, WIDGET_AUTO_TICK_MS);
         ipcRenderer.on("ops:status", (_event, payload) => {
           setStatus(payload.state + " - " + payload.detail);
+          applyGlobalBgState(payload.state, payload.detail);
         });
 
         ipcRenderer.on("ops:line", (_event, line) => {
@@ -1626,9 +1828,18 @@ function buildHtml(): string {
             return;
           }
           const direction = payload.direction === "tx" ? "tx" : "rx";
-          pulseGlobalTxRx(direction);
+          if (direction === "tx") {
+            globalTxIndicator.trigger();
+          } else {
+            globalRxIndicator.trigger();
+          }
           if (payload.label) {
-            pulseTxRx(payload.label, direction);
+            const indicator = direction === "tx"
+              ? getAgentTxIndicator(payload.label)
+              : getAgentRxIndicator(payload.label);
+            if (indicator) {
+              indicator.trigger();
+            }
           }
         });
       }
@@ -1644,12 +1855,17 @@ function publishLine(line: string): void {
   mainWindow.webContents.send("ops:line", line);
 }
 
-function publishTraffic(direction: "tx" | "rx", label?: string): void {
+function publishTraffic(
+  direction: "tx" | "rx",
+  kind: IpcTrafficClass,
+  label?: string,
+): void {
   if (!mainWindow) {
     return;
   }
   const payload: IpcTrafficPayload = {
     direction,
+    kind,
     label,
     timestamp: new Date().toISOString(),
   };
@@ -2124,6 +2340,7 @@ async function sendIpcCommand(
   cmd: string,
   extraPayload?: Record<string, unknown>,
   trafficLabel?: string,
+  trafficClass: IpcTrafficClass = "interactive",
 ): Promise<IpcResponsePayload> {
   if (!ipcPath) {
     throw new Error("MIMOLO_IPC_PATH not set");
@@ -2153,6 +2370,7 @@ async function sendIpcCommand(
       resolve,
       reject,
       timeoutHandle: null,
+      trafficClass,
       trafficLabel,
     });
 
@@ -2214,7 +2432,7 @@ function resolveInFlightResponse(response: IpcResponsePayload): void {
 
   ipcInFlightRequest = null;
   clearRequestTimeout(request);
-  publishTraffic("rx", request.trafficLabel);
+  publishTraffic("rx", request.trafficClass, request.trafficLabel);
   request.resolve(response);
   void drainIpcQueue();
 }
@@ -2314,7 +2532,7 @@ async function drainIpcQueue(): Promise<void> {
       }
 
       ipcInFlightRequest = nextRequest;
-      publishTraffic("tx", nextRequest.trafficLabel);
+      publishTraffic("tx", nextRequest.trafficClass, nextRequest.trafficLabel);
       nextRequest.timeoutHandle = setTimeout(() => {
         const timeoutRequest = ipcInFlightRequest;
         if (!timeoutRequest || timeoutRequest.id !== nextRequest.id) {
@@ -2374,7 +2592,7 @@ function stopPersistentIpc(): void {
 
 async function refreshIpcStatus(): Promise<void> {
   try {
-    const response = await sendIpcCommand("ping");
+    const response = await sendIpcCommand("ping", undefined, undefined, "background");
     if (response.ok) {
       setStatus("connected", "ipc_ready");
       if (!operationsProcess) {
@@ -2397,7 +2615,12 @@ async function refreshIpcStatus(): Promise<void> {
 
 async function refreshAgentInstances(): Promise<void> {
   try {
-    const response = await sendIpcCommand("get_agent_instances");
+    const response = await sendIpcCommand(
+      "get_agent_instances",
+      undefined,
+      undefined,
+      "background",
+    );
     if (!response.ok) {
       return;
     }
@@ -2408,7 +2631,12 @@ async function refreshAgentInstances(): Promise<void> {
 }
 
 async function refreshTemplates(): Promise<Record<string, AgentTemplateSnapshot>> {
-  const response = await sendIpcCommand("list_agent_templates");
+  const response = await sendIpcCommand(
+    "list_agent_templates",
+    undefined,
+    undefined,
+    "background",
+  );
   if (!response.ok) {
     return {};
   }
@@ -2475,7 +2703,12 @@ async function loadInitialSnapshot(): Promise<void> {
   }
   await refreshIpcStatus();
   try {
-    const registeredResponse = await sendIpcCommand("get_registered_plugins");
+    const registeredResponse = await sendIpcCommand(
+      "get_registered_plugins",
+      undefined,
+      undefined,
+      "background",
+    );
     publishLine(`[ipc] ${JSON.stringify(registeredResponse)}`);
   } catch (err) {
     const detail = err instanceof Error ? err.message : "plugin_query_failed";
@@ -2516,6 +2749,22 @@ function coerceNonEmptyString(raw: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function coerceBoolean(raw: unknown): boolean {
+  if (typeof raw === "boolean") {
+    return raw;
+  }
+  if (typeof raw !== "string") {
+    return false;
+  }
+  const normalized = raw.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
+}
+
 async function getWidgetManifest(
   payload: Record<string, unknown>,
 ): Promise<IpcResponsePayload> {
@@ -2527,6 +2776,7 @@ async function getWidgetManifest(
       error: !pluginId ? "missing_plugin_id" : "missing_instance_id",
     };
   }
+  const isManual = coerceBoolean(payload.manual);
   return sendIpcCommand(
     "get_widget_manifest",
     {
@@ -2534,6 +2784,7 @@ async function getWidgetManifest(
       instance_id: instanceId,
     },
     instanceId,
+    isManual ? "interactive" : "background",
   );
 }
 
@@ -2551,6 +2802,7 @@ async function requestWidgetRender(
 
   const requestId = coerceNonEmptyString(payload.request_id);
   const mode = coerceNonEmptyString(payload.mode) || "html_fragment_v1";
+  const isManual = coerceBoolean(payload.manual);
   const canvasRaw = payload.canvas;
   const canvas =
     canvasRaw && typeof canvasRaw === "object"
@@ -2567,6 +2819,7 @@ async function requestWidgetRender(
       canvas,
     },
     instanceId,
+    isManual ? "interactive" : "background",
   );
 }
 

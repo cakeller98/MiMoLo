@@ -191,7 +191,7 @@ class BaseMonitor(ABC):
      ```python
      class MonitorConfig(BaseModel):
          cooldown_seconds: float = 600.0
-         poll_tick_ms: float = 200.0
+         poll_tick_s: float = 0.2
          journal_dir: str = "./journals"  # NEW
          cache_dir: str = "./cache"  # NEW
          main_system_max_cpu_per_plugin: float = 0.1  # NEW
@@ -528,5 +528,4 @@ class BaseMonitor(ABC):
 **Estimated Timeline:** 4-5 weeks for full v0.3 implementation with the roadmap above.
 
 Ready to dive in? Want me to help write any of these new components?
-
 

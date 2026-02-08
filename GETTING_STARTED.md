@@ -60,7 +60,7 @@ Example configuration:
 ```toml
 [monitor]
 cooldown_seconds = 600
-poll_tick_ms = 200
+poll_tick_s = 0.2
 log_dir = "./logs"
 log_format = "jsonl"
 

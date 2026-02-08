@@ -25,6 +25,9 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
   - release/default mode does not expose runtime zip sideload install UI.
   - runtime sideload remains developer-mode-only with explicit unsafe warning requirements.
   - backlog matrix now reflects `+ Add` template-list ground truth and `--dev`-gated sideload behavior.
+- Updated indicator planning notes in canonical backlog:
+  - documented strict transport-truth indicator direction (interactive tx/rx vs separate background activity signal).
+  - added deferred optional “intent-dot” queue-lifecycle concept with explicit defer rationale.
 - Updated active docs to clarify doctrine as capability-open but trust-closed distribution posture:
   - `developer_docs/agent_dev/AGENT_DEV_GUIDE.md`
   - `developer_docs/agent_dev/AGENT_PROTOCOL_SPEC.md`
