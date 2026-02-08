@@ -396,6 +396,57 @@ class Runtime:
         """Effective periodic flush cadence after global floor enforcement."""
         return self._effective_interval_s(plugin_cfg.agent_flush_interval_s)
 
+    def _snapshot_monitor_settings(self) -> dict[str, Any]:
+        """Return monitor settings plus cadence policy metadata."""
+        return {
+            "monitor": self.config.monitor.model_dump(),
+            "cadence_policy": {
+                "strategy": "max(global_poll_tick_s, agent_requested_interval_s)",
+                "description": (
+                    "Global poll_tick_s acts as a one-sided chatter floor; "
+                    "effective per-agent cadence is never faster than poll_tick_s."
+                ),
+            },
+        }
+
+    def _update_monitor_settings(
+        self, updates: dict[str, Any]
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Update monitor settings with strict key validation and persistence."""
+        allowed_update_keys = {
+            "cooldown_seconds",
+            "poll_tick_s",
+            "console_verbosity",
+        }
+        unknown_keys = sorted([k for k in updates.keys() if k not in allowed_update_keys])
+        if unknown_keys:
+            return (
+                False,
+                f"unknown_keys:{','.join(unknown_keys)}",
+                {"unknown_keys": unknown_keys},
+            )
+
+        merged = self.config.monitor.model_dump()
+        merged.update({k: v for k, v in updates.items() if k in allowed_update_keys})
+
+        try:
+            monitor_type = type(self.config.monitor)
+            updated_monitor = monitor_type.model_validate(merged)
+        except Exception as e:
+            return False, f"invalid_updates:{e}", {}
+
+        previous_monitor = self.config.monitor
+        self.config.monitor = updated_monitor
+        self.cooldown.cooldown_seconds = updated_monitor.cooldown_seconds
+
+        saved, save_detail = self._persist_runtime_config()
+        if not saved:
+            self.config.monitor = previous_monitor
+            self.cooldown.cooldown_seconds = previous_monitor.cooldown_seconds
+            return False, save_detail, {}
+
+        return True, "updated", self._snapshot_monitor_settings()
+
     def _next_available_label(self, base_label: str) -> str:
         """Generate a unique config label for a new agent instance."""
         if base_label not in self.config.plugins:
@@ -849,6 +900,41 @@ class Runtime:
                 "data": {
                     "instances": self._snapshot_agent_instances(),
                 },
+            }
+
+        if cmd == "get_monitor_settings":
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "timestamp": now,
+                "data": self._snapshot_monitor_settings(),
+            }
+
+        if cmd == "update_monitor_settings":
+            updates_raw = request.get("updates")
+            updates = updates_raw if isinstance(updates_raw, dict) else None
+            if updates is None:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "missing_updates",
+                }
+
+            updated, detail, payload = self._update_monitor_settings(updates)
+            if not updated:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": detail,
+                    "data": payload,
+                }
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "timestamp": now,
+                "data": payload,
             }
 
         if cmd == "get_agent_states":

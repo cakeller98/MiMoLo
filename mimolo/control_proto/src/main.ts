@@ -31,6 +31,12 @@ interface OpsStatusPayload {
   timestamp: string;
 }
 
+interface MonitorSettingsSnapshot {
+  console_verbosity: "debug" | "info" | "warning" | "error";
+  cooldown_seconds: number;
+  poll_tick_s: number;
+}
+
 type AgentLifecycleState = "running" | "shutting-down" | "inactive" | "error";
 type AgentCommandAction =
   | "start_agent"
@@ -140,6 +146,14 @@ let lastStatus: OpsStatusPayload = {
   detail: "waiting_for_operations",
   timestamp: new Date().toISOString(),
 };
+
+const DEFAULT_MONITOR_SETTINGS: MonitorSettingsSnapshot = {
+  cooldown_seconds: 600,
+  poll_tick_s: 0.2,
+  console_verbosity: "info",
+};
+
+let lastMonitorSettings: MonitorSettingsSnapshot = { ...DEFAULT_MONITOR_SETTINGS };
 
 let lastAgentInstances: Record<string, AgentInstanceSnapshot> = {};
 let opsLogWarningPrinted = false;
@@ -593,6 +607,7 @@ function buildHtml(): string {
         <div class="row ops-process-state">Ops process: <span id="opsProcessState">stopped - not_managed</span></div>
         <div class="row">IPC: <span id="ipcPath"></span></div>
         <div class="row">Ops log: <span id="opsLogPath"></span></div>
+        <div class="row">Monitor: <span id="monitorSettings">poll_tick_s=?, cooldown_seconds=?</span></div>
         <div class="row">Status: <span id="status">starting</span></div>
         ${
           controlDevMode
@@ -607,6 +622,7 @@ function buildHtml(): string {
             <div class="controls-row">
               <div class="controls-title">Agent Control Panel</div>
               <div class="controls-actions">
+                <button class="add-btn" id="monitorSettingsBtn" title="Edit global monitor settings">Monitor</button>
                 ${
                   controlDevMode
                     ? `<button class="install-btn" id="installPluginBtn" title="Install or upgrade plugin zip (developer mode only)">Install (dev)</button>`
@@ -637,6 +653,7 @@ function buildHtml(): string {
       const opsProcessStateEl = document.getElementById("opsProcessState");
       const ipcPathEl = document.getElementById("ipcPath");
       const opsLogPathEl = document.getElementById("opsLogPath");
+      const monitorSettingsEl = document.getElementById("monitorSettings");
       const opsStartBtn = document.getElementById("opsStartBtn");
       const opsStopBtn = document.getElementById("opsStopBtn");
       const opsRestartBtn = document.getElementById("opsRestartBtn");
@@ -644,6 +661,7 @@ function buildHtml(): string {
       const globalTxLight = document.getElementById("globalTxLight");
       const globalRxLight = document.getElementById("globalRxLight");
       const cardsRoot = document.getElementById("cards");
+      const monitorSettingsBtn = document.getElementById("monitorSettingsBtn");
       const addAgentBtn = document.getElementById("addAgentBtn");
       const installPluginBtn = document.getElementById("installPluginBtn");
       const dropHint = document.getElementById("dropHint");
@@ -656,6 +674,11 @@ function buildHtml(): string {
       const widgetInFlight = new Set();
       const widgetManifestLoaded = new Set();
       const widgetNextAutoRefreshAt = new Map();
+      let monitorSettingsState = {
+        cooldown_seconds: 600,
+        poll_tick_s: 0.2,
+        console_verbosity: "info",
+      };
 
       const lines = [];
       const maxLines = 1800;
@@ -669,6 +692,50 @@ function buildHtml(): string {
 
       function setStatus(text) {
         statusEl.textContent = text;
+      }
+
+      function normalizeMonitorSettings(raw) {
+        if (!raw || typeof raw !== "object") {
+          return {
+            cooldown_seconds: 600,
+            poll_tick_s: 0.2,
+            console_verbosity: "info",
+          };
+        }
+        const cooldownRaw = raw.cooldown_seconds;
+        const pollTickRaw = raw.poll_tick_s;
+        const verbosityRaw = raw.console_verbosity;
+        const cooldown =
+          typeof cooldownRaw === "number" && Number.isFinite(cooldownRaw) && cooldownRaw > 0
+            ? cooldownRaw
+            : 600;
+        const pollTick =
+          typeof pollTickRaw === "number" && Number.isFinite(pollTickRaw) && pollTickRaw > 0
+            ? pollTickRaw
+            : 0.2;
+        const verbosity =
+          verbosityRaw === "debug" ||
+          verbosityRaw === "info" ||
+          verbosityRaw === "warning" ||
+          verbosityRaw === "error"
+            ? verbosityRaw
+            : "info";
+        return {
+          cooldown_seconds: cooldown,
+          poll_tick_s: pollTick,
+          console_verbosity: verbosity,
+        };
+      }
+
+      function renderMonitorSettings(raw) {
+        monitorSettingsState = normalizeMonitorSettings(raw);
+        if (!monitorSettingsEl) {
+          return;
+        }
+        monitorSettingsEl.textContent =
+          "poll_tick_s=" + String(monitorSettingsState.poll_tick_s) +
+          ", cooldown_seconds=" + String(monitorSettingsState.cooldown_seconds) +
+          ", console_verbosity=" + String(monitorSettingsState.console_verbosity);
       }
 
       function setBgLightState(lightEl, state) {
@@ -893,6 +960,83 @@ function buildHtml(): string {
         });
       }
 
+      async function editMonitorSettingsModal(currentSettings) {
+        return showModal((card, close) => {
+          const title = document.createElement("div");
+          title.className = "modal-title";
+          title.textContent = "Global monitor settings";
+
+          const body = document.createElement("div");
+          body.className = "modal-body";
+
+          const pollLabel = document.createElement("label");
+          pollLabel.textContent = "poll_tick_s (seconds, > 0)";
+          const pollInput = document.createElement("input");
+          pollInput.type = "number";
+          pollInput.step = "0.1";
+          pollInput.min = "0.1";
+          pollInput.value = String(currentSettings.poll_tick_s);
+          pollLabel.appendChild(pollInput);
+
+          const cooldownLabel = document.createElement("label");
+          cooldownLabel.textContent = "cooldown_seconds (seconds, > 0)";
+          const cooldownInput = document.createElement("input");
+          cooldownInput.type = "number";
+          cooldownInput.step = "1";
+          cooldownInput.min = "1";
+          cooldownInput.value = String(currentSettings.cooldown_seconds);
+          cooldownLabel.appendChild(cooldownInput);
+
+          const verbosityLabel = document.createElement("label");
+          verbosityLabel.textContent = "console_verbosity";
+          const verbositySelect = document.createElement("select");
+          const verbosityValues = ["debug", "info", "warning", "error"];
+          for (const value of verbosityValues) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = value;
+            verbositySelect.appendChild(option);
+          }
+          verbositySelect.value = String(currentSettings.console_verbosity);
+          verbosityLabel.appendChild(verbositySelect);
+
+          body.appendChild(pollLabel);
+          body.appendChild(cooldownLabel);
+          body.appendChild(verbosityLabel);
+
+          const actions = document.createElement("div");
+          actions.className = "modal-actions";
+          const cancelBtn = document.createElement("button");
+          cancelBtn.textContent = "Cancel";
+          cancelBtn.addEventListener("click", () => close(null));
+          const saveBtn = document.createElement("button");
+          saveBtn.textContent = "Save";
+          saveBtn.addEventListener("click", () => {
+            const pollTick = Number(pollInput.value);
+            const cooldownSeconds = Number(cooldownInput.value);
+            if (!Number.isFinite(pollTick) || pollTick <= 0) {
+              append("[ui] monitor settings invalid: poll_tick_s must be > 0");
+              return;
+            }
+            if (!Number.isFinite(cooldownSeconds) || cooldownSeconds <= 0) {
+              append("[ui] monitor settings invalid: cooldown_seconds must be > 0");
+              return;
+            }
+            close({
+              poll_tick_s: pollTick,
+              cooldown_seconds: cooldownSeconds,
+              console_verbosity: verbositySelect.value,
+            });
+          });
+          actions.appendChild(cancelBtn);
+          actions.appendChild(saveBtn);
+          card.appendChild(title);
+          card.appendChild(body);
+          card.appendChild(actions);
+          pollInput.focus();
+        });
+      }
+
       function applyLifeClass(light, state) {
         light.classList.remove("light-running", "light-shutting-down", "light-inactive", "light-error");
         light.classList.add("light-" + state);
@@ -1112,8 +1256,12 @@ function buildHtml(): string {
       }
 
       function resolveWidgetAutoRefreshMs(instance) {
+        const globalFloorMs = Math.max(
+          1000,
+          Math.round(monitorSettingsState.poll_tick_s * 1000)
+        );
         if (!instance || !instance.config) {
-          return DEFAULT_WIDGET_AUTO_REFRESH_MS;
+          return Math.max(DEFAULT_WIDGET_AUTO_REFRESH_MS, globalFloorMs);
         }
         const effectiveHeartbeatRaw = instance.config.effective_heartbeat_interval_s;
         if (
@@ -1121,25 +1269,25 @@ function buildHtml(): string {
           Number.isFinite(effectiveHeartbeatRaw) &&
           effectiveHeartbeatRaw > 0
         ) {
-          return Math.max(1000, Math.round(effectiveHeartbeatRaw * 1000));
+          return Math.max(globalFloorMs, Math.round(effectiveHeartbeatRaw * 1000));
         }
         if (typeof effectiveHeartbeatRaw === "string") {
           const parsedEffective = Number(effectiveHeartbeatRaw);
           if (Number.isFinite(parsedEffective) && parsedEffective > 0) {
-            return Math.max(1000, Math.round(parsedEffective * 1000));
+            return Math.max(globalFloorMs, Math.round(parsedEffective * 1000));
           }
         }
         const heartbeatRaw = instance.config.heartbeat_interval_s;
         if (typeof heartbeatRaw === "number" && Number.isFinite(heartbeatRaw) && heartbeatRaw > 0) {
-          return Math.max(1000, Math.round(heartbeatRaw * 1000));
+          return Math.max(globalFloorMs, Math.round(heartbeatRaw * 1000));
         }
         if (typeof heartbeatRaw === "string") {
           const parsed = Number(heartbeatRaw);
           if (Number.isFinite(parsed) && parsed > 0) {
-            return Math.max(1000, Math.round(parsed * 1000));
+            return Math.max(globalFloorMs, Math.round(parsed * 1000));
           }
         }
-        return DEFAULT_WIDGET_AUTO_REFRESH_MS;
+        return Math.max(DEFAULT_WIDGET_AUTO_REFRESH_MS, globalFloorMs);
       }
 
       function refreshWidgetsAuto() {
@@ -1243,6 +1391,45 @@ function buildHtml(): string {
         const response = await sendCommand(payload);
         if (!response.ok) {
           append("[ipc] add failed: " + (response.error || "unknown_error"));
+        }
+      }
+
+      async function configureMonitorSettings() {
+        if (!ipcRenderer) {
+          append("[ui] monitor settings unavailable: ipc renderer missing");
+          return;
+        }
+        let current = monitorSettingsState;
+        try {
+          const currentResponse = await ipcRenderer.invoke("mml:get-monitor-settings");
+          if (currentResponse && currentResponse.ok && currentResponse.monitor) {
+            current = normalizeMonitorSettings(currentResponse.monitor);
+            renderMonitorSettings(current);
+          }
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : "monitor_settings_read_failed";
+          append("[ui] monitor settings read failed: " + detail);
+        }
+
+        const updates = await editMonitorSettingsModal(current);
+        if (updates === null) {
+          return;
+        }
+
+        try {
+          const response = await ipcRenderer.invoke("mml:update-monitor-settings", { updates });
+          if (!response || !response.ok) {
+            const errText = response && response.error ? String(response.error) : "monitor_settings_update_failed";
+            append("[ui] monitor settings update failed: " + errText);
+            return;
+          }
+          if (response.data && response.data.monitor) {
+            renderMonitorSettings(response.data.monitor);
+          }
+          append("[ui] monitor settings updated");
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : "monitor_settings_update_failed";
+          append("[ui] monitor settings update failed: " + detail);
         }
       }
 
@@ -1722,6 +1909,7 @@ function buildHtml(): string {
           setStatus(state.status.state + " - " + state.status.detail);
           applyGlobalBgState(state.status.state, state.status.detail);
           renderOpsProcessState(state.opsControl || {});
+          renderMonitorSettings(state.monitorSettings || null);
           renderInstances(state.instances || {});
         } catch (err) {
           const detail = err instanceof Error ? err.message : "initial_state_failed";
@@ -1751,6 +1939,13 @@ function buildHtml(): string {
         }
         if (installDevMode) {
           append("[dev] unsigned plugin zip install enabled (signature allowlist is not implemented yet)");
+        }
+        if (monitorSettingsBtn) {
+          monitorSettingsBtn.addEventListener("click", () => {
+            void configureMonitorSettings();
+          });
+        } else {
+          append("[ui] monitor settings button not found in DOM");
         }
         if (!addAgentBtn) {
           append("[ui] add button not found in DOM");
@@ -1835,6 +2030,11 @@ function buildHtml(): string {
 
         ipcRenderer.on("ops:process", (_event, payload) => {
           renderOpsProcessState(payload || {});
+        });
+
+        ipcRenderer.on("ops:monitor-settings", (_event, payload) => {
+          const monitor = payload && payload.monitor ? payload.monitor : null;
+          renderMonitorSettings(monitor);
         });
 
         ipcRenderer.on("ops:traffic", (_event, payload) => {
@@ -2350,6 +2550,60 @@ function extractTemplates(
   return result;
 }
 
+function normalizeMonitorSettings(raw: unknown): MonitorSettingsSnapshot {
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_MONITOR_SETTINGS };
+  }
+  const record = raw as Record<string, unknown>;
+
+  const cooldownRaw = record.cooldown_seconds;
+  const pollTickRaw = record.poll_tick_s;
+  const verbosityRaw = record.console_verbosity;
+
+  const cooldownParsed =
+    typeof cooldownRaw === "number" && Number.isFinite(cooldownRaw) && cooldownRaw > 0
+      ? cooldownRaw
+      : DEFAULT_MONITOR_SETTINGS.cooldown_seconds;
+  const pollTickParsed =
+    typeof pollTickRaw === "number" && Number.isFinite(pollTickRaw) && pollTickRaw > 0
+      ? pollTickRaw
+      : DEFAULT_MONITOR_SETTINGS.poll_tick_s;
+  const verbosityParsed =
+    verbosityRaw === "debug" ||
+    verbosityRaw === "info" ||
+    verbosityRaw === "warning" ||
+    verbosityRaw === "error"
+      ? verbosityRaw
+      : DEFAULT_MONITOR_SETTINGS.console_verbosity;
+
+  return {
+    cooldown_seconds: cooldownParsed,
+    poll_tick_s: pollTickParsed,
+    console_verbosity: verbosityParsed,
+  };
+}
+
+function deriveStatusLoopMs(settings: MonitorSettingsSnapshot): number {
+  return Math.max(250, Math.round(settings.poll_tick_s * 1000));
+}
+
+function deriveInstanceLoopMs(settings: MonitorSettingsSnapshot): number {
+  return Math.max(250, Math.round(settings.poll_tick_s * 1000));
+}
+
+function deriveLogLoopMs(settings: MonitorSettingsSnapshot): number {
+  return Math.min(3000, Math.max(250, Math.round(settings.poll_tick_s * 1000)));
+}
+
+function publishMonitorSettings(): void {
+  if (!mainWindow) {
+    return;
+  }
+  mainWindow.webContents.send("ops:monitor-settings", {
+    monitor: lastMonitorSettings,
+  });
+}
+
 async function sendIpcCommand(
   cmd: string,
   extraPayload?: Record<string, unknown>,
@@ -2657,6 +2911,41 @@ async function refreshTemplates(): Promise<Record<string, AgentTemplateSnapshot>
   return extractTemplates(response);
 }
 
+async function refreshMonitorSettings(): Promise<void> {
+  try {
+    const response = await sendIpcCommand(
+      "get_monitor_settings",
+      undefined,
+      undefined,
+      "background",
+    );
+    if (!response.ok) {
+      return;
+    }
+    const monitorRaw = response.data?.monitor;
+    lastMonitorSettings = normalizeMonitorSettings(monitorRaw);
+    publishMonitorSettings();
+    restartBackgroundTimers();
+  } catch {
+    // Ignore transient failures; status and loop timers continue with last known settings.
+  }
+}
+
+async function updateMonitorSettings(
+  updates: Record<string, unknown>,
+): Promise<IpcResponsePayload> {
+  const response = await sendIpcCommand("update_monitor_settings", { updates });
+  if (!response.ok) {
+    return response;
+  }
+
+  const monitorRaw = response.data?.monitor;
+  lastMonitorSettings = normalizeMonitorSettings(monitorRaw);
+  publishMonitorSettings();
+  restartBackgroundTimers();
+  return response;
+}
+
 async function pumpOpsLog(): Promise<void> {
   if (!opsLogPath) {
     return;
@@ -2716,6 +3005,9 @@ async function loadInitialSnapshot(): Promise<void> {
     }
   }
   await refreshIpcStatus();
+  if (lastStatus.state === "connected") {
+    await refreshMonitorSettings();
+  }
   try {
     const registeredResponse = await sendIpcCommand(
       "get_registered_plugins",
@@ -2904,22 +3196,42 @@ async function installPluginArchive(
   });
 }
 
+function restartBackgroundTimers(): void {
+  if (statusTimer) {
+    clearInterval(statusTimer);
+    statusTimer = null;
+  }
+  if (logTimer) {
+    clearInterval(logTimer);
+    logTimer = null;
+  }
+  if (instanceTimer) {
+    clearInterval(instanceTimer);
+    instanceTimer = null;
+  }
+
+  const statusMs = deriveStatusLoopMs(lastMonitorSettings);
+  const logMs = deriveLogLoopMs(lastMonitorSettings);
+  const instanceMs = deriveInstanceLoopMs(lastMonitorSettings);
+
+  statusTimer = setInterval(() => {
+    void refreshIpcStatus();
+  }, statusMs);
+
+  logTimer = setInterval(() => {
+    void pumpOpsLog();
+  }, logMs);
+
+  instanceTimer = setInterval(() => {
+    void refreshAgentInstances();
+  }, instanceMs);
+}
+
 function startBackgroundLoops(): void {
   void loadInitialSnapshot();
   void pumpOpsLog();
   void refreshAgentInstances();
-
-  statusTimer = setInterval(() => {
-    void refreshIpcStatus();
-  }, 900);
-
-  logTimer = setInterval(() => {
-    void pumpOpsLog();
-  }, 320);
-
-  instanceTimer = setInterval(() => {
-    void refreshAgentInstances();
-  }, 950);
+  restartBackgroundTimers();
 }
 
 function stopBackgroundLoops(): void {
@@ -2966,6 +3278,7 @@ ipcMain.handle("mml:initial-state", () => {
     opsLogPath,
     status: lastStatus,
     opsControl: operationsControlState,
+    monitorSettings: lastMonitorSettings,
     instances: lastAgentInstances,
   };
 });
@@ -3003,6 +3316,32 @@ ipcMain.handle("mml:list-agent-templates", async () => {
     ok: true,
     templates,
   };
+});
+
+ipcMain.handle("mml:get-monitor-settings", async () => {
+  await refreshMonitorSettings();
+  return {
+    ok: true,
+    monitor: lastMonitorSettings,
+  };
+});
+
+ipcMain.handle("mml:update-monitor-settings", (_event, payload: unknown) => {
+  if (!payload || typeof payload !== "object") {
+    return {
+      ok: false,
+      error: "invalid_monitor_payload",
+    };
+  }
+  const raw = payload as Record<string, unknown>;
+  const updatesRaw = raw.updates;
+  if (!updatesRaw || typeof updatesRaw !== "object") {
+    return {
+      ok: false,
+      error: "missing_updates",
+    };
+  }
+  return updateMonitorSettings(updatesRaw as Record<string, unknown>);
 });
 
 ipcMain.handle("mml:get-widget-manifest", (_event, payload: unknown) => {
