@@ -45,10 +45,10 @@ To explicitly refresh portable runtime artifacts:
 ./mml.sh prepare
 ```
 
-Default portable deploy seeds only baseline agents:
+Default portable deploy seeds all agent ids listed in the active source list:
 
-- `agent_template`
-- `agent_example`
+- `mimolo/agents/sources.json` by default
+- override with `release_agents_path` in `mml.toml` (or `MIMOLO_RELEASE_AGENTS_PATH`)
 
 ## Portable-Test Defaults
 

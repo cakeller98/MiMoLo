@@ -32,6 +32,7 @@ CONFIG_MONITOR_LOG_DIR=""
 CONFIG_MONITOR_JOURNAL_DIR=""
 CONFIG_MONITOR_CACHE_DIR=""
 CONFIG_DEPLOY_AGENTS_DEFAULT=""
+CONFIG_RELEASE_AGENTS_PATH=""
 CONFIG_BUNDLE_TARGET_DEFAULT=""
 CONFIG_BUNDLE_OUT_DIR=""
 CONFIG_BUNDLE_VERSION_DEFAULT=""
@@ -85,6 +86,7 @@ load_launcher_config() {
   CONFIG_MONITOR_JOURNAL_DIR="$(get_toml_value "monitor_journal_dir" "")"
   CONFIG_MONITOR_CACHE_DIR="$(get_toml_value "monitor_cache_dir" "")"
   CONFIG_DEPLOY_AGENTS_DEFAULT="$(get_toml_value "deploy_agents_default" "")"
+  CONFIG_RELEASE_AGENTS_PATH="$(get_toml_value "release_agents_path" "")"
   CONFIG_BUNDLE_TARGET_DEFAULT="$(get_toml_value "bundle_target_default" "")"
   CONFIG_BUNDLE_OUT_DIR="$(get_toml_value "bundle_out_dir" "")"
   CONFIG_BUNDLE_VERSION_DEFAULT="$(get_toml_value "bundle_version_default" "")"
@@ -153,6 +155,15 @@ apply_environment_defaults() {
   export MIMOLO_MONITOR_LOG_DIR="${MIMOLO_MONITOR_LOG_DIR:-${CONFIG_MONITOR_LOG_DIR:-$derived_monitor_log_dir}}"
   export MIMOLO_MONITOR_JOURNAL_DIR="${MIMOLO_MONITOR_JOURNAL_DIR:-${CONFIG_MONITOR_JOURNAL_DIR:-$derived_monitor_journal_dir}}"
   export MIMOLO_MONITOR_CACHE_DIR="${MIMOLO_MONITOR_CACHE_DIR:-${CONFIG_MONITOR_CACHE_DIR:-$derived_monitor_cache_dir}}"
+
+  local derived_source_list_path="${SCRIPT_DIR}/mimolo/agents/sources.json"
+  if [[ -n "${MIMOLO_RELEASE_AGENTS_PATH:-}" ]]; then
+    :
+  elif [[ -n "$CONFIG_RELEASE_AGENTS_PATH" ]]; then
+    export MIMOLO_RELEASE_AGENTS_PATH="$(to_abs_path "$CONFIG_RELEASE_AGENTS_PATH")"
+  else
+    export MIMOLO_RELEASE_AGENTS_PATH="$derived_source_list_path"
+  fi
 }
 
 ensure_portable_layout() {
@@ -206,6 +217,7 @@ run_prepare() {
     --bin-dir "$MIMOLO_BIN_DIR"
     --runtime-config "$MIMOLO_RUNTIME_CONFIG_PATH"
     --config-source "$MIMOLO_CONFIG_SOURCE_PATH"
+    --source-list "$MIMOLO_RELEASE_AGENTS_PATH"
   )
   if [[ -n "$CONFIG_DEPLOY_AGENTS_DEFAULT" ]]; then
     prepare_cmd+=(--agents "$CONFIG_DEPLOY_AGENTS_DEFAULT")
@@ -308,7 +320,8 @@ ensure_prepared() {
 
 print_usage() {
   local display_portable_root="${CONFIG_PORTABLE_ROOT:-./temp_debug}"
-  local display_seed_agents="${CONFIG_DEPLOY_AGENTS_DEFAULT:-agent_template,agent_example}"
+  local display_seed_agents="${CONFIG_DEPLOY_AGENTS_DEFAULT:-<all from source list>}"
+  local display_release_agents_path="${CONFIG_RELEASE_AGENTS_PATH:-./mimolo/agents/sources.json}"
   local display_bundle_target="${CONFIG_BUNDLE_TARGET_DEFAULT:-proto}"
   local display_bundle_out_dir="${CONFIG_BUNDLE_OUT_DIR:-./temp_debug/bundles/macos}"
   local display_bundle_version="${CONFIG_BUNDLE_VERSION_DEFAULT:-<package version>}"
@@ -362,6 +375,7 @@ Defaults from mml.toml:
   socket_wait_seconds=$SOCKET_WAIT_SECONDS
   portable_root=$display_portable_root
   deploy_agents_default=$display_seed_agents
+  release_agents_path=$display_release_agents_path
   bundle_target_default=$display_bundle_target
   bundle_out_dir=$display_bundle_out_dir
   bundle_version_default=$display_bundle_version
@@ -560,10 +574,13 @@ case "$COMMAND" in
     echo "MIMOLO_MONITOR_LOG_DIR=$MIMOLO_MONITOR_LOG_DIR"
     echo "MIMOLO_MONITOR_JOURNAL_DIR=$MIMOLO_MONITOR_JOURNAL_DIR"
     echo "MIMOLO_MONITOR_CACHE_DIR=$MIMOLO_MONITOR_CACHE_DIR"
+    echo "MIMOLO_RELEASE_AGENTS_PATH=$MIMOLO_RELEASE_AGENTS_PATH"
     echo "default_command=$DEFAULT_COMMAND"
     echo "default_stack=$DEFAULT_STACK"
     echo "socket_wait_seconds=$SOCKET_WAIT_SECONDS"
     echo "control_dev_mode=$MIMOLO_CONTROL_DEV_MODE"
+    echo "deploy_agents_default=${CONFIG_DEPLOY_AGENTS_DEFAULT:-<all from source list>}"
+    echo "release_agents_path=${CONFIG_RELEASE_AGENTS_PATH:-./mimolo/agents/sources.json}"
     echo "bundle_target_default=${CONFIG_BUNDLE_TARGET_DEFAULT:-proto}"
     echo "bundle_out_dir=${CONFIG_BUNDLE_OUT_DIR:-./temp_debug/bundles/macos}"
     echo "bundle_version_default=${CONFIG_BUNDLE_VERSION_DEFAULT:-}"

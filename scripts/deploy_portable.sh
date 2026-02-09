@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Deploy portable runtime artifacts to a local bin/data root for dev testing.
-# Default seeded agents: agent_template, agent_example
+# Default source list: mimolo/agents/sources.json
+# Default seeded agents: all ids from selected source list
 
 set -euo pipefail
 
@@ -13,7 +14,8 @@ DATA_DIR="${MIMOLO_DATA_DIR:-$PORTABLE_ROOT/user_home/mimolo}"
 BIN_DIR="${MIMOLO_BIN_DIR:-$PORTABLE_ROOT/bin}"
 RUNTIME_CONFIG_PATH="${MIMOLO_RUNTIME_CONFIG_PATH:-$DATA_DIR/operations/mimolo.portable.toml}"
 CONFIG_SOURCE_PATH="${MIMOLO_CONFIG_SOURCE_PATH:-$REPO_ROOT/mimolo.toml}"
-AGENTS_TO_SEED="agent_template,agent_example"
+AGENTS_TO_SEED=""
+SOURCE_LIST_PATH="${MIMOLO_RELEASE_AGENTS_PATH:-}"
 NO_BUILD=0
 FORCE_SYNC=0
 
@@ -30,7 +32,8 @@ Options:
   --bin-dir <path>         Portable bin dir override
   --runtime-config <path>  Runtime config destination
   --config-source <path>   Source config used to seed runtime config
-  --agents <csv>           Agent ids to seed (default: agent_template,agent_example)
+  --agents <csv>           Agent ids to seed (default: all ids from selected source list)
+  --source-list <path>     Agent source list JSON (default: \$MIMOLO_RELEASE_AGENTS_PATH or ./mimolo/agents/sources.json)
   --no-build               Skip control_proto npm build
   --force-sync             Force full file replacement when rsync is unavailable
   -h, --help               Show help
@@ -63,6 +66,10 @@ while [[ $# -gt 0 ]]; do
       AGENTS_TO_SEED="$2"
       shift 2
       ;;
+    --source-list)
+      SOURCE_LIST_PATH="$2"
+      shift 2
+      ;;
     --no-build)
       NO_BUILD=1
       shift
@@ -82,6 +89,13 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -z "$SOURCE_LIST_PATH" ]]; then
+  SOURCE_LIST_PATH="$REPO_ROOT/mimolo/agents/sources.json"
+fi
+if [[ "$SOURCE_LIST_PATH" != /* ]]; then
+  SOURCE_LIST_PATH="$REPO_ROOT/$SOURCE_LIST_PATH"
+fi
 
 mkdir -p "$PORTABLE_ROOT" "$DATA_DIR" "$BIN_DIR"
 mkdir -p "$(dirname "$RUNTIME_CONFIG_PATH")"
@@ -127,6 +141,31 @@ sync_file() {
   cp "$src" "$dst"
 }
 
+ensure_pack_agent_archives() {
+  local utils_dir="$REPO_ROOT/mimolo/utils"
+  local pack_dist="$utils_dir/dist/pack-agent.js"
+  if [[ ! -d "$utils_dir" ]]; then
+    echo "[deploy] missing utils dir: $utils_dir" >&2
+    exit 2
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    echo "[deploy] missing node runtime; cannot run pack-agent" >&2
+    exit 2
+  fi
+
+  if [[ ! -d "$utils_dir/node_modules" ]]; then
+    echo "[deploy] installing mimolo/utils npm deps..."
+    (cd "$utils_dir" && npm ci >/dev/null)
+  fi
+  if [[ ! -f "$pack_dist" ]]; then
+    echo "[deploy] building mimolo/utils pack tool..."
+    (cd "$utils_dir" && npm run build >/dev/null)
+  fi
+
+  echo "[deploy] ensuring plugin archives from source list..."
+  (cd "$utils_dir" && node dist/pack-agent.js --source-list "$SOURCE_LIST_PATH")
+}
+
 if [[ "$NO_BUILD" -eq 0 ]]; then
   echo "[deploy] building control_proto..."
   (cd "$REPO_ROOT/mimolo/control_proto" && npm run build >/dev/null)
@@ -148,8 +187,18 @@ sync_dir "$REPO_ROOT/mimolo/" "$BIN_DIR/runtime/mimolo/"
 chmod +x "$BIN_DIR/mml.sh" || true
 chmod +x "$BIN_DIR/scripts/bundle_app.sh" || true
 
-echo "[deploy] seeding agents: $AGENTS_TO_SEED"
-poetry run python - <<'PY' "$REPO_ROOT" "$DATA_DIR" "$AGENTS_TO_SEED"
+if [[ ! -f "$SOURCE_LIST_PATH" ]]; then
+  echo "[deploy] missing source list: $SOURCE_LIST_PATH" >&2
+  exit 2
+fi
+echo "[deploy] source list: $SOURCE_LIST_PATH"
+ensure_pack_agent_archives
+if [[ -n "$AGENTS_TO_SEED" ]]; then
+  echo "[deploy] seeding agents: $AGENTS_TO_SEED"
+else
+  echo "[deploy] seeding agents: <all from source list>"
+fi
+poetry run python - <<'PY' "$REPO_ROOT" "$DATA_DIR" "$AGENTS_TO_SEED" "$SOURCE_LIST_PATH"
 from __future__ import annotations
 
 import json
@@ -161,40 +210,43 @@ from mimolo.core.plugin_store import PluginStore
 repo_root = Path(sys.argv[1])
 data_dir = Path(sys.argv[2])
 agents_csv = sys.argv[3]
-agent_ids = [x.strip() for x in agents_csv.split(",") if x.strip()]
-if not agent_ids:
-    raise SystemExit("[deploy] no agent ids provided")
+source_list_path = Path(sys.argv[4])
 
-sources_path = repo_root / "mimolo" / "agents" / "sources.json"
 repo_dir = repo_root / "mimolo" / "agents" / "repository"
-if not sources_path.exists():
-    raise SystemExit(f"[deploy] missing sources file: {sources_path}")
+if not source_list_path.exists():
+    raise SystemExit(f"[deploy] missing source list: {source_list_path}")
 if not repo_dir.exists():
     raise SystemExit(f"[deploy] missing repository dir: {repo_dir}")
 
-sources_doc = json.loads(sources_path.read_text(encoding="utf-8"))
+sources_doc = json.loads(source_list_path.read_text(encoding="utf-8"))
 source_rows = sources_doc.get("sources", [])
+if not isinstance(source_rows, list):
+    raise SystemExit(f"[deploy] source list has invalid shape: {source_list_path}")
 source_versions: dict[str, str] = {}
+source_order: list[str] = []
 for row in source_rows:
     if isinstance(row, dict):
         plugin_id = str(row.get("id", "")).strip()
         version = str(row.get("ver", "")).strip()
         if plugin_id and version:
             source_versions[plugin_id] = version
+            source_order.append(plugin_id)
+
+agent_ids = [x.strip() for x in agents_csv.split(",") if x.strip()]
+if not agent_ids:
+    agent_ids = source_order
+if not agent_ids:
+    raise SystemExit("[deploy] no agent ids resolved from source list")
 
 store = PluginStore(data_dir)
 for agent_id in agent_ids:
-    zip_path: Path | None = None
     version = source_versions.get(agent_id)
-    if version:
-        candidate = repo_dir / f"{agent_id}_v{version}.zip"
-        if candidate.exists():
-            zip_path = candidate
-    if zip_path is None:
-        candidates = sorted(repo_dir.glob(f"{agent_id}_v*.zip"))
-        if candidates:
-            zip_path = candidates[-1]
-    if zip_path is None:
+    if not version:
+        raise SystemExit(
+            f"[deploy] source list does not define a version for agent id: {agent_id}"
+        )
+    zip_path = repo_dir / f"{agent_id}_v{version}.zip"
+    if not zip_path.exists():
         raise SystemExit(f"[deploy] missing archive for {agent_id}")
 
     ok, detail, payload = store.install_plugin_archive(
@@ -215,7 +267,7 @@ for agent_id in agent_ids:
 store.write_registry_cache()
 PY
 
-poetry run python - <<'PY' "$BIN_DIR" "$DATA_DIR" "$RUNTIME_CONFIG_PATH" "$AGENTS_TO_SEED"
+poetry run python - <<'PY' "$BIN_DIR" "$DATA_DIR" "$RUNTIME_CONFIG_PATH" "$AGENTS_TO_SEED" "$SOURCE_LIST_PATH"
 from __future__ import annotations
 
 import json
@@ -227,6 +279,7 @@ bin_dir = Path(sys.argv[1])
 data_dir = Path(sys.argv[2])
 runtime_config = Path(sys.argv[3])
 agents = [x.strip() for x in sys.argv[4].split(",") if x.strip()]
+source_list_path = Path(sys.argv[5])
 
 manifest_path = bin_dir / "deploy-manifest.json"
 manifest = {
@@ -234,7 +287,8 @@ manifest = {
     "bin_dir": str(bin_dir.resolve()),
     "data_dir": str(data_dir.resolve()),
     "runtime_config_path": str(runtime_config.resolve()),
-    "seeded_agents_default": agents,
+    "seeded_agents_default": agents if agents else ["*"],
+    "source_list_path": str(source_list_path.resolve()),
     "deployment_model": "portable",
 }
 manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

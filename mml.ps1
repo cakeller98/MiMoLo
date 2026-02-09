@@ -31,6 +31,7 @@ $SocketWaitSeconds = 8
 $PortableRootDefault = Join-Path $PSScriptRoot "temp_debug"
 $ConfigPortableRoot = ""
 $ConfigDeployAgentsDefault = ""
+$ConfigReleaseAgentsPath = ""
 $ConfigBundleTargetDefault = ""
 $ConfigBundleOutDir = ""
 $ConfigBundleVersionDefault = ""
@@ -89,6 +90,7 @@ function Load-LauncherConfig {
     }
     $script:ConfigPortableRoot = Get-TomlValue -Path $ConfigFile -Key "portable_root" -Fallback ""
     $script:ConfigDeployAgentsDefault = Get-TomlValue -Path $ConfigFile -Key "deploy_agents_default" -Fallback ""
+    $script:ConfigReleaseAgentsPath = Get-TomlValue -Path $ConfigFile -Key "release_agents_path" -Fallback ""
     $script:ConfigBundleTargetDefault = Get-TomlValue -Path $ConfigFile -Key "bundle_target_default" -Fallback ""
     $script:ConfigBundleOutDir = Get-TomlValue -Path $ConfigFile -Key "bundle_out_dir" -Fallback ""
     $script:ConfigBundleVersionDefault = Get-TomlValue -Path $ConfigFile -Key "bundle_version_default" -Fallback ""
@@ -141,6 +143,14 @@ function Run-Prepare {
             $invokeArgs += @("-Agents")
             $invokeArgs += $agents
         }
+    }
+
+    $hasSourceListArg = ($PrepareArgs -contains "-SourceListPath") -or ($PrepareArgs -contains "--source-list")
+    if (
+        -not [string]::IsNullOrWhiteSpace($env:MIMOLO_RELEASE_AGENTS_PATH) `
+        -and (-not $hasSourceListArg)
+    ) {
+        $invokeArgs += @("-SourceListPath", $env:MIMOLO_RELEASE_AGENTS_PATH)
     }
 
     if ($PrepareArgs.Count -gt 0) {
@@ -249,6 +259,19 @@ if (-not $env:MIMOLO_OPS_LOG_PATH) {
 if (-not $env:MIMOLO_REPO_ROOT) {
     $env:MIMOLO_REPO_ROOT = $PSScriptRoot
 }
+if (-not $env:MIMOLO_RELEASE_AGENTS_PATH) {
+    if (-not [string]::IsNullOrWhiteSpace($ConfigReleaseAgentsPath)) {
+        if ([System.IO.Path]::IsPathRooted($ConfigReleaseAgentsPath)) {
+            $env:MIMOLO_RELEASE_AGENTS_PATH = $ConfigReleaseAgentsPath
+        }
+        else {
+            $env:MIMOLO_RELEASE_AGENTS_PATH = Join-Path $PSScriptRoot $ConfigReleaseAgentsPath
+        }
+    }
+    else {
+        $env:MIMOLO_RELEASE_AGENTS_PATH = Join-Path $PSScriptRoot "mimolo/agents/sources.json"
+    }
+}
 if ($Dev.IsPresent) {
     $env:MIMOLO_CONTROL_DEV_MODE = "1"
 }
@@ -277,7 +300,8 @@ $Command = Resolve-AllCommand -InputCommand $Command.ToLowerInvariant()
 
 function Show-Usage {
     $displayPortableRoot = if ([string]::IsNullOrWhiteSpace($ConfigPortableRoot)) { "./temp_debug" } else { $ConfigPortableRoot }
-    $displaySeedAgents = if ([string]::IsNullOrWhiteSpace($ConfigDeployAgentsDefault)) { "agent_template,agent_example" } else { $ConfigDeployAgentsDefault }
+    $displaySeedAgents = if ([string]::IsNullOrWhiteSpace($ConfigDeployAgentsDefault)) { "<all from source list>" } else { $ConfigDeployAgentsDefault }
+    $displayReleaseAgentsPath = if ([string]::IsNullOrWhiteSpace($ConfigReleaseAgentsPath)) { "./mimolo/agents/sources.json" } else { $ConfigReleaseAgentsPath }
     $displayBundleTarget = if ([string]::IsNullOrWhiteSpace($ConfigBundleTargetDefault)) { "proto" } else { $ConfigBundleTargetDefault }
     $displayBundleOutDir = if ([string]::IsNullOrWhiteSpace($ConfigBundleOutDir)) { "./temp_debug/bundles/macos" } else { $ConfigBundleOutDir }
     $displayBundleVersion = if ([string]::IsNullOrWhiteSpace($ConfigBundleVersionDefault)) { "<package version>" } else { $ConfigBundleVersionDefault }
@@ -312,6 +336,7 @@ function Show-Usage {
     Write-Host "  socket_wait_seconds=$SocketWaitSeconds"
     Write-Host "  portable_root=$displayPortableRoot"
     Write-Host "  deploy_agents_default=$displaySeedAgents"
+    Write-Host "  release_agents_path=$displayReleaseAgentsPath"
     Write-Host "  bundle_target_default=$displayBundleTarget"
     Write-Host "  bundle_out_dir=$displayBundleOutDir"
     Write-Host "  bundle_version_default=$displayBundleVersion"
@@ -518,10 +543,14 @@ switch ($Command) {
         Write-Host ('$env:MIMOLO_OPS_LOG_PATH="' + $env:MIMOLO_OPS_LOG_PATH + '"')
         Write-Host "MIMOLO_REPO_ROOT=$env:MIMOLO_REPO_ROOT"
         Write-Host ('$env:MIMOLO_REPO_ROOT="' + $env:MIMOLO_REPO_ROOT + '"')
+        Write-Host "MIMOLO_RELEASE_AGENTS_PATH=$env:MIMOLO_RELEASE_AGENTS_PATH"
+        Write-Host ('$env:MIMOLO_RELEASE_AGENTS_PATH="' + $env:MIMOLO_RELEASE_AGENTS_PATH + '"')
         Write-Host "default_command=$DefaultCommand"
         Write-Host "default_stack=$DefaultStack"
         Write-Host "socket_wait_seconds=$SocketWaitSeconds"
         Write-Host "control_dev_mode=$env:MIMOLO_CONTROL_DEV_MODE"
+        Write-Host "deploy_agents_default=$(if ([string]::IsNullOrWhiteSpace($ConfigDeployAgentsDefault)) { '<all from source list>' } else { $ConfigDeployAgentsDefault })"
+        Write-Host "release_agents_path=$(if ([string]::IsNullOrWhiteSpace($ConfigReleaseAgentsPath)) { './mimolo/agents/sources.json' } else { $ConfigReleaseAgentsPath })"
         Write-Host "bundle_target_default=$(if ([string]::IsNullOrWhiteSpace($ConfigBundleTargetDefault)) { 'proto' } else { $ConfigBundleTargetDefault })"
         Write-Host "bundle_out_dir=$(if ([string]::IsNullOrWhiteSpace($ConfigBundleOutDir)) { './temp_debug/bundles/macos' } else { $ConfigBundleOutDir })"
         Write-Host "bundle_version_default=$ConfigBundleVersionDefault"

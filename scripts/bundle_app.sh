@@ -214,13 +214,19 @@ ensure_npm_deps() {
 
 if [[ "$SKIP_PREPARE" -eq 0 ]]; then
   echo "[bundle] running portable prepare preflight..."
-  "$REPO_ROOT/scripts/deploy_portable.sh" \
-    --portable-root "$PORTABLE_ROOT" \
-    --data-dir "$DATA_DIR" \
-    --bin-dir "$BIN_DIR" \
-    --runtime-config "$RUNTIME_CONFIG_PATH" \
-    --config-source "$CONFIG_SOURCE_PATH" \
+  preflight_cmd=(
+    "$REPO_ROOT/scripts/deploy_portable.sh"
+    --portable-root "$PORTABLE_ROOT"
+    --data-dir "$DATA_DIR"
+    --bin-dir "$BIN_DIR"
+    --runtime-config "$RUNTIME_CONFIG_PATH"
+    --config-source "$CONFIG_SOURCE_PATH"
     --no-build
+  )
+  if [[ -n "${MIMOLO_RELEASE_AGENTS_PATH:-}" ]]; then
+    preflight_cmd+=(--source-list "$MIMOLO_RELEASE_AGENTS_PATH")
+  fi
+  "${preflight_cmd[@]}"
 fi
 
 ensure_npm_deps "$REPO_ROOT/mimolo-control"

@@ -13,9 +13,15 @@
   portable_root = "./temp_debug"
 
   # Agents seeded by portable deploy script when preparing runtime artifacts.
-  # Keep this small for baseline testing; add others manually via deploy tooling
-  # (or explicitly in developer mode when testing sideload flow).
-  deploy_agents_default = "agent_template,agent_example"
+  # Blank means "seed all ids from release_agents_path (or sources.json fallback)".
+  # Set CSV to restrict to a subset for focused test runs.
+  deploy_agents_default = ""
+
+  # Optional release/allowlist source list for deploy + bundle preflight.
+  # If blank, deploy uses ./mimolo/agents/sources.json.
+  # Point this to a curated release file (for example:
+  # ./build_configs/release/release_agents.json) when preparing release builds.
+  release_agents_path = ""
 
   # Developer-mode plugin zip install for Control/proto is enabled per launch via:
   #   ./mml.sh --dev ...
