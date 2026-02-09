@@ -1,7 +1,8 @@
 """Command-line interface for MiMoLo using Typer.
 
 Commands:
-- monitor: Run the orchestrator
+- ops: Run the operations orchestrator (singleton)
+- monitor: Backward-compatible alias for ops
 - test: Emit synthetic test events
 - register: Print plugin registration info (stub)
 """
@@ -19,11 +20,13 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
+from mimolo.common.paths import get_mimolo_data_dir
 from mimolo.core.config import Config, load_config_or_default
 from mimolo.core.errors import ConfigError
 from mimolo.core.event import Event
 from mimolo.core.ipc import check_platform_support
 from mimolo.core.logging_setup import init_orchestrator_logging
+from mimolo.core.ops_singleton import OperationsSingletonLock
 from mimolo.core.runtime import Runtime
 
 console = Console()
@@ -86,15 +89,14 @@ COOLDOWN_OPTION = typer.Option(
 )
 
 
-@app.command()
-def monitor(
+def _run_ops_command(
     config_path: Annotated[Path | None, CONFIG_OPTION] = Path("mimolo.toml"),
     once: Annotated[bool, ONCE_OPTION] = False,
     dry_run: Annotated[bool, DRY_RUN_OPTION] = False,
     log_format: Annotated[str | None, LOG_FORMAT_OPTION] = None,
     cooldown: Annotated[float | None, COOLDOWN_OPTION] = None,
 ) -> None:
-    """Run the MiMoLo monitor orchestrator.
+    """Run the MiMoLo operations orchestrator.
 
     Loads configuration, registers plugins, and runs the main event loop.
     """
@@ -128,9 +130,26 @@ def monitor(
             console.print("[red]No Agents configured. Nothing to monitor.[/red]")
             sys.exit(1)
 
+        lock = OperationsSingletonLock(get_mimolo_data_dir())
+        lock_status = lock.acquire()
+        if not lock_status.acquired:
+            pid_text = (
+                f" (pid={lock_status.existing_pid})"
+                if lock_status.existing_pid is not None
+                else ""
+            )
+            console.print(
+                "[red]Operations singleton already running"
+                f"{pid_text}. Attach Control to existing instance.[/red]"
+            )
+            sys.exit(3)
+
         # Create and run runtime
         runtime = Runtime(config, console, config_path=config_path)
-        runtime.run(max_iterations=1 if once else None)
+        try:
+            runtime.run(max_iterations=1 if once else None)
+        finally:
+            lock.release()
 
     except ConfigError as e:
         console.print(f"[red]Configuration error: {e}[/red]")
@@ -141,6 +160,30 @@ def monitor(
 
         traceback.print_exc()
         sys.exit(1)
+
+
+@app.command(name="ops")
+def ops(
+    config_path: Annotated[Path | None, CONFIG_OPTION] = Path("mimolo.toml"),
+    once: Annotated[bool, ONCE_OPTION] = False,
+    dry_run: Annotated[bool, DRY_RUN_OPTION] = False,
+    log_format: Annotated[str | None, LOG_FORMAT_OPTION] = None,
+    cooldown: Annotated[float | None, COOLDOWN_OPTION] = None,
+) -> None:
+    """Run the MiMoLo operations orchestrator."""
+    _run_ops_command(config_path, once, dry_run, log_format, cooldown)
+
+
+@app.command(name="monitor", hidden=True)
+def monitor_alias(
+    config_path: Annotated[Path | None, CONFIG_OPTION] = Path("mimolo.toml"),
+    once: Annotated[bool, ONCE_OPTION] = False,
+    dry_run: Annotated[bool, DRY_RUN_OPTION] = False,
+    log_format: Annotated[str | None, LOG_FORMAT_OPTION] = None,
+    cooldown: Annotated[float | None, COOLDOWN_OPTION] = None,
+) -> None:
+    """Backward-compatible alias for `mimolo ops`."""
+    _run_ops_command(config_path, once, dry_run, log_format, cooldown)
 
 
 @app.command()

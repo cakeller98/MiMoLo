@@ -322,7 +322,7 @@ function Show-Usage {
     Write-Host "  cleanup     Remove temp_debug, all dist folders, and all __pycache__ folders"
     Write-Host "  bundle-app  Build macOS .app bundle via scripts/bundle_app.sh"
     Write-Host "  env         Show current MIMOLO_IPC_PATH and launch commands"
-    Write-Host "  operations  Launch Operations (orchestrator): poetry run python -m mimolo.cli monitor"
+    Write-Host "  operations  Launch Operations (orchestrator): poetry run python -m mimolo.cli ops"
     Write-Host "  control     Launch Electron Control app (mimolo-control)"
     Write-Host "  proto       Launch Control IPC prototype (mimolo/control_proto)"
     Write-Host "  all         Alias to all-proto or all-control (default_stack in mml.toml)"
@@ -348,10 +348,10 @@ function Show-Usage {
 }
 
 function Launch-Operations {
-    param([string[]]$MonitorArgs)
+    param([string[]]$OpsArgs)
     Write-Host "[dev-stack] MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
     Write-Host "[dev-stack] MIMOLO_OPS_LOG_PATH=$env:MIMOLO_OPS_LOG_PATH"
-    poetry run python -m mimolo.cli monitor @MonitorArgs
+    poetry run python -m mimolo.cli ops @OpsArgs
 }
 
 function Launch-Control {
@@ -493,11 +493,11 @@ function Run-AllTarget {
     param(
         [ValidateSet("control", "proto")]
         [string]$Target,
-        [string[]]$MonitorArgs
+        [string[]]$OpsArgs
     )
 
     Write-Host "[dev-stack] Starting Operations in background..."
-    $opsArguments = @("run", "python", "-m", "mimolo.cli", "monitor") + $MonitorArgs
+    $opsArguments = @("run", "python", "-m", "mimolo.cli", "ops") + $OpsArgs
     if ($Target -eq "proto") {
         Set-Content -Path $env:MIMOLO_OPS_LOG_PATH -Value ""
         Write-Host "[dev-stack] Operations log file: $env:MIMOLO_OPS_LOG_PATH"
@@ -577,7 +577,7 @@ switch ($Command) {
     }
     "operations" {
         Invoke-NoCachePreflight
-        Launch-Operations -MonitorArgs $ArgsRest
+        Launch-Operations -OpsArgs $ArgsRest
     }
     "prepare" {
         if ($NoCache.IsPresent) {
@@ -604,19 +604,19 @@ switch ($Command) {
     "all" {
         Invoke-NoCachePreflight
         if ($DefaultStack -eq "control") {
-            Run-AllTarget -Target "control" -MonitorArgs $ArgsRest
+            Run-AllTarget -Target "control" -OpsArgs $ArgsRest
         }
         else {
-            Run-AllTarget -Target "proto" -MonitorArgs $ArgsRest
+            Run-AllTarget -Target "proto" -OpsArgs $ArgsRest
         }
     }
     "all-proto" {
         Invoke-NoCachePreflight
-        Run-AllTarget -Target "proto" -MonitorArgs $ArgsRest
+        Run-AllTarget -Target "proto" -OpsArgs $ArgsRest
     }
     "all-control" {
         Invoke-NoCachePreflight
-        Run-AllTarget -Target "control" -MonitorArgs $ArgsRest
+        Run-AllTarget -Target "control" -OpsArgs $ArgsRest
     }
     Default {
         Write-Error "Unknown command: $Command"

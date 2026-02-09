@@ -1449,7 +1449,7 @@ class Runtime:
                     }
                 if cmd == "dispatch_widget_action":
                     action_raw = request.get("action")
-                    action = (
+                    dispatch_action: str | None = (
                         str(action_raw).strip()
                         if action_raw is not None and str(action_raw).strip()
                         else None
@@ -1459,11 +1459,13 @@ class Runtime:
                         "cmd": cmd,
                         "timestamp": now,
                         "data": {
-                            "accepted": action == "refresh",
-                            "status": "ok" if action == "refresh" else "unsupported_action",
+                            "accepted": dispatch_action == "refresh",
+                            "status": "ok"
+                            if dispatch_action == "refresh"
+                            else "unsupported_action",
                             "plugin_id": plugin_id,
                             "instance_id": instance_id,
-                            "action": action,
+                            "action": dispatch_action,
                             "supported_actions": ["refresh"],
                             "spec": "developer_docs/control_dev/WIDGET_RENDER_IPC_MIN_SPEC.md",
                         },
@@ -1508,12 +1510,12 @@ class Runtime:
                 }
             elif cmd == "dispatch_widget_action":
                 action_raw = request.get("action")
-                action = (
+                stub_action: str | None = (
                     str(action_raw).strip()
                     if action_raw is not None and str(action_raw).strip()
                     else None
                 )
-                response_data["action"] = action
+                response_data["action"] = stub_action
 
             return {
                 "ok": False,

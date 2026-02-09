@@ -197,14 +197,14 @@ has_config_arg() {
   return 1
 }
 
-run_monitor_command() {
-  local -a monitor_args=("$@")
-  local -a cmd=(poetry run python -m mimolo.cli monitor)
+run_ops_command() {
+  local -a ops_args=("$@")
+  local -a cmd=(poetry run python -m mimolo.cli ops)
   if ! has_config_arg "$@"; then
     cmd+=(--config "$MIMOLO_RUNTIME_CONFIG_PATH")
   fi
-  if ((${#monitor_args[@]} > 0)); then
-    cmd+=("${monitor_args[@]}")
+  if ((${#ops_args[@]} > 0)); then
+    cmd+=("${ops_args[@]}")
   fi
   "${cmd[@]}"
 }
@@ -342,7 +342,7 @@ Commands:
   cleanup     Remove temp_debug, all dist folders, and all __pycache__ folders
   bundle-app  Build macOS .app bundle for proto/control via scripts/bundle_app.sh
   env         Show effective environment and launch commands
-  operations  Launch Operations (orchestrator): poetry run python -m mimolo.cli monitor
+  operations  Launch Operations (orchestrator): poetry run python -m mimolo.cli ops
   control     Launch Electron Control app (mimolo-control)
   proto       Launch Control IPC prototype (mimolo/control_proto)
   all         Alias to all-proto or all-control (default_stack in mml.toml)
@@ -395,7 +395,7 @@ launch_operations() {
   echo "[dev-stack] MIMOLO_RUNTIME_CONFIG_PATH=$MIMOLO_RUNTIME_CONFIG_PATH"
   echo "[dev-stack] MIMOLO_IPC_PATH=$MIMOLO_IPC_PATH"
   echo "[dev-stack] MIMOLO_OPS_LOG_PATH=$MIMOLO_OPS_LOG_PATH"
-  run_monitor_command "$@"
+  run_ops_command "$@"
 }
 
 launch_control() {
@@ -496,9 +496,9 @@ run_all_target() {
   if [[ "$target" == "proto" ]]; then
     : > "$MIMOLO_OPS_LOG_PATH"
     echo "[dev-stack] Operations log file: $MIMOLO_OPS_LOG_PATH"
-    run_monitor_command "$@" >"$MIMOLO_OPS_LOG_PATH" 2>&1 &
+    run_ops_command "$@" >"$MIMOLO_OPS_LOG_PATH" 2>&1 &
   else
-    run_monitor_command "$@" &
+    run_ops_command "$@" &
   fi
   operations_pid=$!
 

@@ -2253,8 +2253,8 @@ function buildOperationsStartCommand(): { args: string[]; command: string } {
   const configPath = runtimeProcess.env.MIMOLO_RUNTIME_CONFIG_PATH || "";
   const override = runtimeProcess.env.MIMOLO_OPERATIONS_START_CMD || "";
   const defaultCmd = configPath
-    ? `exec poetry run python -m mimolo.cli monitor --config ${quoteBashArg(configPath)}`
-    : "exec poetry run python -m mimolo.cli monitor";
+    ? `exec poetry run python -m mimolo.cli ops --config ${quoteBashArg(configPath)}`
+    : "exec poetry run python -m mimolo.cli ops";
   const shellCommand = override.trim().length > 0 ? override.trim() : defaultCmd;
   if (runtimeProcess.platform === "win32") {
     return {
