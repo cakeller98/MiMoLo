@@ -321,6 +321,7 @@ function Show-Usage {
     Write-Host "  prepare     Build/sync portable bin artifacts and seed default agents"
     Write-Host "  cleanup     Remove temp_debug, all dist folders, and all __pycache__ folders"
     Write-Host "  bundle-app  Build macOS .app bundle via scripts/bundle_app.sh"
+    Write-Host "  ps          List running MiMoLo-related processes (dev diagnostics)"
     Write-Host "  env         Show current MIMOLO_IPC_PATH and launch commands"
     Write-Host "  operations  Launch Operations (orchestrator): poetry run python -m mimolo.cli ops"
     Write-Host "  control     Launch Electron Control app (mimolo-control)"
@@ -352,6 +353,46 @@ function Launch-Operations {
     Write-Host "[dev-stack] MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
     Write-Host "[dev-stack] MIMOLO_OPS_LOG_PATH=$env:MIMOLO_OPS_LOG_PATH"
     poetry run python -m mimolo.cli ops @OpsArgs
+}
+
+function Show-MimoloProcesses {
+    $pattern = [regex]::new("mimolo\.cli (ops|monitor)|mimolo-control|control_proto|mml\.(sh|ps1)|MiMoLo", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    Write-Host "[dev-stack] MiMoLo-related processes:"
+
+    if ($IsWindows) {
+        $rows = Get-CimInstance Win32_Process | Where-Object {
+            $cmd = if ($null -eq $_.CommandLine) { "" } else { $_.CommandLine }
+            $name = if ($null -eq $_.Name) { "" } else { $_.Name }
+            $cmd.Contains($PSScriptRoot) -or $pattern.IsMatch($cmd) -or $pattern.IsMatch($name)
+        } | Select-Object ProcessId, ParentProcessId, Name, CommandLine
+
+        if ($null -eq $rows -or $rows.Count -eq 0) {
+            Write-Host "[dev-stack] no matching processes found."
+            return
+        }
+        $rows | Format-Table -AutoSize
+        return
+    }
+
+    try {
+        $raw = & ps -axo pid,ppid,stat,etime,command
+    }
+    catch {
+        Write-Host "[dev-stack] unable to query process table (permission denied or unsupported environment)."
+        return
+    }
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[dev-stack] unable to query process table."
+        return
+    }
+    $matches = $raw | Where-Object {
+        $_ -match [regex]::Escape($PSScriptRoot) -or $pattern.IsMatch($_)
+    }
+    if ($null -eq $matches -or $matches.Count -eq 0) {
+        Write-Host "[dev-stack] no matching processes found."
+        return
+    }
+    $matches
 }
 
 function Launch-Control {
@@ -569,6 +610,7 @@ switch ($Command) {
         Write-Host "  .\mml.ps1 --rebuild-dist [command]"
         Write-Host "  .\mml.ps1 --dev [command]"
         Write-Host "  .\mml.ps1 operations"
+        Write-Host "  .\mml.ps1 ps"
         Write-Host "  .\mml.ps1 control"
         Write-Host "  .\mml.ps1 proto"
         Write-Host "  .\mml.ps1 all-proto"
@@ -578,6 +620,12 @@ switch ($Command) {
     "operations" {
         Invoke-NoCachePreflight
         Launch-Operations -OpsArgs $ArgsRest
+    }
+    "ps" {
+        Show-MimoloProcesses
+    }
+    "processes" {
+        Show-MimoloProcesses
     }
     "prepare" {
         if ($NoCache.IsPresent) {
