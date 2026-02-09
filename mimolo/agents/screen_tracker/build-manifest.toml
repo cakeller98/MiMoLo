@@ -1,5 +1,5 @@
 plugin_id = "screen_tracker"
 name = "Screen Tracker"
-version = "0.1.1"
+version = "0.2.0"
 entry = "files/screen_tracker.py"
 files = ["screen_tracker.py"]
