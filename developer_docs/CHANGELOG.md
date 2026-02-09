@@ -2,6 +2,16 @@
 
 All notable documentation changes under `developer_docs/` are tracked in this file.
 
+## 2026-02-09
+
+### Changed
+- Updated changelog alignment to reflect current implementation status:
+  - Control proto now renders sanitized widget HTML fragments in-canvas.
+  - Operations/runtime now exposes monitor settings IPC read/update commands and persists validated monitor updates.
+  - `screen_tracker` now has real app-window/full-screen capture behavior with thumbnail controls and not-open placeholder artifacts.
+- Recorded security posture correction for widget media rendering:
+  - runtime delivers image payloads via safe `data:image/...` URIs for renderer compatibility under `data:` origin without weakening Electron security defaults.
+
 ## 2026-02-08
 
 ### Added

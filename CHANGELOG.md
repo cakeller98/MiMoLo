@@ -3,6 +3,40 @@
 All notable changes to this project will be documented in this file.
 Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md`.
 
+## 2026-02-09
+
+### Added
+- Added runtime monitor settings IPC commands in Operations:
+  - `get_monitor_settings`
+  - `update_monitor_settings`
+  with strict key validation, runtime rollback-on-failure semantics, and config persistence.
+- Added Control proto monitor settings UX:
+  - monitor summary row in header
+  - `Monitor` button modal to edit global `poll_tick_s`, `cooldown_seconds`, and `console_verbosity`.
+- Added runtime widget manifest/render support for `screen_tracker`:
+  - real `get_widget_manifest` capabilities payload
+  - real `request_widget_render` HTML payload for latest thumbnail or waiting-state text
+  - `dispatch_widget_action` support for `refresh`.
+- Added safe HTML fragment rendering in Control widget canvas using a strict allowlist sanitizer.
+- Added screen tracker agent enhancements:
+  - real macOS `app_window` capture path (`active_window` alias normalized)
+  - `target_app` and `target_window_title_contains` targeting options
+  - configurable `thumbnail_width_px` / `thumbnail_height_px`
+  - deterministic SVG placeholder artifact when target window/app is unavailable.
+- Added/expanded tests:
+  - `tests/test_screen_tracker_agent.py`
+  - `tests/test_runtime_monitor_settings_ipc.py`
+  - `tests/test_runtime_widget_ipc_stubs.py` updated for live `screen_tracker` widget behavior.
+
+### Changed
+- Updated Control background refresh loops to derive cadence from runtime monitor settings (`poll_tick_s`) instead of hardcoded intervals.
+- Updated widget auto-refresh interval resolution to respect effective heartbeat cadence plus global monitor floor.
+- Updated `screen_tracker` artifact semantics to include both full and thumbnail references with lightweight metadata payloads.
+- Updated `screen_tracker` plugin metadata version to `0.2.0`:
+  - `mimolo/agents/screen_tracker/build-manifest.toml`
+  - `mimolo/agents/sources.json`.
+- Updated screen widget image delivery to use embedded `data:image/...;base64,...` URIs instead of `file://` links, fixing renderer local-resource blocking under `data:` page origin.
+
 ## 2026-02-08
 
 ### Added
