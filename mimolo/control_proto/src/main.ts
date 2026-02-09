@@ -2410,6 +2410,33 @@ function waitForProcessExit(
   });
 }
 
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForIpcDisconnect(timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const pingResponse = await sendIpcCommand(
+        "ping",
+        undefined,
+        undefined,
+        "background",
+      );
+      if (!pingResponse.ok) {
+        return true;
+      }
+    } catch {
+      return true;
+    }
+    await sleepMs(150);
+  }
+  return false;
+}
+
 async function stopOperationsProcess(): Promise<{
   error?: string;
   ok: boolean;
@@ -2417,10 +2444,45 @@ async function stopOperationsProcess(): Promise<{
 }> {
   if (!operationsProcess) {
     if (lastStatus.state === "connected") {
-      setOperationsControlState("running", "external_unmanaged", false, null);
+      setOperationsControlState("stopping", "external_stop_requested", false, null);
+      try {
+        const stopResponse = await sendIpcCommand(
+          "control_orchestrator",
+          { action: "stop" },
+          undefined,
+          "interactive",
+        );
+        if (!stopResponse.ok) {
+          setOperationsControlState("running", "external_unmanaged", false, null);
+          return {
+            ok: false,
+            error: stopResponse.error || "external_stop_rejected",
+            state: operationsControlState,
+          };
+        }
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "external_stop_failed";
+        setOperationsControlState("running", "external_unmanaged", false, null);
+        return {
+          ok: false,
+          error: detail,
+          state: operationsControlState,
+        };
+      }
+
+      const disconnected = await waitForIpcDisconnect(5000);
+      if (!disconnected) {
+        setOperationsControlState("running", "external_unmanaged", false, null);
+        return {
+          ok: false,
+          error: "external_stop_timeout",
+          state: operationsControlState,
+        };
+      }
+
+      setOperationsControlState("stopped", "stopped_via_ipc", false, null);
       return {
-        ok: false,
-        error: "operations_not_managed",
+        ok: true,
         state: operationsControlState,
       };
     }
@@ -2972,19 +3034,38 @@ async function refreshIpcStatus(): Promise<void> {
     if (response.ok) {
       setStatus("connected", "ipc_ready");
       if (!operationsProcess) {
-        setOperationsControlState("running", "external_unmanaged", false, null);
+        if (
+          operationsControlState.state !== "stopping" ||
+          operationsControlState.detail !== "external_stop_requested"
+        ) {
+          setOperationsControlState("running", "external_unmanaged", false, null);
+        }
       }
       return;
     }
     setStatus("disconnected", response.error || "ipc_unavailable");
     if (!operationsProcess) {
-      setOperationsControlState("stopped", "not_managed", false, null);
+      if (
+        operationsControlState.state === "stopping" &&
+        operationsControlState.detail === "external_stop_requested"
+      ) {
+        setOperationsControlState("stopped", "stopped_via_ipc", false, null);
+      } else {
+        setOperationsControlState("stopped", "not_managed", false, null);
+      }
     }
   } catch (err) {
     const detail = err instanceof Error ? err.message : "ipc_unavailable";
     setStatus("disconnected", detail);
     if (!operationsProcess) {
-      setOperationsControlState("stopped", "not_managed", false, null);
+      if (
+        operationsControlState.state === "stopping" &&
+        operationsControlState.detail === "external_stop_requested"
+      ) {
+        setOperationsControlState("stopped", "stopped_via_ipc", false, null);
+      } else {
+        setOperationsControlState("stopped", "not_managed", false, null);
+      }
     }
   }
 }

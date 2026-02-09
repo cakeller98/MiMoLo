@@ -412,6 +412,14 @@ class Runtime:
             },
         }
 
+    def _snapshot_orchestrator_state(self) -> dict[str, Any]:
+        """Return current runtime lifecycle state for control-plane callers."""
+        return {
+            "running": self._running,
+            "shutting_down": self._shutting_down,
+            "ipc_enabled": bool(self._ipc_socket_path),
+        }
+
     def _resolve_screen_tracker_thumbnail(
         self, instance_id: str
     ) -> tuple[Path | None, str | None]:
@@ -925,6 +933,55 @@ class Runtime:
 
         if cmd == "ping":
             return {"ok": True, "cmd": "ping", "timestamp": now, "data": {"pong": True}}
+
+        if cmd == "control_orchestrator":
+            action_raw = request.get("action")
+            action = (
+                str(action_raw).strip().lower()
+                if action_raw is not None and str(action_raw).strip()
+                else "status"
+            )
+            if action not in {"status", "stop"}:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": "invalid_action",
+                    "data": {
+                        "allowed_actions": ["status", "stop"],
+                        "orchestrator": self._snapshot_orchestrator_state(),
+                    },
+                }
+
+            if action == "status":
+                return {
+                    "ok": True,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "data": {
+                        "accepted": True,
+                        "action": "status",
+                        "status": "ok",
+                        "orchestrator": self._snapshot_orchestrator_state(),
+                    },
+                }
+
+            if self._running:
+                self._running = False
+                stop_status = "stop_requested"
+            else:
+                stop_status = "already_stopped"
+            return {
+                "ok": True,
+                "cmd": cmd,
+                "timestamp": now,
+                "data": {
+                    "accepted": True,
+                    "action": "stop",
+                    "status": stop_status,
+                    "orchestrator": self._snapshot_orchestrator_state(),
+                },
+            }
 
         if cmd == "get_registered_plugins":
             registered_plugins = sorted(
