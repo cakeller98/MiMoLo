@@ -19,9 +19,15 @@ from mimolo.agents.base_agent import BaseAgent
 
 AGENT_LABEL = "client_folder_activity"
 AGENT_ID = "client_folder_activity-001"
-AGENT_VERSION = "0.1.0"
+AGENT_VERSION = "0.2.0"
 PROTOCOL_VERSION = "0.3"
 MIN_APP_VERSION = "0.3.0"
+WATCH_PATH_OPTION = typer.Option(
+    None,
+    "--watch-path",
+    "--watch-paths",
+    help="Absolute folder path(s) to monitor. Repeat flag for multiple paths.",
+)
 
 
 class ClientFolderActivityAgent(BaseAgent):
@@ -65,6 +71,8 @@ class ClientFolderActivityAgent(BaseAgent):
         self._counts: Counter[str] = Counter()
         self._top_extensions: Counter[str] = Counter()
         self._path_samples: list[str] = []
+        self._created_paths: list[dict[str, Any]] = []
+        self._modified_paths: list[dict[str, Any]] = []
         self._dropped_events = 0
         self._events_seen_total = 0
         self._last_event_ts: datetime | None = None
@@ -76,10 +84,18 @@ class ClientFolderActivityAgent(BaseAgent):
             rel_path = file_path.relative_to(root).as_posix()
         except ValueError:
             rel_path = file_path.name
-        include_ok = any(fnmatch.fnmatch(rel_path, pattern) for pattern in self.include_globs)
+        include_ok = any(
+            pattern in {"*", "**/*"}
+            or fnmatch.fnmatch(rel_path, pattern)
+            or fnmatch.fnmatch(file_path.name, pattern)
+            for pattern in self.include_globs
+        )
         if not include_ok:
             return False
-        excluded = any(fnmatch.fnmatch(rel_path, pattern) for pattern in self.exclude_globs)
+        excluded = any(
+            fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(file_path.name, pattern)
+            for pattern in self.exclude_globs
+        )
         return not excluded
 
     def _scan_filesystem(self) -> tuple[dict[str, tuple[int, int]], set[str]]:
@@ -119,6 +135,23 @@ class ClientFolderActivityAgent(BaseAgent):
             except ValueError:
                 continue
         return file_path.as_posix()
+
+    def _event_record_for_path(self, path_text: str) -> dict[str, Any]:
+        """Build one lightweight created/modified path record."""
+        source_path = Path(path_text)
+        record: dict[str, Any] = {
+            "path": self._to_sample_path(path_text),
+            "ext": source_path.suffix.lower() or "[no_ext]",
+        }
+        try:
+            stat_result = source_path.stat()
+            record["mtime_ns"] = stat_result.st_mtime_ns
+            record["size"] = stat_result.st_size
+        except OSError:
+            # OSError: path may disappear between scan and summary record creation.
+            record["mtime_ns"] = None
+            record["size"] = None
+        return record
 
     def _record_sample_path(self, path_text: str) -> None:
         if len(self._path_samples) < self.emit_path_samples_limit:
@@ -194,6 +227,17 @@ class ClientFolderActivityAgent(BaseAgent):
             self._counts["renamed"] += 0
             self._counts["total"] += event_total
 
+            for path in sorted(created):
+                if len(self._created_paths) < self.emit_path_samples_limit:
+                    self._created_paths.append(self._event_record_for_path(path))
+                else:
+                    self._dropped_events += 1
+            for path in sorted(modified):
+                if len(self._modified_paths) < self.emit_path_samples_limit:
+                    self._modified_paths.append(self._event_record_for_path(path))
+                else:
+                    self._dropped_events += 1
+
             for path in sorted(created | modified | deleted):
                 ext = Path(path).suffix.lower() or "[no_ext]"
                 self._top_extensions[ext] += 1
@@ -208,12 +252,16 @@ class ClientFolderActivityAgent(BaseAgent):
             "counts": dict(self._counts),
             "top_extensions": dict(self._top_extensions),
             "path_samples": list(self._path_samples),
+            "created_paths": list(self._created_paths),
+            "modified_paths": list(self._modified_paths),
             "dropped_events": self._dropped_events,
             "degraded_paths": sorted(self._degraded_paths),
         }
         self._counts.clear()
         self._top_extensions.clear()
         self._path_samples.clear()
+        self._created_paths.clear()
+        self._modified_paths.clear()
         self._dropped_events = 0
         self._segment_start = now
         return start, end, snapshot
@@ -225,7 +273,7 @@ class ClientFolderActivityAgent(BaseAgent):
         top_ext = snapshot.get("top_extensions", {})
         items = sorted(top_ext.items(), key=lambda pair: pair[1], reverse=True)
         return {
-            "schema": "client_folder_activity.summary.v1",
+            "schema": "client_folder_activity.summary.v2",
             "client_id": self.client_id,
             "client_name": self.client_name,
             "watch_paths": [str(p) for p in self.watch_paths],
@@ -241,6 +289,8 @@ class ClientFolderActivityAgent(BaseAgent):
                 "renamed": int(counts.get("renamed", 0)),
                 "total": int(counts.get("total", 0)),
             },
+            "created_paths": list(snapshot.get("created_paths", [])),
+            "modified_paths": list(snapshot.get("modified_paths", [])),
             "top_extensions": [{"ext": ext, "count": int(count)} for ext, count in items[:10]],
             "path_samples": list(snapshot.get("path_samples", [])),
             "dropped_events": int(snapshot.get("dropped_events", 0)),
@@ -267,11 +317,7 @@ class ClientFolderActivityAgent(BaseAgent):
 def main(
     client_id: str = typer.Option("default-client", help="Client identifier for attribution."),
     client_name: str = typer.Option("Default Client", help="Client display name."),
-    watch_paths: str = typer.Option(
-        ".",
-        "--watch-paths",
-        help="Comma-separated folder paths to monitor.",
-    ),
+    watch_paths: list[str] | None = WATCH_PATH_OPTION,
     include_globs: str = typer.Option(
         "**/*",
         "--include-globs",
@@ -305,9 +351,20 @@ def main(
     ),
 ) -> None:
     """Run the client folder activity agent."""
-    resolved_watch_paths = [part.strip() for part in watch_paths.split(",") if part.strip()]
+    if not watch_paths:
+        raise typer.BadParameter("at least one --watch-path is required")
+    resolved_watch_paths: list[str] = []
+    for raw_value in watch_paths:
+        for part in raw_value.split(","):
+            trimmed = part.strip()
+            if not trimmed:
+                continue
+            resolved = Path(trimmed).expanduser()
+            if not resolved.is_absolute():
+                raise typer.BadParameter(f"--watch-path must be absolute: {trimmed}")
+            resolved_watch_paths.append(str(resolved))
     if not resolved_watch_paths:
-        resolved_watch_paths = ["."]
+        raise typer.BadParameter("at least one non-empty --watch-path is required")
     resolved_include_globs = [part.strip() for part in include_globs.split(",") if part.strip()]
     if not resolved_include_globs:
         resolved_include_globs = ["**/*"]
