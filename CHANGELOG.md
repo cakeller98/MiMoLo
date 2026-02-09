@@ -27,6 +27,14 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
   - `tests/test_screen_tracker_agent.py`
   - `tests/test_runtime_monitor_settings_ipc.py`
   - `tests/test_runtime_widget_ipc_stubs.py` updated for live `screen_tracker` widget behavior.
+- Added Operations singleton startup lock support to prevent duplicate runtime launches per data root.
+- Added canonical `mimolo ops` command with backward-compatible hidden `monitor` alias.
+- Added launcher process diagnostics commands:
+  - `./mml.sh ps` / `./mml.sh processes`
+  - `.\mml.ps1 ps` / `.\mml.ps1 processes`
+- Added targeted lifecycle tests for operations singleton lock behavior:
+  - `tests/test_ops_singleton.py`
+  - plus orchestrator control IPC tests in `tests/test_runtime_orchestrator_control_ipc.py`.
 
 ### Changed
 - Updated Control background refresh loops to derive cadence from runtime monitor settings (`poll_tick_s`) instead of hardcoded intervals.
@@ -172,6 +180,10 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
   - runtime loop now sleeps on `poll_tick_s` directly
   - default project config and getting-started examples now use seconds
   - removed test references to millisecond poll-tick naming.
+- Updated launcher default Operations invocations from `mimolo.cli monitor` to `mimolo.cli ops` for clearer process identity.
+- Updated Control proto Operations control behavior:
+  - stop/restart now attempts orchestrator stop over IPC when connected to an external/unmanaged Operations instance.
+  - status transitions preserve explicit `external_stop_requested` -> `stopped_via_ipc` semantics instead of misleading unmanaged dead-end states.
 
 ## 2026-01-31
 

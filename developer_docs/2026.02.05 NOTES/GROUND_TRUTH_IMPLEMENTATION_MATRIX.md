@@ -1,13 +1,15 @@
 # Ground Truth Implementation Matrix (Canonical Active Backlog)
 
-Date: 2026-02-08
+Date: 2026-02-09
 Rule: code and tests are implementation truth when docs differ.
 
 Verification snapshot:
-- `poetry run pytest -q` => 87 passed
-- `poetry run mypy mimolo` => clean
-- `poetry run ruff check .` => clean
-- `npm run build` in `mimolo/control_proto` => clean
+- Snapshot above is stale and must be refreshed after major lifecycle/process-management updates.
+- Minimum current verification expectation:
+  - `poetry run pytest -q`
+  - `poetry run mypy mimolo`
+  - `poetry run ruff check .`
+  - `npm run build` in `mimolo/control_proto`
 
 ## 1) Implemented (Current Ground Truth)
 
@@ -116,6 +118,16 @@ Verification snapshot:
   - Choosing shutdown from Control reliably stops Operations and all agents with no orphan processes.
   - `mml.sh ps` / `mml.ps1 ps` confirms clean state after repeated start/stop/restart/quit cycles.
   - Lifecycle behavior is validated by regression tests (stop/restart/quit paths).
+- Progress update (2026-02-09):
+  - implemented:
+    - `mimolo ops` canonical command (with `monitor` compatibility alias)
+    - operations singleton lock guard in runtime startup path
+    - Control stop path can request external/unmanaged Operations shutdown via IPC
+    - launcher process diagnostics (`mml.sh ps`, `mml.ps1 ps`)
+  - remaining:
+    - explicit Control quit prompt (`leave running` vs `shutdown operations+agents`)
+    - comprehensive lifecycle regression coverage for repeated start/stop/restart/quit cycles
+    - residual orphan-process scenarios still under active investigation and hardening
 
 2. Implement true widget render pipeline through Operations
 - Done when:

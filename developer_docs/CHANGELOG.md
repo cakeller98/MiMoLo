@@ -11,6 +11,10 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
   - `screen_tracker` now has real app-window/full-screen capture behavior with thumbnail controls and not-open placeholder artifacts.
 - Recorded security posture correction for widget media rendering:
   - runtime delivers image payloads via safe `data:image/...` URIs for renderer compatibility under `data:` origin without weakening Electron security defaults.
+- Updated canonical backlog status in `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`:
+  - promoted Operations lifecycle/process-ownership hardening as explicit highest-priority execution item.
+  - documented partial completion progress (`mimolo ops` singleton guard, process diagnostics, external-stop IPC path) and remaining gaps.
+  - marked verification snapshot as stale pending full post-change verification rerun.
 
 ## 2026-02-08
 
