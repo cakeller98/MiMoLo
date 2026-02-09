@@ -520,6 +520,33 @@ function buildHtml(): string {
         color: #b8c3d6;
         line-height: 1.35;
       }
+      .screen-widget-root {
+        display: grid;
+        gap: 6px;
+      }
+      .screen-widget-image {
+        width: 100%;
+        max-height: 180px;
+        object-fit: contain;
+        border-radius: 4px;
+        background: #0c1018;
+      }
+      .screen-widget-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        font-size: 10px;
+        color: #8f9db2;
+      }
+      .screen-widget-file {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .screen-widget-time {
+        white-space: nowrap;
+      }
       .widget-muted {
         color: #7f8ca0;
       }
@@ -1172,6 +1199,89 @@ function buildHtml(): string {
         toggle.title = paused ? "Resume widget auto-refresh" : "Pause widget auto-refresh";
       }
 
+      const WIDGET_ALLOWED_TAGS = new Set([
+        "DIV",
+        "SPAN",
+        "P",
+        "IMG",
+        "UL",
+        "LI",
+        "STRONG",
+        "EM",
+        "SMALL",
+        "TIME",
+        "BR",
+      ]);
+      const WIDGET_ALLOWED_ATTRS = new Set(["class", "title", "alt", "datetime", "aria-label"]);
+
+      function sanitizeWidgetUrl(rawUrl) {
+        if (typeof rawUrl !== "string") {
+          return "";
+        }
+        const trimmed = rawUrl.trim();
+        if (trimmed.startsWith("file://")) {
+          return trimmed;
+        }
+        if (trimmed.startsWith("data:image/")) {
+          return trimmed;
+        }
+        return "";
+      }
+
+      function sanitizeWidgetNode(node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          return document.createTextNode(node.textContent || "");
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+          return null;
+        }
+        const element = node;
+        const tagName = element.tagName.toUpperCase();
+        if (!WIDGET_ALLOWED_TAGS.has(tagName)) {
+          return document.createTextNode(element.textContent || "");
+        }
+        const clean = document.createElement(tagName.toLowerCase());
+        for (const attr of Array.from(element.attributes)) {
+          const name = attr.name.toLowerCase();
+          const value = attr.value;
+          if (name === "src" && tagName === "IMG") {
+            const safeSrc = sanitizeWidgetUrl(value);
+            if (safeSrc) {
+              clean.setAttribute("src", safeSrc);
+            }
+            continue;
+          }
+          if (name.startsWith("on")) {
+            continue;
+          }
+          if (WIDGET_ALLOWED_ATTRS.has(name)) {
+            clean.setAttribute(name, value);
+          }
+        }
+        for (const child of Array.from(element.childNodes)) {
+          const sanitizedChild = sanitizeWidgetNode(child);
+          if (sanitizedChild) {
+            clean.appendChild(sanitizedChild);
+          }
+        }
+        return clean;
+      }
+
+      function renderWidgetHtml(canvasEl, htmlFragment) {
+        const template = document.createElement("template");
+        template.innerHTML = htmlFragment;
+        const fragment = document.createDocumentFragment();
+        for (const child of Array.from(template.content.childNodes)) {
+          const sanitized = sanitizeWidgetNode(child);
+          if (sanitized) {
+            fragment.appendChild(sanitized);
+          }
+        }
+        canvasEl.innerHTML = "";
+        canvasEl.appendChild(fragment);
+        canvasEl.classList.remove("widget-muted");
+      }
+
       async function refreshWidgetForLabel(label, manualRequest) {
         if (!ipcRenderer) {
           return;
@@ -1231,9 +1341,7 @@ function buildHtml(): string {
           renderStatusEl.textContent = "render: " + warningText;
 
           if (render && typeof render.html === "string" && render.html.trim().length > 0) {
-            const length = render.html.length;
-            canvasEl.textContent = "render fragment ready (" + length + " bytes)";
-            canvasEl.classList.remove("widget-muted");
+            renderWidgetHtml(canvasEl, render.html);
           } else {
             canvasEl.textContent = "widget canvas waiting: " + warningText;
             canvasEl.classList.add("widget-muted");

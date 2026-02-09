@@ -11,6 +11,8 @@ The orchestrator:
 
 from __future__ import annotations
 
+import base64
+import html
 import json
 import os
 import socket
@@ -22,6 +24,7 @@ from typing import Any, Literal, cast
 
 from rich.console import Console
 
+from mimolo.common.paths import get_mimolo_data_dir
 from mimolo.core.config import Config, PluginConfig, save_config
 from mimolo.core.cooldown import CooldownTimer
 from mimolo.core.errors import SinkError
@@ -406,6 +409,175 @@ class Runtime:
                     "Global poll_tick_s acts as a one-sided chatter floor; "
                     "effective per-agent cadence is never faster than poll_tick_s."
                 ),
+            },
+        }
+
+    def _resolve_screen_tracker_thumbnail(
+        self, instance_id: str
+    ) -> tuple[Path | None, str | None]:
+        """Return latest screen-tracker thumbnail path if available."""
+        data_root_raw = os.getenv("MIMOLO_DATA_DIR")
+        data_root = Path(data_root_raw) if data_root_raw else get_mimolo_data_dir()
+        base_root = (data_root / "agents" / "screen_tracker" / instance_id).resolve()
+        thumb_root = (base_root / "artifacts" / "thumb").resolve()
+
+        try:
+            thumb_root.relative_to(base_root)
+        except ValueError:
+            return None, "invalid_thumbnail_root"
+        if not thumb_root.exists():
+            return None, "thumbnail_root_missing"
+
+        candidates = [
+            p
+            for p in thumb_root.rglob("*")
+            if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".svg"}
+        ]
+        if not candidates:
+            return None, "no_thumbnail_artifacts"
+        latest = max(candidates, key=lambda p: p.stat().st_mtime_ns)
+        return latest, None
+
+    def _screen_tracker_thumbnail_data_uri(
+        self, thumbnail_path: Path
+    ) -> tuple[str | None, str | None]:
+        """Encode one thumbnail artifact as data URI for renderer-safe embedding."""
+        suffix = thumbnail_path.suffix.lower()
+        if suffix in {".jpg", ".jpeg"}:
+            mime = "image/jpeg"
+        elif suffix == ".png":
+            mime = "image/png"
+        elif suffix == ".svg":
+            mime = "image/svg+xml"
+        else:
+            return None, "unsupported_thumbnail_format"
+
+        try:
+            raw_bytes = thumbnail_path.read_bytes()
+        except OSError:
+            return None, "thumbnail_read_failed"
+        encoded = base64.b64encode(raw_bytes).decode("ascii")
+        return f"data:{mime};base64,{encoded}", None
+
+    def _build_screen_tracker_widget_manifest(
+        self, instance_id: str
+    ) -> dict[str, Any]:
+        """Build widget manifest for screen_tracker."""
+        plugin_cfg = self.config.plugins.get(instance_id)
+        if plugin_cfg is None:
+            return {
+                "accepted": False,
+                "status": "unknown_instance",
+                "widget": {
+                    "supports_render": False,
+                    "default_aspect_ratio": "16:9",
+                    "min_refresh_ms": 1000,
+                    "supported_actions": [],
+                    "content_modes": ["html_fragment_v1"],
+                },
+            }
+        min_refresh_ms = max(
+            1000, int(round(self._effective_heartbeat_interval_s(plugin_cfg) * 1000))
+        )
+        return {
+            "accepted": True,
+            "status": "ok",
+            "widget": {
+                "supports_render": True,
+                "default_aspect_ratio": "16:9",
+                "min_refresh_ms": min_refresh_ms,
+                "supported_actions": ["refresh"],
+                "content_modes": ["html_fragment_v1"],
+            },
+        }
+
+    def _build_screen_tracker_widget_render(
+        self, instance_id: str, request_id: str | None, mode: str
+    ) -> dict[str, Any]:
+        """Build widget render payload for screen_tracker."""
+        plugin_cfg = self.config.plugins.get(instance_id)
+        if plugin_cfg is None:
+            return {
+                "accepted": False,
+                "status": "unknown_instance",
+                "request_id": request_id,
+                "render": {
+                    "mode": mode,
+                    "html": '<div class="widget-muted">unknown instance</div>',
+                    "ttl_ms": 1000,
+                    "state_token": None,
+                    "warnings": ["unknown_instance"],
+                },
+            }
+
+        latest_path, missing_reason = self._resolve_screen_tracker_thumbnail(instance_id)
+        ttl_ms = max(1000, int(round(self._effective_heartbeat_interval_s(plugin_cfg) * 1000)))
+
+        if latest_path is None:
+            reason_text = html.escape(missing_reason or "no_thumbnail_artifacts")
+            return {
+                "accepted": True,
+                "status": "ok",
+                "request_id": request_id,
+                "render": {
+                    "mode": mode,
+                    "html": (
+                        '<div class="widget-muted">'
+                        f"screen tracker waiting for captures ({reason_text})"
+                        "</div>"
+                    ),
+                    "ttl_ms": ttl_ms,
+                    "state_token": None,
+                    "warnings": [missing_reason or "no_thumbnail_artifacts"],
+                },
+            }
+
+        stat_result = latest_path.stat()
+        data_uri, uri_error = self._screen_tracker_thumbnail_data_uri(latest_path)
+        if data_uri is None:
+            reason_text = html.escape(uri_error or "thumbnail_read_failed")
+            return {
+                "accepted": True,
+                "status": "ok",
+                "request_id": request_id,
+                "render": {
+                    "mode": mode,
+                    "html": (
+                        '<div class="widget-muted">'
+                        f"screen tracker thumbnail unavailable ({reason_text})"
+                        "</div>"
+                    ),
+                    "ttl_ms": ttl_ms,
+                    "state_token": None,
+                    "warnings": [uri_error or "thumbnail_read_failed"],
+                },
+            }
+        safe_uri = html.escape(data_uri, quote=True)
+        safe_file = html.escape(latest_path.name)
+        captured_at = datetime.fromtimestamp(stat_result.st_mtime, UTC).isoformat()
+        safe_time = html.escape(captured_at)
+        state_token = f"{latest_path.name}:{stat_result.st_mtime_ns}"
+
+        html_fragment = (
+            '<div class="screen-widget-root">'
+            f'<img class="screen-widget-image" src="{safe_uri}" alt="Latest screen snapshot"/>'
+            '<div class="screen-widget-meta">'
+            f'<span class="screen-widget-file">{safe_file}</span>'
+            f'<time class="screen-widget-time" datetime="{safe_time}">{safe_time}</time>'
+            "</div>"
+            "</div>"
+        )
+
+        return {
+            "accepted": True,
+            "status": "ok",
+            "request_id": request_id,
+            "render": {
+                "mode": mode,
+                "html": html_fragment,
+                "ttl_ms": ttl_ms,
+                "state_token": state_token,
+                "warnings": [],
             },
         }
 
@@ -1152,6 +1324,93 @@ class Runtime:
                     "timestamp": now,
                     "error": "missing_instance_id",
                 }
+
+            plugin_cfg = self.config.plugins.get(instance_id)
+            if plugin_cfg is None or plugin_cfg.plugin_type != "agent":
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": f"unknown_instance:{instance_id}",
+                }
+
+            template_id = self._infer_template_id(instance_id, plugin_cfg)
+            if template_id != plugin_id:
+                return {
+                    "ok": False,
+                    "cmd": cmd,
+                    "timestamp": now,
+                    "error": f"plugin_instance_mismatch:{plugin_id}:{instance_id}",
+                }
+
+            if template_id == "screen_tracker":
+                if cmd == "get_widget_manifest":
+                    screen_response_data = self._build_screen_tracker_widget_manifest(
+                        instance_id
+                    )
+                    screen_response_data.update(
+                        {
+                            "plugin_id": plugin_id,
+                            "instance_id": instance_id,
+                            "spec": "developer_docs/control_dev/WIDGET_RENDER_IPC_MIN_SPEC.md",
+                        }
+                    )
+                    return {
+                        "ok": True,
+                        "cmd": cmd,
+                        "timestamp": now,
+                        "data": screen_response_data,
+                    }
+                if cmd == "request_widget_render":
+                    request_id_raw = request.get("request_id")
+                    request_id = (
+                        str(request_id_raw).strip()
+                        if request_id_raw is not None and str(request_id_raw).strip()
+                        else None
+                    )
+                    mode_raw = request.get("mode")
+                    mode = (
+                        str(mode_raw).strip()
+                        if mode_raw is not None and str(mode_raw).strip()
+                        else "html_fragment_v1"
+                    )
+                    screen_response_data = self._build_screen_tracker_widget_render(
+                        instance_id, request_id, mode
+                    )
+                    screen_response_data.update(
+                        {
+                            "plugin_id": plugin_id,
+                            "instance_id": instance_id,
+                            "spec": "developer_docs/control_dev/WIDGET_RENDER_IPC_MIN_SPEC.md",
+                        }
+                    )
+                    return {
+                        "ok": True,
+                        "cmd": cmd,
+                        "timestamp": now,
+                        "data": screen_response_data,
+                    }
+                if cmd == "dispatch_widget_action":
+                    action_raw = request.get("action")
+                    action = (
+                        str(action_raw).strip()
+                        if action_raw is not None and str(action_raw).strip()
+                        else None
+                    )
+                    return {
+                        "ok": True,
+                        "cmd": cmd,
+                        "timestamp": now,
+                        "data": {
+                            "accepted": action == "refresh",
+                            "status": "ok" if action == "refresh" else "unsupported_action",
+                            "plugin_id": plugin_id,
+                            "instance_id": instance_id,
+                            "action": action,
+                            "supported_actions": ["refresh"],
+                            "spec": "developer_docs/control_dev/WIDGET_RENDER_IPC_MIN_SPEC.md",
+                        },
+                    }
 
             response_data: dict[str, Any] = {
                 "accepted": False,
