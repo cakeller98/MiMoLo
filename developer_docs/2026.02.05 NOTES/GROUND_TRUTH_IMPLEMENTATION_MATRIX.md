@@ -108,44 +108,53 @@ Verification snapshot:
 
 ## 3) Active Priority Backlog (Execution Order)
 
-1. Implement true widget render pipeline through Operations
+1. Operations lifecycle ownership + orphan-process elimination (highest priority)
+- Done when:
+  - Operations is singleton-correct: exactly one active `mimolo ops` runtime per data root.
+  - `stop operations` always performs full subordinate shutdown (all agents stop, then Operations exits, lock released).
+  - Control quit flow prompts user: leave Operations running vs shutdown Operations+Agents.
+  - Choosing shutdown from Control reliably stops Operations and all agents with no orphan processes.
+  - `mml.sh ps` / `mml.ps1 ps` confirms clean state after repeated start/stop/restart/quit cycles.
+  - Lifecycle behavior is validated by regression tests (stop/restart/quit paths).
+
+2. Implement true widget render pipeline through Operations
 - Done when:
   - `get_widget_manifest` and `request_widget_render` return implemented data for at least one real agent instance.
   - Control renders validated output and handles refresh/action round-trips without transport errors.
 
-2. Finish agent package install/upgrade lifecycle
+3. Finish agent package install/upgrade lifecycle
 - Done when:
   - Operations can list/install/upgrade installed agent packages from repository artifacts with clear policy outcomes.
   - Control can trigger the flow via stable commands.
 
-3. Complete archive-before-purge workflow
+4. Complete archive-before-purge workflow
 - Done when:
   - no artifact purge can occur without explicit user confirmation and archive option.
   - restore path can rehydrate data in-place by plugin-controlled logic.
 
-4. Hardening pass for `client_folder_activity` and `screen_tracker`
+5. Hardening pass for `client_folder_activity` and `screen_tracker`
 - Done when:
   - behavior matches spec contracts for bounded payloads/artifact references.
   - plugin-level tests cover key edge and failure paths.
 
-5. Promote control_proto patterns into commercial Control app
+6. Promote control_proto patterns into commercial Control app
 - Done when:
   - `mimolo-control` reaches functional parity for core runtime controls and stable IPC integration.
 
-6. Repository-wide path handling normalization audit (Python + TypeScript)
+7. Repository-wide path handling normalization audit (Python + TypeScript)
 - Done when:
   - Python path handling is standardized on `pathlib`-safe semantics for composition and validation.
   - TypeScript/Electron path handling is standardized on `path` module semantics with no brittle separator assumptions.
   - Existing brittle path-separator/string path joins are cataloged, remediated, and regression-tested cross-platform.
 
-7. Plugin trust boundary and capability-gated isolation model
+8. Plugin trust boundary and capability-gated isolation model
 - Done when:
   - Plugin architecture is documented as contract-first and self-contained: plugin interoperability occurs only via the Operations communication contract.
   - Shared code with Operations/Control is optional SDK/base-class convenience only, not a compatibility requirement.
   - Operations owns access mediation: plugins request capabilities (for example folder access) and receive only approved, scoped paths/tokens.
   - Plugin runtime model is explicit about isolation baseline (separate process) and additional sandbox controls for untrusted plugins.
 
-8. Optional indicator intent-dot for request lifecycle diagnostics (deferred)
+9. Optional indicator intent-dot for request lifecycle diagnostics (deferred)
 - Done when:
   - request lifecycle states (`queued`, `dispatching`, `timeout`, `completed`) are exposed as explicit telemetry events.
   - Control can render a distinct intent/queue signal that does not overlap with transport truth indicators.
