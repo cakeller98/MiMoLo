@@ -14,7 +14,11 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 - Updated canonical backlog status in `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`:
   - promoted Operations lifecycle/process-ownership hardening as explicit highest-priority execution item.
   - documented partial completion progress (`mimolo ops` singleton guard, process diagnostics, external-stop IPC path) and remaining gaps.
-  - marked verification snapshot as stale pending full post-change verification rerun.
+  - refreshed verification snapshot from strict rerun:
+    - `poetry run pytest -q` => 131 passed
+    - `poetry run mypy mimolo` => clean
+    - `poetry run ruff check .` => clean
+    - `npm run build` in `mimolo/control_proto` => clean
 
 ## 2026-02-08
 

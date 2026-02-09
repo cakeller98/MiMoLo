@@ -4,12 +4,10 @@ Date: 2026-02-09
 Rule: code and tests are implementation truth when docs differ.
 
 Verification snapshot:
-- Snapshot above is stale and must be refreshed after major lifecycle/process-management updates.
-- Minimum current verification expectation:
-  - `poetry run pytest -q`
-  - `poetry run mypy mimolo`
-  - `poetry run ruff check .`
-  - `npm run build` in `mimolo/control_proto`
+- `poetry run pytest -q` => 131 passed
+- `poetry run mypy mimolo` => clean
+- `poetry run ruff check .` => clean
+- `npm run build` in `mimolo/control_proto` => clean
 
 ## 1) Implemented (Current Ground Truth)
 
