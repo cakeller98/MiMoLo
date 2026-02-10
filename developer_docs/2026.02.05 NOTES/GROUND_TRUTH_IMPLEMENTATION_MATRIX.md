@@ -172,6 +172,10 @@ Priority-index rule:
       - Runtime IPC server plumbing extracted into `runtime_ipc_server.py`
       - Runtime shutdown/flush/segment lifecycle extracted into `runtime_shutdown.py`
       - Control proto `main.ts` split into focused modules (`types.ts`, `control_timing.ts`, `ui_html.ts`, `control_persistent_ipc.ts`, `control_operations.ts`, `control_ipc_handlers.ts`)
+      - Control proto additional main-process concern extraction:
+        - `control_ops_log_tailer.ts` (ops log init/tail/read cursor lifecycle)
+        - `control_template_cache.ts` (template refresh cache + in-flight de-dup)
+        - `control_background_loops.ts` (status/log/instance loop timer orchestration)
   - remaining:
     - continue decomposition until orchestration files are coordinator-only and easier to audit under Item 1 hardening goals
 

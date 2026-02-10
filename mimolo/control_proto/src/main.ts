@@ -1,6 +1,5 @@
 import electronDefault, * as electronNamespace from "electron";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
 import type {
   AgentInstanceSnapshot,
   AgentTemplateSnapshot,
@@ -40,6 +39,9 @@ import {
 import { PersistentIpcClient } from "./control_persistent_ipc.js";
 import { OperationsController } from "./control_operations.js";
 import { registerIpcHandlers } from "./control_ipc_handlers.js";
+import { OpsLogTailer } from "./control_ops_log_tailer.js";
+import { TemplateCache } from "./control_template_cache.js";
+import { BackgroundLoopController } from "./control_background_loops.js";
 
 const electronRuntime = (
   (electronDefault as unknown as Record<string, unknown>) ??
@@ -80,10 +82,6 @@ const opsLogPath = runtimeProcess.env.MIMOLO_OPS_LOG_PATH || "";
 const controlDevMode = parseEnabledEnv(runtimeProcess.env.MIMOLO_CONTROL_DEV_MODE);
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
-let logCursor = 0;
-let statusTimer: ReturnType<typeof setInterval> | null = null;
-let logTimer: ReturnType<typeof setInterval> | null = null;
-let instanceTimer: ReturnType<typeof setInterval> | null = null;
 
 let lastStatus: OpsStatusPayload = {
   state: "starting",
@@ -99,7 +97,6 @@ const DEFAULT_MONITOR_SETTINGS: MonitorSettingsSnapshot = {
 
 let lastMonitorSettings: MonitorSettingsSnapshot = { ...DEFAULT_MONITOR_SETTINGS };
 let lastAgentInstances: Record<string, AgentInstanceSnapshot> = {};
-let opsLogWarningPrinted = false;
 let opsLogWriteQueue: Promise<void> = Promise.resolve();
 let quitInProgress = false;
 let operationsControlState: OperationsControlSnapshot = {
@@ -135,14 +132,12 @@ const DEFAULT_CONTROL_TIMING_SETTINGS: ControlTimingSettings = {
   widget_auto_refresh_default_s: 15.0,
 };
 
-let templateCache: { fetchedAtMs: number; templates: Record<string, AgentTemplateSnapshot> } | null = null;
-let templateRefreshInFlight: Promise<Record<string, AgentTemplateSnapshot>> | null = null;
-
 let controlTimingSettings: ControlTimingSettings = { ...DEFAULT_CONTROL_TIMING_SETTINGS };
 let templateCacheTtlMs = Math.max(
   1,
   Math.round(DEFAULT_CONTROL_TIMING_SETTINGS.template_cache_ttl_s * 1000),
 );
+const templateCache = new TemplateCache(() => templateCacheTtlMs);
 
 function applyControlTimingSettings(raw: unknown): void {
   controlTimingSettings = normalizeControlTimingSettings(
@@ -254,6 +249,8 @@ function appendOpsLogChunk(rawChunk: unknown): void {
       // Keep the write chain alive on transient write failures.
     });
 }
+
+const opsLogTailer = new OpsLogTailer(opsLogPath, publishLine);
 
 function publishInstances(
   instances: Record<string, AgentInstanceSnapshot>,
@@ -453,30 +450,7 @@ async function refreshTemplates(): Promise<Record<string, AgentTemplateSnapshot>
 }
 
 async function refreshTemplatesCached(forceRefresh = false): Promise<Record<string, AgentTemplateSnapshot>> {
-  const now = Date.now();
-  if (
-    !forceRefresh &&
-    templateCache &&
-    now - templateCache.fetchedAtMs < templateCacheTtlMs
-  ) {
-    return templateCache.templates;
-  }
-  if (templateRefreshInFlight) {
-    return templateRefreshInFlight;
-  }
-  templateRefreshInFlight = (async () => {
-    const templates = await refreshTemplates();
-    templateCache = {
-      templates,
-      fetchedAtMs: Date.now(),
-    };
-    return templates;
-  })();
-  try {
-    return await templateRefreshInFlight;
-  } finally {
-    templateRefreshInFlight = null;
-  }
+  return templateCache.getTemplates(forceRefresh, refreshTemplates);
 }
 
 async function refreshMonitorSettings(): Promise<void> {
@@ -525,63 +499,11 @@ async function updateMonitorSettings(
 }
 
 async function pumpOpsLog(): Promise<void> {
-  if (!opsLogPath) {
-    return;
-  }
-
-  try {
-    const fileStats = await stat(opsLogPath);
-    if (fileStats.size === 0) {
-      logCursor = 0;
-      return;
-    }
-
-    const fullText = await readFile(opsLogPath, "utf8");
-    if (fullText.length < logCursor) {
-      logCursor = 0;
-    }
-
-    if (fullText.length === logCursor) {
-      return;
-    }
-
-    const slice = fullText.slice(logCursor);
-    logCursor = fullText.length;
-
-    const lines = slice.split(/\r?\n/);
-    for (const line of lines) {
-      if (line.trim().length > 0) {
-        publishLine(line);
-      }
-    }
-  } catch (err) {
-    if (
-      err &&
-      typeof err === "object" &&
-      "code" in err &&
-      (err as { code?: string }).code === "ENOENT"
-    ) {
-      if (!opsLogWarningPrinted) {
-        publishLine(`[ops-log] waiting for file: ${opsLogPath}`);
-        opsLogWarningPrinted = true;
-      }
-      return;
-    }
-    const detail = err instanceof Error ? err.message : "ops_log_read_failed";
-    publishLine(`[ops-log] read failed: ${detail}`);
-  }
+  await opsLogTailer.pump();
 }
 
 async function loadInitialSnapshot(): Promise<void> {
-  if (opsLogPath) {
-    try {
-      await mkdir(path.dirname(opsLogPath), { recursive: true });
-      await writeFile(opsLogPath, "", { flag: "a" });
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : "ops_log_init_failed";
-      publishLine(`[ops-log] init failed: ${detail}`);
-    }
-  }
+  await opsLogTailer.initializeLogFile();
   await refreshIpcStatus();
   if (lastStatus.state === "connected") {
     await refreshMonitorSettings();
@@ -633,20 +555,11 @@ async function installPluginArchive(
   return installPluginArchiveWrapper(payload, sendIpcCommand, controlDevMode);
 }
 
-function restartBackgroundTimers(): void {
-  if (statusTimer) {
-    clearInterval(statusTimer);
-    statusTimer = null;
-  }
-  if (logTimer) {
-    clearInterval(logTimer);
-    logTimer = null;
-  }
-  if (instanceTimer) {
-    clearInterval(instanceTimer);
-    instanceTimer = null;
-  }
-
+function deriveBackgroundIntervals(): {
+  statusMs: number;
+  logMs: number;
+  instanceMs: number;
+} {
   const statusMs = deriveStatusLoopMs(
     lastMonitorSettings,
     lastStatus.state,
@@ -662,41 +575,32 @@ function restartBackgroundTimers(): void {
     lastStatus.state,
     controlTimingSettings,
   );
+  return {
+    statusMs,
+    logMs,
+    instanceMs,
+  };
+}
 
-  statusTimer = setInterval(() => {
-    void refreshIpcStatus();
-  }, statusMs);
+const backgroundLoopController = new BackgroundLoopController({
+  loadInitialSnapshot,
+  refreshStatus: refreshIpcStatus,
+  refreshInstances: refreshAgentInstances,
+  pumpLog: pumpOpsLog,
+  deriveIntervals: deriveBackgroundIntervals,
+  stopPersistentIpc: () => persistentIpcClient.stop("control_shutdown"),
+});
 
-  logTimer = setInterval(() => {
-    void pumpOpsLog();
-  }, logMs);
-
-  instanceTimer = setInterval(() => {
-    void refreshAgentInstances();
-  }, instanceMs);
+function restartBackgroundTimers(): void {
+  backgroundLoopController.restart();
 }
 
 function startBackgroundLoops(): void {
-  void loadInitialSnapshot();
-  void pumpOpsLog();
-  void refreshAgentInstances();
-  restartBackgroundTimers();
+  backgroundLoopController.start();
 }
 
 function stopBackgroundLoops(): void {
-  if (statusTimer) {
-    clearInterval(statusTimer);
-    statusTimer = null;
-  }
-  if (logTimer) {
-    clearInterval(logTimer);
-    logTimer = null;
-  }
-  if (instanceTimer) {
-    clearInterval(instanceTimer);
-    instanceTimer = null;
-  }
-  persistentIpcClient.stop("control_shutdown");
+  backgroundLoopController.stop();
 }
 
 function operationsMayBeRunning(): boolean {

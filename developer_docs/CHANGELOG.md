@@ -48,6 +48,14 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
     - `mimolo/control_proto/src/ui_renderer_sections/indicators_and_widgets.ts`
     - `mimolo/control_proto/src/ui_renderer_sections/commands_and_install.ts`
     - `mimolo/control_proto/src/ui_renderer_sections/cards_and_bootstrap.ts`
+- Continued Control main-process maintainability decomposition:
+  - extracted Operations log tail/read/init concern into:
+    - `mimolo/control_proto/src/control_ops_log_tailer.ts`
+  - extracted template-list cache concern into:
+    - `mimolo/control_proto/src/control_template_cache.ts`
+  - extracted status/log/instance polling timer orchestration into:
+    - `mimolo/control_proto/src/control_background_loops.ts`
+  - `mimolo/control_proto/src/main.ts` now delegates those concerns instead of carrying inline implementations.
 - Reduced duplicate loop-interval policy logic in `mimolo/control_proto/src/control_proto_utils.ts` by extracting a shared internal helper (`deriveLoopIntervalMs`) used by status/instance/log poll cadence derivations.
 - Tightened runtime exception handling policy across core paths by replacing broad catches with explicit exception tuples and preserving plugin-boundary broad handling only where intentionally justified.
 - Updated canonical backlog reality to note that Item 1 lifecycle hardening work now includes maintainability-oriented module boundary cleanup, not only behavior fixes.
