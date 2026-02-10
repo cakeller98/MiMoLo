@@ -21,7 +21,13 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
   - `runtime.py` responsibilities are now partially extracted into dedicated modules:
     - `mimolo/core/runtime_ipc_commands.py` (IPC command routing)
     - `mimolo/core/runtime_ipc_server.py` (IPC socket server plumbing)
+    - `mimolo/core/runtime_ipc_plugin_commands.py` (plugin package IPC list/inspect/install/upgrade routing)
+    - `mimolo/core/runtime_ipc_widget_commands.py` (widget IPC command routing and payload assembly)
+    - `mimolo/core/runtime_ipc_agent_commands.py` (agent start/stop/restart and instance add/duplicate/remove/update routing)
+    - `mimolo/core/runtime_control_actions.py` (queued control-action processing and agent instance mutation/persistence helpers)
     - `mimolo/core/runtime_agent_events.py` (agent summary/heartbeat/log handling)
+    - `mimolo/core/runtime_agent_lifecycle.py` (agent start/spawn/stop/restart orchestration)
+    - `mimolo/core/runtime_agent_registry.py` (agent state snapshots, template discovery, instance snapshot/cadence helpers)
     - `mimolo/core/runtime_widget_support.py` (screen-tracker widget thumbnail/data-uri/render helpers)
     - `mimolo/core/runtime_monitor_settings.py` (monitor settings update/persist helper)
     - `mimolo/core/runtime_shutdown.py` (shutdown/flush/segment lifecycle)
@@ -59,8 +65,51 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
     - `mimolo/control_proto/src/control_quit.ts`
   - extracted BrowserWindow construction and HTML load wiring into:
     - `mimolo/control_proto/src/control_window.ts`
+  - extracted Control snapshot/status synchronization concern into:
+    - `mimolo/control_proto/src/control_snapshot_refresher.ts`
+      - status refresh + throttled publish
+      - monitor settings refresh/update + timing policy apply/restart
+      - agent instance/template refresh + initial snapshot bootstrap
+  - extracted UI publish/event fanout concern into:
+    - `mimolo/control_proto/src/control_window_publisher.ts`
+      - canonical emitter for `ops:line`, `ops:traffic`, `ops:status`, `ops:instances`, `ops:monitor-settings`, and `ops:process`
+      - `main.ts` now delegates all BrowserWindow publish paths through a single class instead of carrying duplicate helper methods
+  - extracted Operations process-state store concern into:
+    - `mimolo/control_proto/src/control_operations_state.ts`
+      - canonical state holder for Operations managed/unmanaged lifecycle snapshot updates
+      - `main.ts` now delegates process-state change/publish logic through the store instead of inline state mutation
   - `mimolo/control_proto/src/main.ts` now delegates those concerns instead of carrying inline implementations.
 - Reduced duplicate loop-interval policy logic in `mimolo/control_proto/src/control_proto_utils.ts` by extracting a shared internal helper (`deriveLoopIntervalMs`) used by status/instance/log poll cadence derivations.
+- Continued Runtime IPC maintainability decomposition:
+  - extracted agent lifecycle/instance control command handling branch from `mimolo/core/runtime_ipc_commands.py` into:
+    - `mimolo/core/runtime_ipc_agent_commands.py`
+  - `build_ipc_response(...)` now delegates agent lifecycle/instance control handling through `maybe_handle_agent_control_command(...)`.
+  - extracted plugin package command handling branch from `mimolo/core/runtime_ipc_commands.py` into:
+    - `mimolo/core/runtime_ipc_plugin_commands.py`
+  - `build_ipc_response(...)` now delegates plugin package command handling through `maybe_handle_plugin_store_command(...)`.
+  - extracted widget command handling branch from `mimolo/core/runtime_ipc_commands.py` into:
+    - `mimolo/core/runtime_ipc_widget_commands.py`
+  - `build_ipc_response(...)` now delegates widget command handling through `maybe_handle_widget_command(...)` to keep command routing file focused.
+- Continued Runtime maintainability decomposition (non-IPC):
+  - extracted agent state/template/instance registry concerns from `runtime.py` into:
+    - `mimolo/core/runtime_agent_registry.py`
+  - `Runtime` now delegates:
+    - `_snapshot_running_agents` / `_set_agent_state` / `_snapshot_agent_states`
+    - `_infer_template_id` / `_discover_agent_templates` / `_snapshot_agent_instances`
+    - `_effective_interval_s` / `_effective_heartbeat_interval_s` / `_effective_agent_flush_interval_s`
+  - extracted agent lifecycle operations from `runtime.py` into:
+    - `mimolo/core/runtime_agent_lifecycle.py`
+  - `Runtime` now delegates:
+    - `_start_agents`
+    - `_spawn_agent_for_label`
+    - `_stop_agent_for_label`
+    - `_restart_agent_for_label`
+  - extracted queued control-action execution and agent-instance mutation/persistence helpers from `runtime.py` into:
+    - `mimolo/core/runtime_control_actions.py`
+  - `Runtime` now delegates:
+    - `_queue_control_action` / `_drain_control_actions` / `_process_control_actions`
+    - `_add_agent_instance` / `_duplicate_agent_instance` / `_remove_agent_instance` / `_update_agent_instance`
+    - `_next_available_label` / `_persist_runtime_config`
 - Tightened runtime exception handling policy across core paths by replacing broad catches with explicit exception tuples and preserving plugin-boundary broad handling only where intentionally justified.
 - Updated canonical backlog reality to note that Item 1 lifecycle hardening work now includes maintainability-oriented module boundary cleanup, not only behavior fixes.
 - Refreshed verification snapshot context in active planning docs to stay aligned with latest strict checks and targeted IPC/runtime regression slices.

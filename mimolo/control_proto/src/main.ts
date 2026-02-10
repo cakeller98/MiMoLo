@@ -7,7 +7,6 @@ import type {
   ControlTimingSettings,
   IpcResponsePayload,
   IpcTrafficClass,
-  IpcTrafficPayload,
   MonitorSettingsSnapshot,
   OperationsControlSnapshot,
   OperationsProcessState,
@@ -23,10 +22,6 @@ import {
   deriveInstanceLoopMs,
   deriveLogLoopMs,
   deriveStatusLoopMs,
-  extractAgentInstances,
-  extractTemplates,
-  normalizeDisconnectedStatusDetail,
-  normalizeMonitorSettings,
   parseIpcResponse,
 } from "./control_proto_utils.js";
 import {
@@ -42,11 +37,14 @@ import { registerIpcHandlers } from "./control_ipc_handlers.js";
 import { OpsLogTailer } from "./control_ops_log_tailer.js";
 import { TemplateCache } from "./control_template_cache.js";
 import { BackgroundLoopController } from "./control_background_loops.js";
+import { OperationsStateStore } from "./control_operations_state.js";
 import {
   handleQuitRequest as handleQuitRequestImpl,
   operationsMayBeRunning as operationsMayBeRunningImpl,
 } from "./control_quit.js";
 import { createMainWindow } from "./control_window.js";
+import { ControlSnapshotRefresher } from "./control_snapshot_refresher.js";
+import { WindowPublisher } from "./control_window_publisher.js";
 
 const electronRuntime = (
   (electronDefault as unknown as Record<string, unknown>) ??
@@ -87,12 +85,10 @@ const opsLogPath = runtimeProcess.env.MIMOLO_OPS_LOG_PATH || "";
 const controlDevMode = parseEnabledEnv(runtimeProcess.env.MIMOLO_CONTROL_DEV_MODE);
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
-
-let lastStatus: OpsStatusPayload = {
-  state: "starting",
-  detail: "waiting_for_operations",
-  timestamp: new Date().toISOString(),
-};
+const windowPublisher = new WindowPublisher(() => mainWindow);
+const operationsStateStore = new OperationsStateStore((state) => {
+  windowPublisher.publishOperationsControlState(state);
+});
 
 const DEFAULT_MONITOR_SETTINGS: MonitorSettingsSnapshot = {
   cooldown_seconds: 600,
@@ -100,17 +96,17 @@ const DEFAULT_MONITOR_SETTINGS: MonitorSettingsSnapshot = {
   console_verbosity: "info",
 };
 
-let lastMonitorSettings: MonitorSettingsSnapshot = { ...DEFAULT_MONITOR_SETTINGS };
-let lastAgentInstances: Record<string, AgentInstanceSnapshot> = {};
 let opsLogWriteQueue: Promise<void> = Promise.resolve();
 let quitInProgress = false;
-let operationsControlState: OperationsControlSnapshot = {
-  state: "stopped",
-  detail: "not_managed",
-  managed: false,
-  pid: null,
-  timestamp: new Date().toISOString(),
-};
+
+function setOperationsControlState(
+  state: OperationsProcessState,
+  detail: string,
+  managed: boolean,
+  pid: number | null,
+): void {
+  operationsStateStore.set(state, detail, managed, pid);
+}
 
 const DEFAULT_CONTROL_TIMING_SETTINGS: ControlTimingSettings = {
   indicator_fade_step_s: 0.2,
@@ -180,61 +176,6 @@ async function loadControlTimingSettingsFromConfigFile(): Promise<void> {
   applyControlTimingSettings(DEFAULT_CONTROL_TIMING_SETTINGS);
 }
 
-function publishLine(line: string): void {
-  if (!mainWindow) {
-    return;
-  }
-  mainWindow.webContents.send("ops:line", line);
-}
-
-function publishTraffic(
-  direction: "tx" | "rx",
-  kind: IpcTrafficClass,
-  label?: string,
-): void {
-  if (!mainWindow) {
-    return;
-  }
-  const payload: IpcTrafficPayload = {
-    direction,
-    kind,
-    label,
-    timestamp: new Date().toISOString(),
-  };
-  mainWindow.webContents.send("ops:traffic", payload);
-}
-
-function publishOperationsControlState(): void {
-  if (!mainWindow) {
-    return;
-  }
-  mainWindow.webContents.send("ops:process", operationsControlState);
-}
-
-function setOperationsControlState(
-  state: OperationsProcessState,
-  detail: string,
-  managed: boolean,
-  pid: number | null,
-): void {
-  if (
-    operationsControlState.state === state &&
-    operationsControlState.detail === detail &&
-    operationsControlState.managed === managed &&
-    operationsControlState.pid === pid
-  ) {
-    return;
-  }
-  operationsControlState = {
-    state,
-    detail,
-    managed,
-    pid,
-    timestamp: new Date().toISOString(),
-  };
-  publishOperationsControlState();
-}
-
 function appendOpsLogChunk(rawChunk: unknown): void {
   if (!opsLogPath) {
     return;
@@ -255,62 +196,14 @@ function appendOpsLogChunk(rawChunk: unknown): void {
     });
 }
 
+const publishLine = windowPublisher.publishLine.bind(windowPublisher);
+const publishTraffic = windowPublisher.publishTraffic.bind(windowPublisher);
+const publishInstances = windowPublisher.publishInstances.bind(windowPublisher);
+const publishStatus = windowPublisher.publishStatus.bind(windowPublisher);
+const publishMonitorSettings =
+  windowPublisher.publishMonitorSettings.bind(windowPublisher);
+
 const opsLogTailer = new OpsLogTailer(opsLogPath, publishLine);
-
-function publishInstances(
-  instances: Record<string, AgentInstanceSnapshot>,
-): void {
-  lastAgentInstances = instances;
-  if (!mainWindow) {
-    return;
-  }
-  mainWindow.webContents.send("ops:instances", { instances });
-}
-
-function setStatus(state: OpsStatusPayload["state"], detail: string): void {
-  const normalizedDetail =
-    state === "disconnected" ? normalizeDisconnectedStatusDetail(detail) : detail;
-  const connectedThrottleMs = Math.max(
-    1,
-    Math.round(controlTimingSettings.status_repeat_throttle_connected_s * 1000),
-  );
-  const disconnectedThrottleMs = Math.max(
-    1,
-    Math.round(controlTimingSettings.status_repeat_throttle_disconnected_s * 1000),
-  );
-  const throttleMs =
-    state === "disconnected" ? disconnectedThrottleMs : connectedThrottleMs;
-  const previousTimestampMs = Date.parse(lastStatus.timestamp);
-  const elapsedMs = Number.isNaN(previousTimestampMs)
-    ? Number.POSITIVE_INFINITY
-    : Date.now() - previousTimestampMs;
-  if (
-    lastStatus.state === state &&
-    lastStatus.detail === normalizedDetail &&
-    elapsedMs < throttleMs
-  ) {
-    return;
-  }
-
-  lastStatus = {
-    state,
-    detail: normalizedDetail,
-    timestamp: new Date().toISOString(),
-  };
-  if (!mainWindow) {
-    return;
-  }
-  mainWindow.webContents.send("ops:status", lastStatus);
-}
-
-function publishMonitorSettings(): void {
-  if (!mainWindow) {
-    return;
-  }
-  mainWindow.webContents.send("ops:monitor-settings", {
-    monitor: lastMonitorSettings,
-  });
-}
 
 const persistentIpcClient = new PersistentIpcClient({
   ipcPath,
@@ -358,14 +251,16 @@ function resetIpcConnectBackoff(): void {
   persistentIpcClient.resetBackoff();
 }
 
+let snapshotRefresher: ControlSnapshotRefresher;
+
 const operationsController = new OperationsController({
   runtimeProcess,
   opsLogPath,
   sendIpcCommand,
   appendOpsLogChunk,
   publishLine,
-  getLastStatusState: () => lastStatus.state,
-  getOperationsControlState: () => operationsControlState,
+  getLastStatusState: () => snapshotRefresher.getStatus().state,
+  getOperationsControlState: () => operationsStateStore.get(),
   setOperationsControlState,
   getStopWaitDisconnectPollMs: () =>
     Math.max(1, Math.round(controlTimingSettings.stop_wait_disconnect_poll_s * 1000)),
@@ -379,128 +274,47 @@ const operationsController = new OperationsController({
     Math.max(1, Math.round(controlTimingSettings.stop_wait_forced_exit_s * 1000)),
 });
 
+snapshotRefresher = new ControlSnapshotRefresher({
+  applyControlTimingSettings,
+  defaultMonitorSettings: DEFAULT_MONITOR_SETTINGS,
+  getControlTimingSettings: () => controlTimingSettings,
+  getOperationsControlState: () => operationsStateStore.get(),
+  hasManagedOperationsProcess: () => operationsController.hasManagedProcess(),
+  initializeOpsLogFile: () => opsLogTailer.initializeLogFile(),
+  publishInstances,
+  publishLine,
+  publishMonitorSettings,
+  publishStatus,
+  restartBackgroundTimers,
+  sendIpcCommand,
+  setOperationsControlState,
+  templateCache,
+});
+
 async function refreshIpcStatus(): Promise<void> {
-  try {
-    const response = await sendIpcCommand("ping", undefined, undefined, "background");
-    if (response.ok) {
-      setStatus("connected", "ipc_ready");
-      if (!operationsController.hasManagedProcess()) {
-        if (
-          operationsControlState.state !== "stopping" ||
-          operationsControlState.detail !== "external_stop_requested"
-        ) {
-          setOperationsControlState("running", "external_unmanaged", false, null);
-        }
-      }
-      return;
-    }
-    setStatus("disconnected", response.error || "ipc_unavailable");
-    if (!operationsController.hasManagedProcess()) {
-      if (
-        operationsControlState.state === "stopping" &&
-        operationsControlState.detail === "external_stop_requested"
-      ) {
-        setOperationsControlState("stopped", "stopped_via_ipc", false, null);
-      } else {
-        setOperationsControlState("stopped", "not_managed", false, null);
-      }
-    }
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : "ipc_unavailable";
-    setStatus("disconnected", detail);
-    if (!operationsController.hasManagedProcess()) {
-      if (
-        operationsControlState.state === "stopping" &&
-        operationsControlState.detail === "external_stop_requested"
-      ) {
-        setOperationsControlState("stopped", "stopped_via_ipc", false, null);
-      } else {
-        setOperationsControlState("stopped", "not_managed", false, null);
-      }
-    }
-  }
+  await snapshotRefresher.refreshIpcStatus();
 }
 
 async function refreshAgentInstances(): Promise<void> {
-  if (lastStatus.state !== "connected") {
-    return;
-  }
-  try {
-    const response = await sendIpcCommand(
-      "get_agent_instances",
-      undefined,
-      undefined,
-      "background",
-    );
-    if (!response.ok) {
-      return;
-    }
-    publishInstances(extractAgentInstances(response));
-  } catch {
-    // Ignore transient polling failures; status loop reports IPC health.
-  }
+  await snapshotRefresher.refreshAgentInstances();
 }
 
 async function refreshTemplates(): Promise<Record<string, AgentTemplateSnapshot>> {
-  const response = await sendIpcCommand(
-    "list_agent_templates",
-    undefined,
-    undefined,
-    "background",
-  );
-  if (!response.ok) {
-    return {};
-  }
-  return extractTemplates(response);
+  return snapshotRefresher.refreshTemplates();
 }
 
 async function refreshTemplatesCached(forceRefresh = false): Promise<Record<string, AgentTemplateSnapshot>> {
-  return templateCache.getTemplates(forceRefresh, refreshTemplates);
+  return snapshotRefresher.refreshTemplatesCached(forceRefresh);
 }
 
 async function refreshMonitorSettings(): Promise<void> {
-  try {
-    const response = await sendIpcCommand(
-      "get_monitor_settings",
-      undefined,
-      undefined,
-      "background",
-    );
-    if (!response.ok) {
-      return;
-    }
-    const monitorRaw = response.data?.monitor;
-    const controlRaw = response.data?.control;
-    lastMonitorSettings = normalizeMonitorSettings(
-      monitorRaw,
-      DEFAULT_MONITOR_SETTINGS,
-    );
-    applyControlTimingSettings(controlRaw);
-    publishMonitorSettings();
-    restartBackgroundTimers();
-  } catch {
-    // Ignore transient failures; status and loop timers continue with last known settings.
-  }
+  await snapshotRefresher.refreshMonitorSettings();
 }
 
 async function updateMonitorSettings(
   updates: Record<string, unknown>,
 ): Promise<IpcResponsePayload> {
-  const response = await sendIpcCommand("update_monitor_settings", { updates });
-  if (!response.ok) {
-    return response;
-  }
-
-  const monitorRaw = response.data?.monitor;
-  const controlRaw = response.data?.control;
-  lastMonitorSettings = normalizeMonitorSettings(
-    monitorRaw,
-    DEFAULT_MONITOR_SETTINGS,
-  );
-  applyControlTimingSettings(controlRaw);
-  publishMonitorSettings();
-  restartBackgroundTimers();
-  return response;
+  return snapshotRefresher.updateMonitorSettings(updates);
 }
 
 async function pumpOpsLog(): Promise<void> {
@@ -508,26 +322,7 @@ async function pumpOpsLog(): Promise<void> {
 }
 
 async function loadInitialSnapshot(): Promise<void> {
-  await opsLogTailer.initializeLogFile();
-  await refreshIpcStatus();
-  if (lastStatus.state === "connected") {
-    await refreshMonitorSettings();
-  }
-  try {
-    const registeredResponse = await sendIpcCommand(
-      "get_registered_plugins",
-      undefined,
-      undefined,
-      "background",
-    );
-    publishLine(`[ipc] ${JSON.stringify(registeredResponse)}`);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : "plugin_query_failed";
-    publishLine(`[ipc] get_registered_plugins failed: ${detail}`);
-  }
-
-  await refreshAgentInstances();
-  await refreshTemplates();
+  await snapshotRefresher.loadInitialSnapshot();
 }
 
 async function runAgentCommand(
@@ -565,19 +360,21 @@ function deriveBackgroundIntervals(): {
   logMs: number;
   instanceMs: number;
 } {
+  const monitorSettings = snapshotRefresher.getMonitorSettings();
+  const status = snapshotRefresher.getStatus();
   const statusMs = deriveStatusLoopMs(
-    lastMonitorSettings,
-    lastStatus.state,
+    monitorSettings,
+    status.state,
     controlTimingSettings,
   );
   const logMs = deriveLogLoopMs(
-    lastMonitorSettings,
-    lastStatus.state,
+    monitorSettings,
+    status.state,
     controlTimingSettings,
   );
   const instanceMs = deriveInstanceLoopMs(
-    lastMonitorSettings,
-    lastStatus.state,
+    monitorSettings,
+    status.state,
     controlTimingSettings,
   );
   return {
@@ -611,8 +408,8 @@ function stopBackgroundLoops(): void {
 function operationsMayBeRunning(): boolean {
   return operationsMayBeRunningImpl(
     operationsController.hasManagedProcess(),
-    lastStatus.state,
-    operationsControlState,
+    snapshotRefresher.getStatus().state,
+    operationsStateStore.get(),
   );
 }
 
@@ -683,11 +480,11 @@ registerIpcHandlers({
   opsLogPath,
   controlDevMode,
   getMainWindow: () => mainWindow,
-  getStatus: () => lastStatus,
-  getOpsControlState: () => operationsControlState,
-  getMonitorSettings: () => lastMonitorSettings,
+  getStatus: () => snapshotRefresher.getStatus(),
+  getOpsControlState: () => operationsStateStore.get(),
+  getMonitorSettings: () => snapshotRefresher.getMonitorSettings(),
   getControlSettings: () => controlTimingSettings,
-  getInstances: () => lastAgentInstances,
+  getInstances: () => snapshotRefresher.getAgentInstances(),
   resetReconnectBackoff: resetIpcConnectBackoff,
   controlOperations: (request) => operationsController.control(request),
   refreshTemplatesCached,

@@ -23,8 +23,14 @@ Deep scan reference:
 - Evidence:
   - `mimolo/core/runtime.py`
   - `mimolo/core/runtime_ipc_commands.py`
+  - `mimolo/core/runtime_ipc_agent_commands.py`
+  - `mimolo/core/runtime_ipc_plugin_commands.py`
+  - `mimolo/core/runtime_ipc_widget_commands.py`
   - `mimolo/core/runtime_ipc_server.py`
+  - `mimolo/core/runtime_control_actions.py`
   - `mimolo/core/runtime_agent_events.py`
+  - `mimolo/core/runtime_agent_lifecycle.py`
+  - `mimolo/core/runtime_agent_registry.py`
   - `mimolo/core/runtime_widget_support.py`
   - `mimolo/core/runtime_monitor_settings.py`
   - `mimolo/core/runtime_shutdown.py`
@@ -57,16 +63,19 @@ Deep scan reference:
   - disconnected-state status throttling and reconnect backoff escalation
   - disconnected-state interactivity gating (instance controls, widget controls, and top-level add/config/install actions disabled while Operations is unavailable)
   - plugin zip install UI is disabled by default and enabled only in explicit developer mode (`MIMOLO_CONTROL_DEV_MODE=1`, for example via `mml.sh --dev`)
-- Evidence:
-  - `mimolo/control_proto/src/main.ts`
-  - `mimolo/control_proto/src/types.ts`
-  - `mimolo/control_proto/src/control_timing.ts`
-  - `mimolo/control_proto/src/control_proto_utils.ts`
-  - `mimolo/control_proto/src/control_command_wrappers.ts`
-  - `mimolo/control_proto/src/control_persistent_ipc.ts`
-  - `mimolo/control_proto/src/control_operations.ts`
-  - `mimolo/control_proto/src/control_ipc_handlers.ts`
-  - `mimolo/control_proto/src/ui_html.ts`
+  - Evidence:
+    - `mimolo/control_proto/src/main.ts`
+    - `mimolo/control_proto/src/types.ts`
+    - `mimolo/control_proto/src/control_timing.ts`
+    - `mimolo/control_proto/src/control_proto_utils.ts`
+    - `mimolo/control_proto/src/control_command_wrappers.ts`
+    - `mimolo/control_proto/src/control_persistent_ipc.ts`
+    - `mimolo/control_proto/src/control_operations.ts`
+    - `mimolo/control_proto/src/control_operations_state.ts`
+    - `mimolo/control_proto/src/control_ipc_handlers.ts`
+    - `mimolo/control_proto/src/control_snapshot_refresher.ts`
+    - `mimolo/control_proto/src/control_window_publisher.ts`
+    - `mimolo/control_proto/src/ui_html.ts`
 
 4. Runtime widget IPC command names (stable stubs)
 - Status: Implemented as non-breaking stubs
@@ -178,6 +187,20 @@ Priority-index rule:
         - `control_background_loops.ts` (status/log/instance loop timer orchestration)
         - `control_quit.ts` (quit policy + prompt-driven shutdown decision flow)
         - `control_window.ts` (BrowserWindow creation + HTML load composition)
+        - `control_snapshot_refresher.ts` (status/monitor/instance/template refresh orchestration + initial snapshot bootstrap)
+        - `control_window_publisher.ts` (all BrowserWindow publish/event fanout in one place)
+      - Runtime widget IPC command routing extraction:
+        - `runtime_ipc_widget_commands.py` (widget command branch decoupled from main IPC router)
+      - Runtime plugin package command routing extraction:
+        - `runtime_ipc_plugin_commands.py` (install/list/inspect/upgrade branch decoupled from main IPC router)
+      - Runtime agent lifecycle/instance command routing extraction:
+        - `runtime_ipc_agent_commands.py` (start/stop/restart and add/duplicate/remove/update branch decoupled from main IPC router)
+      - Runtime queued-control and config-mutation extraction:
+        - `runtime_control_actions.py` (queue/drain/process control actions + instance mutation/persist helpers decoupled from runtime loop coordinator)
+      - Runtime lifecycle extraction:
+        - `runtime_agent_lifecycle.py` (start/spawn/stop/restart operations decoupled from runtime loop coordinator)
+      - Runtime agent-registry extraction:
+        - `runtime_agent_registry.py` (state snapshots, template discovery, instance/cadence helper branch decoupled from runtime loop coordinator)
   - remaining:
     - continue decomposition until orchestration files are coordinator-only and easier to audit under Item 1 hardening goals
 
