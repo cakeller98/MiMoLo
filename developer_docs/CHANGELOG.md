@@ -156,6 +156,11 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
   - replaced throw-based argument validation in `pack-agent.ts` with explicit parse-result contracts.
   - replaced mode-internal process-exit signaling in `pack_agent_modes.ts` with typed mode results consumed at CLI boundary.
   - annotated remaining invariant/cleanup/boundary exception sites with explicit rationale comments.
+- Fixed pack-agent `--verify-existing` deterministic verification blocker:
+  - replaced non-deterministic full-archive hash comparison with payload-integrity verification using
+    `${plugin_id}/payload_hashes.json` from the existing archive.
+  - `verifyExistingArchive(...)` now compares stable file-hash payload content for current sources vs repository artifact.
+  - validated with strict QC and targeted runtime checks (built-in agents + clean repo-local `temp_debug/tmp/packtest` pack/verify cycle).
 - Added utility error-hardening helpers at:
   - `mimolo/utils/src/pack_agent_errors.ts`
   - standardized errno-aware handling (`ENOENT` expected-path cases) in pack-agent helper/mode/core modules with explicit rethrow on unexpected failures.
