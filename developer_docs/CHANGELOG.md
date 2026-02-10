@@ -152,6 +152,9 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
   - `poetry run ruff check .` => clean
   - `poetry run mypy mimolo scripts/qc_exception_scan.py` => clean
   - `poetry run pytest -q` => 132 passed
+- Updated canonical backlog prioritization:
+  - maintainability decomposition and concern-boundary compliance is now explicit top priority in
+    `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md` (`Item 10`).
 
 ## 2026-02-09
 

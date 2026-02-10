@@ -143,15 +143,16 @@ Deep scan reference:
 
 ### Priority Index (Reprioritize Here, Keep Backlog Item Numbers Stable)
 
-1. [[#Item 1 — Operations lifecycle ownership + orphan-process elimination]]
-2. [[#Item 2 — Implement true widget render pipeline through Operations]]
-3. [[#Item 3 — Finish agent package install/upgrade lifecycle]]
-4. [[#Item 4 — Complete archive-before-purge workflow]]
-5. [[#Item 5 — Hardening pass for `client_folder_activity` and `screen_tracker`]]
-6. [[#Item 6 — Promote control_proto patterns into commercial Control app]]
-7. [[#Item 7 — Repository-wide path handling normalization audit (Python + TypeScript)]]
-8. [[#Item 8 — Plugin trust boundary and capability-gated isolation model]]
-9. [[#Item 9 — Optional indicator intent-dot for request lifecycle diagnostics (deferred)]]
+1. [[#Item 10 — Maintainability-first decomposition and concern-boundary compliance]]
+2. [[#Item 1 — Operations lifecycle ownership + orphan-process elimination]]
+3. [[#Item 2 — Implement true widget render pipeline through Operations]]
+4. [[#Item 3 — Finish agent package install/upgrade lifecycle]]
+5. [[#Item 4 — Complete archive-before-purge workflow]]
+6. [[#Item 5 — Hardening pass for `client_folder_activity` and `screen_tracker`]]
+7. [[#Item 6 — Promote control_proto patterns into commercial Control app]]
+8. [[#Item 7 — Repository-wide path handling normalization audit (Python + TypeScript)]]
+9. [[#Item 8 — Plugin trust boundary and capability-gated isolation model]]
+10. [[#Item 9 — Optional indicator intent-dot for request lifecycle diagnostics (deferred)]]
 
 Priority-index rule:
 - Reprioritize by editing this index only.
@@ -279,6 +280,16 @@ Priority-index rule:
 - Deferred reason:
   - current priority is strict semantic honesty for transport indicators (`tx/rx` for actual transport events, plus separate background activity signal).
   - adding an intent dot before queue telemetry exists would create ambiguous UI semantics.
+
+### Item 10 — Maintainability-first decomposition and concern-boundary compliance
+- Done when:
+  - active orchestrator files are coordinator-only and remain below the tactical cap (`<1000 LOC`) until further decomposition can continue toward smaller modules.
+  - modules expose one primary concern with clear boundaries and minimal cross-cutting leakage.
+  - duplicate logic is consolidated into shared helpers/modules where behavior is genuinely common.
+  - exception usage remains boundary/cleanup/contract-only; no catch-and-continue for deterministic expected states.
+  - each maintainability slice includes strict QC verification and synchronized docs/changelog updates.
+- Scope note:
+  - this item is now the top execution priority and supersedes behavior-feature sequencing when there is a tradeoff.
 
 ## 4) Canonical Planning Rules
 
