@@ -42,6 +42,11 @@ import { registerIpcHandlers } from "./control_ipc_handlers.js";
 import { OpsLogTailer } from "./control_ops_log_tailer.js";
 import { TemplateCache } from "./control_template_cache.js";
 import { BackgroundLoopController } from "./control_background_loops.js";
+import {
+  handleQuitRequest as handleQuitRequestImpl,
+  operationsMayBeRunning as operationsMayBeRunningImpl,
+} from "./control_quit.js";
+import { createMainWindow } from "./control_window.js";
 
 const electronRuntime = (
   (electronDefault as unknown as Record<string, unknown>) ??
@@ -604,31 +609,14 @@ function stopBackgroundLoops(): void {
 }
 
 function operationsMayBeRunning(): boolean {
-  if (operationsController.hasManagedProcess()) {
-    return true;
-  }
-  if (lastStatus.state === "connected") {
-    return true;
-  }
-  return (
-    operationsControlState.state === "running" ||
-    operationsControlState.state === "starting" ||
-    operationsControlState.state === "stopping"
+  return operationsMayBeRunningImpl(
+    operationsController.hasManagedProcess(),
+    lastStatus.state,
+    operationsControlState,
   );
 }
 
-async function handleQuitRequest(event: { preventDefault: () => void }): Promise<void> {
-  if (quitInProgress) {
-    return;
-  }
-  if (!operationsMayBeRunning()) {
-    stopBackgroundLoops();
-    quitInProgress = true;
-    app.quit();
-    return;
-  }
-
-  event.preventDefault();
+async function promptQuitBehavior(): Promise<number> {
   const prompt = await dialog.showMessageBox(mainWindow ?? undefined, {
     type: "question",
     buttons: [
@@ -644,50 +632,47 @@ async function handleQuitRequest(event: { preventDefault: () => void }): Promise
     detail:
       "Shutdown will gracefully stop Operations and all Agents before closing Control.",
   });
+  return prompt.response;
+}
 
-  if (prompt.response === 2) {
-    return;
-  }
+async function showShutdownError(detail: string): Promise<void> {
+  await dialog.showMessageBox(mainWindow ?? undefined, {
+    type: "error",
+    buttons: ["OK"],
+    defaultId: 0,
+    noLink: true,
+    title: "Shutdown Failed",
+    message: "Unable to stop Operations cleanly.",
+    detail,
+  });
+}
 
-  if (prompt.response === 0) {
-    const stopResult = await operationsController.control({ action: "stop" });
-    if (!stopResult.ok) {
-      await dialog.showMessageBox(mainWindow ?? undefined, {
-        type: "error",
-        buttons: ["OK"],
-        defaultId: 0,
-        noLink: true,
-        title: "Shutdown Failed",
-        message: "Unable to stop Operations cleanly.",
-        detail: stopResult.error || "unknown_error",
-      });
-      return;
-    }
-  }
-
-  stopBackgroundLoops();
-  quitInProgress = true;
-  app.quit();
+async function handleQuitRequest(event: { preventDefault: () => void }): Promise<void> {
+  await handleQuitRequestImpl(event, {
+    isQuitInProgress: () => quitInProgress,
+    setQuitInProgress: (value) => {
+      quitInProgress = value;
+    },
+    operationsMayBeRunning,
+    stopBackgroundLoops,
+    quitApp: () => {
+      app.quit();
+    },
+    promptQuitBehavior,
+    stopOperations: () => operationsController.control({ action: "stop" }),
+    showShutdownError,
+  });
 }
 
 function createWindow(): void {
-  mainWindow = new BrowserWindow({
-    width: 1360,
-    height: 820,
-    minWidth: 1080,
-    minHeight: 660,
-    backgroundColor: "#0e1014",
-    webPreferences: {
-      contextIsolation: false,
-      nodeIntegration: true,
-      sandbox: false,
+  mainWindow = createMainWindow({
+    BrowserWindow,
+    controlTimingSettings,
+    controlDevMode,
+    buildHtml,
+    onClosed: () => {
+      mainWindow = null;
     },
-  });
-
-  const html = buildHtml(controlTimingSettings, controlDevMode);
-  mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-  mainWindow.on("closed", () => {
-    mainWindow = null;
   });
 }
 

@@ -176,6 +176,8 @@ Priority-index rule:
         - `control_ops_log_tailer.ts` (ops log init/tail/read cursor lifecycle)
         - `control_template_cache.ts` (template refresh cache + in-flight de-dup)
         - `control_background_loops.ts` (status/log/instance loop timer orchestration)
+        - `control_quit.ts` (quit policy + prompt-driven shutdown decision flow)
+        - `control_window.ts` (BrowserWindow creation + HTML load composition)
   - remaining:
     - continue decomposition until orchestration files are coordinator-only and easier to audit under Item 1 hardening goals
 

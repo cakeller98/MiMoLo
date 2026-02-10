@@ -55,6 +55,10 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
     - `mimolo/control_proto/src/control_template_cache.ts`
   - extracted status/log/instance polling timer orchestration into:
     - `mimolo/control_proto/src/control_background_loops.ts`
+  - extracted quit-policy and quit-prompt decision flow into:
+    - `mimolo/control_proto/src/control_quit.ts`
+  - extracted BrowserWindow construction and HTML load wiring into:
+    - `mimolo/control_proto/src/control_window.ts`
   - `mimolo/control_proto/src/main.ts` now delegates those concerns instead of carrying inline implementations.
 - Reduced duplicate loop-interval policy logic in `mimolo/control_proto/src/control_proto_utils.ts` by extracting a shared internal helper (`deriveLoopIntervalMs`) used by status/instance/log poll cadence derivations.
 - Tightened runtime exception handling policy across core paths by replacing broad catches with explicit exception tuples and preserving plugin-boundary broad handling only where intentionally justified.
