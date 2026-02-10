@@ -38,6 +38,7 @@ Purpose: compact carry-forward context without duplicating canonical docs.
 - Collaboration preference:
   - one decision site at a time when adjusting exception behavior;
   - always provide suggested `git add` + commit message after completion.
+  - commit messages must use `Performed verification with:` and list each check with explicit status (`PASS` / `FAIL` + brief failure note when applicable).
   - always consult this `context_dump.md` at the start of each new work slice and update it when rules/priorities change.
   - if ambiguity or inconsistency is detected, do not assume:
     - propose 1–3 concrete options (with a recommended default),
