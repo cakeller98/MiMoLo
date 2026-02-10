@@ -12,8 +12,9 @@ Purpose: compact carry-forward context without duplicating canonical docs.
 - Full code-health audit bundle: `developer_docs/2026.02.10 CODE-MEGASCAN/`
 
 ## Current Priority
-1. **Item 10 is now top priority**: maintainability-first decomposition and concern-boundary compliance.
-2. Item 1 (ops lifecycle/orphan elimination) remains critical, but is currently secondary to maintainability unless safety/regression forces immediate behavior work.
+1. **Highest blocker: Item 11** — fix pack-agent `--verify-existing` deterministic verification (current false-conflict behavior is release-blocking for packaging integrity flow).
+2. Item 10 maintainability-first decomposition remains active, but is secondary until Item 11 is fixed.
+3. Item 1 (ops lifecycle/orphan elimination) remains critical, but is currently below Item 11/Item 10 unless safety/regression forces immediate behavior work.
 
 ## Rule-Set Sensibilities (non-negotiable)
 - **Code/tests are implementation truth** when docs differ.
@@ -81,11 +82,11 @@ Run as standard gate:
 Last known snapshot in matrix/changelog: clean, `132 passed`.
 
 ## Next Recommended Action
-Continue Item 10 by selecting next largest orchestrator slice and applying the same pattern:
-1. isolate concern boundary,
-2. remove implicit/exception-driven control flow,
-3. run strict QC,
-4. update matrix + changelog.
+Resolve Item 11 first:
+1. fix `--verify-existing` to validate deterministic payload integrity rather than full zip-byte equivalence,
+2. add targeted regression coverage for repeated pack/verify cycles,
+3. re-run full high-precision QC review for pack-agent after fix,
+4. update matrix + changelog with explicit PASS/FAIL outcomes.
 
 ## Confirmed Execution Order (User-Directed, Updated)
 Work in this exact order, one commit-ready slice at a time (not together):

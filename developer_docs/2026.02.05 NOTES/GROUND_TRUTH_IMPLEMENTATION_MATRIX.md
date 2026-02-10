@@ -143,16 +143,17 @@ Deep scan reference:
 
 ### Priority Index (Reprioritize Here, Keep Backlog Item Numbers Stable)
 
-1. [[#Item 10 — Maintainability-first decomposition and concern-boundary compliance]]
-2. [[#Item 1 — Operations lifecycle ownership + orphan-process elimination]]
-3. [[#Item 2 — Implement true widget render pipeline through Operations]]
-4. [[#Item 3 — Finish agent package install/upgrade lifecycle]]
-5. [[#Item 4 — Complete archive-before-purge workflow]]
-6. [[#Item 5 — Hardening pass for `client_folder_activity` and `screen_tracker`]]
-7. [[#Item 6 — Promote control_proto patterns into commercial Control app]]
-8. [[#Item 7 — Repository-wide path handling normalization audit (Python + TypeScript)]]
-9. [[#Item 8 — Plugin trust boundary and capability-gated isolation model]]
-10. [[#Item 9 — Optional indicator intent-dot for request lifecycle diagnostics (deferred)]]
+1. [[#Item 11 — Fix pack-agent `--verify-existing` deterministic archive verification]]
+2. [[#Item 10 — Maintainability-first decomposition and concern-boundary compliance]]
+3. [[#Item 1 — Operations lifecycle ownership + orphan-process elimination]]
+4. [[#Item 2 — Implement true widget render pipeline through Operations]]
+5. [[#Item 3 — Finish agent package install/upgrade lifecycle]]
+6. [[#Item 4 — Complete archive-before-purge workflow]]
+7. [[#Item 5 — Hardening pass for `client_folder_activity` and `screen_tracker`]]
+8. [[#Item 6 — Promote control_proto patterns into commercial Control app]]
+9. [[#Item 7 — Repository-wide path handling normalization audit (Python + TypeScript)]]
+10. [[#Item 8 — Plugin trust boundary and capability-gated isolation model]]
+11. [[#Item 9 — Optional indicator intent-dot for request lifecycle diagnostics (deferred)]]
 
 Priority-index rule:
 - Reprioritize by editing this index only.
@@ -303,6 +304,16 @@ Priority-index rule:
   - each maintainability slice includes strict QC verification and synchronized docs/changelog updates.
 - Scope note:
   - this item is now the top execution priority and supersedes behavior-feature sequencing when there is a tradeoff.
+
+### Item 11 — Fix pack-agent `--verify-existing` deterministic archive verification
+- Done when:
+  - `pack-agent --verify-existing` does not produce false conflicts for unchanged agent sources.
+  - verification compares deterministic payload integrity (not non-deterministic full-archive bytes).
+  - repeated pack/verify cycles for the same inputs produce stable verification outcomes.
+  - a high-precision post-fix review is re-run and recorded (strict QC + targeted runtime verification checks).
+- Current observed issue:
+  - current verification logic compares full zip hash against a newly generated zip and fails due to archive non-determinism.
+  - this behavior has been reproduced on local test runs and must be fixed before treating pack-agent as release-grade.
 
 ## 4) Canonical Planning Rules
 
