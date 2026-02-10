@@ -11,7 +11,8 @@ from typing import Any, Literal
 
 import tomlkit
 import yaml
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
+from tomlkit.exceptions import TOMLKitError
 from tomlkit.toml_document import TOMLDocument
 
 from mimolo.core.errors import ConfigError
@@ -127,15 +128,16 @@ def load_config(path: Path | str) -> Config:
                 data = yaml.safe_load(f)
         else:
             raise ConfigError(f"Unsupported config file extension: {path.suffix}")
-
-    except Exception as e:
-        if isinstance(e, ConfigError):
-            raise
-        raise ConfigError(f"Failed to parse configuration file {path}: {e}") from e
+    except OSError as e:
+        raise ConfigError(f"Failed to read configuration file {path}: {e}") from e
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f"Failed to parse TOML configuration {path}: {e}") from e
+    except yaml.YAMLError as e:
+        raise ConfigError(f"Failed to parse YAML configuration {path}: {e}") from e
 
     try:
         return Config.model_validate(data)
-    except Exception as e:
+    except ValidationError as e:
         raise ConfigError(f"Configuration validation failed: {e}") from e
 
 
@@ -182,10 +184,9 @@ def create_default_config(path: Path | str) -> None:
 
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
-
-    except Exception as e:
-        if isinstance(e, ConfigError):
-            raise
+    except ConfigError:
+        raise
+    except OSError as e:
         raise ConfigError(f"Failed to write configuration file {path}: {e}") from e
 
 
@@ -209,9 +210,9 @@ def save_config(config: Config, path: Path | str) -> None:
         content = _serialize_config(config, path)
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
-    except Exception as e:
-        if isinstance(e, ConfigError):
-            raise
+    except ConfigError:
+        raise
+    except (OSError, TypeError, ValueError) as e:
         raise ConfigError(f"Failed to save configuration file {path}: {e}") from e
 
 
@@ -246,7 +247,9 @@ def _save_toml_config_roundtrip(config: Config, path: Path) -> None:
         doc = tomlkit.parse(existing_text)
     except FileNotFoundError:
         doc = tomlkit.document()
-    except Exception as e:
+    except OSError as e:
+        raise ConfigError(f"Failed to read existing TOML for save: {e}") from e
+    except TOMLKitError as e:
         raise ConfigError(f"Failed to parse existing TOML for save: {e}") from e
 
     _sync_toml_document_from_config(doc, config)

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 if TYPE_CHECKING:
     from mimolo.core.runtime import Runtime
 
@@ -31,7 +33,8 @@ def update_monitor_settings(
     try:
         monitor_type = type(runtime.config.monitor)
         updated_monitor = monitor_type.model_validate(merged)
-    except Exception as e:
+    except ValidationError as e:
+        # Validation errors are expected for bad external update payloads.
         return False, f"invalid_updates:{e}", {}
 
     previous_monitor = runtime.config.monitor

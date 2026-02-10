@@ -30,6 +30,7 @@ Or download separately and place in mimolo/core/
 """
 
 import json
+import logging
 import time
 import uuid
 import warnings
@@ -65,6 +66,8 @@ warnings.warn(
     SlowpokeWarning,
     stacklevel=2,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SlowpokeChannel:
@@ -151,8 +154,16 @@ class SlowpokeChannel:
                 try:
                     if file.stat().st_mtime < cutoff:
                         file.unlink()
-                except (FileNotFoundError, OSError):
-                    pass
+                except FileNotFoundError:
+                    # File may disappear between glob and stat/unlink.
+                    logger.debug(
+                        f"SLOWPOKE cleanup raced with file removal: {file}"
+                    )
+                except OSError as e:
+                    # External/filesystem state can fail transiently during cleanup.
+                    logger.warning(
+                        f"SLOWPOKE cleanup failed for {file}: {e}"
+                    )
 
     def close(self) -> None:
         """Cleanup message files."""

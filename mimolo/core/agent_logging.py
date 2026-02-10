@@ -99,7 +99,7 @@ class AgentLogger:
         }
         try:
             print(json.dumps(packet), flush=True)
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             # Fallback to stderr if stdout logging fails
             error_msg = f"[AgentLogger] Failed to send log: {e}"
             print(error_msg, file=sys.stderr, flush=True)

@@ -98,7 +98,7 @@ class BaseAgent(ABC):
                         "data": {},
                     "message": f"Invalid JSON command: {e}",
                     })
-        except Exception as e:
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
             self.send_message(
                 {
                     "type": "error",

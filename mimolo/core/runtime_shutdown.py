@@ -6,6 +6,7 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from mimolo.core.errors import SinkError
 from mimolo.core.event import Event
 
 if TYPE_CHECKING:
@@ -21,7 +22,7 @@ def flush_all_agents(runtime: Runtime) -> None:
             handle.send_command(flush_cmd)
             if runtime.config.monitor.console_verbosity == "debug":
                 runtime.console.print(f"[cyan]Sent flush to {label}[/cyan]")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, TypeError) as e:
             runtime.console.print(f"[red]Error sending flush to {label}: {e}[/red]")
 
 def close_segment(runtime: Runtime) -> None:
@@ -63,13 +64,13 @@ def shutdown_runtime(runtime: Runtime) -> None:
         )
         try:
             runtime.file_sink.write_event(shutdown_event)
-        except Exception as e:
+        except (SinkError, OSError, RuntimeError, ValueError, TypeError) as e:
             runtime._debug(
                 f"[yellow]Failed to write shutdown_initiated event: {e}[/yellow]"
             )
         if runtime.config.monitor.console_verbosity in ("debug", "info"):
             runtime.console_sink.write_event(shutdown_event)
-    except Exception as e:
+    except (AttributeError, RuntimeError, ValueError, TypeError, SinkError) as e:
         runtime._debug(
             f"[yellow]Failed to emit shutdown_initiated event: {e}[/yellow]"
         )
@@ -126,7 +127,7 @@ def shutdown_runtime(runtime: Runtime) -> None:
                 continue
             if runtime.config.monitor.console_verbosity == "debug":
                 runtime.console.print(f"[cyan]Sent shutdown SEQUENCE to {label}[/cyan]")
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError, TypeError) as e:
             runtime.console.print(f"[red]Exception sending SEQUENCE to {label}: {e}[/red]")
             continue
 
@@ -166,7 +167,13 @@ def shutdown_runtime(runtime: Runtime) -> None:
                         agent_deadline = time.time() + shutdown_timeout_s
                         runtime._shutdown_deadlines[label] = agent_deadline
                         runtime._shutdown_phase[label] = "summary_received"
-                    except Exception as e:
+                    except (
+                        AttributeError,
+                        RuntimeError,
+                        ValueError,
+                        TypeError,
+                        SinkError,
+                    ) as e:
                         runtime._debug(
                             f"[yellow]Failed to handle shutdown summary from {label}: {e}[/yellow]"
                         )
@@ -177,7 +184,13 @@ def shutdown_runtime(runtime: Runtime) -> None:
                         agent_deadline = time.time() + shutdown_timeout_s
                         runtime._shutdown_deadlines[label] = agent_deadline
                         runtime._shutdown_phase[label] = "log_received"
-                    except Exception as e:
+                    except (
+                        AttributeError,
+                        RuntimeError,
+                        ValueError,
+                        TypeError,
+                        SinkError,
+                    ) as e:
                         runtime._debug(
                             f"[yellow]Failed to handle shutdown log from {label}: {e}[/yellow]"
                         )
@@ -190,7 +203,13 @@ def shutdown_runtime(runtime: Runtime) -> None:
                     agent_deadline = time.time() + shutdown_timeout_s
                     runtime._shutdown_deadlines[label] = agent_deadline
                     runtime._shutdown_phase[label] = "status"
-            except Exception as e:
+            except (
+                AttributeError,
+                RuntimeError,
+                ValueError,
+                TypeError,
+                SinkError,
+            ) as e:
                 runtime._debug(
                     f"[yellow]Failed to parse shutdown message from {label}: {e}[/yellow]"
                 )
@@ -212,7 +231,7 @@ def shutdown_runtime(runtime: Runtime) -> None:
                     },
                 )
                 runtime.file_sink.write_event(stop_exception)
-            except Exception as e:
+            except (SinkError, OSError, RuntimeError, ValueError, TypeError) as e:
                 runtime._debug(
                     f"[yellow]Failed to write shutdown_exception (stop) for {label}: {e}[/yellow]"
                 )
@@ -233,7 +252,7 @@ def shutdown_runtime(runtime: Runtime) -> None:
                     },
                 )
                 runtime.file_sink.write_event(flush_exception)
-            except Exception as e:
+            except (SinkError, OSError, RuntimeError, ValueError, TypeError) as e:
                 runtime._debug(
                     f"[yellow]Failed to write shutdown_exception (flush) for {label}: {e}[/yellow]"
                 )
@@ -259,7 +278,13 @@ def shutdown_runtime(runtime: Runtime) -> None:
                         try:
                             runtime._handle_agent_summary(handle.label, msg)
                             summaries_count += 1
-                        except Exception as e:
+                        except (
+                            AttributeError,
+                            RuntimeError,
+                            ValueError,
+                            TypeError,
+                            SinkError,
+                        ) as e:
                             runtime._debug(
                                 f"[yellow]Failed to handle late shutdown summary from {handle.label}: {e}[/yellow]"
                             )
@@ -267,7 +292,13 @@ def shutdown_runtime(runtime: Runtime) -> None:
                         try:
                             runtime._handle_agent_log(handle.label, msg)
                             logs_count += 1
-                        except Exception as e:
+                        except (
+                            AttributeError,
+                            RuntimeError,
+                            ValueError,
+                            TypeError,
+                            SinkError,
+                        ) as e:
                             runtime._debug(
                                 f"[yellow]Failed to handle late shutdown log from {handle.label}: {e}[/yellow]"
                             )
@@ -277,7 +308,13 @@ def shutdown_runtime(runtime: Runtime) -> None:
                         runtime._debug(
                             f"[yellow]Late shutdown status from {handle.label} ignored[/yellow]"
                         )
-                except Exception as e:
+                except (
+                    AttributeError,
+                    RuntimeError,
+                    ValueError,
+                    TypeError,
+                    SinkError,
+                ) as e:
                     runtime._debug(
                         f"[yellow]Failed to handle late shutdown message from {handle.label}: {e}[/yellow]"
                     )
@@ -291,7 +328,7 @@ def shutdown_runtime(runtime: Runtime) -> None:
             if h.label in runtime.agent_manager.agents:
                 del runtime.agent_manager.agents[h.label]
             runtime._set_agent_state(h.label, "inactive", "stopped")
-    except Exception as e:
+    except (AttributeError, RuntimeError, ValueError, TypeError, KeyError) as e:
         runtime._debug(
             f"[yellow]Failed to clear agent handles after shutdown: {e}[/yellow]"
         )
@@ -316,13 +353,13 @@ def shutdown_runtime(runtime: Runtime) -> None:
             )
             try:
                 runtime.file_sink.write_event(complete_event)
-            except Exception as e:
+            except (SinkError, OSError, RuntimeError, ValueError, TypeError) as e:
                 runtime._debug(
                     f"[yellow]Failed to write shutdown_complete event: {e}[/yellow]"
                 )
             if runtime.config.monitor.console_verbosity in ("debug", "info"):
                 runtime.console_sink.write_event(complete_event)
-        except Exception as e:
+        except (AttributeError, RuntimeError, ValueError, TypeError, SinkError) as e:
             runtime._debug(
                 f"[yellow]Failed to emit shutdown_complete event: {e}[/yellow]"
             )
@@ -332,8 +369,7 @@ def shutdown_runtime(runtime: Runtime) -> None:
         runtime.console.print("[green]MiMoLo stopped.[/green]")
         # Final console-only confirmation after sinks are closed
         runtime.console.print("[green]Shutdown complete.[/green]")
-    except Exception as e:
+    except (SinkError, OSError, RuntimeError, ValueError, TypeError) as e:
         runtime.console.print(f"[red]Error closing sinks: {e}[/red]")
     finally:
         runtime._stop_ipc_server()
-

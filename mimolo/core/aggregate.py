@@ -88,6 +88,9 @@ class SegmentAggregator:
                 filtered = plugin_instance.filter_method(items)
                 aggregated[data_header] = filtered
             except Exception as e:
+                # Plugin filter methods are external plugin code and may fail in
+                # arbitrary ways; normalize them into AggregationError so the
+                # orchestrator can report one consistent failure surface.
                 raise AggregationError(
                     plugin_label=plugin_spec.label
                     if plugin_spec

@@ -20,7 +20,7 @@ def coerce_timestamp(runtime: Runtime, ts: object) -> datetime:
         # Try parsing ISO format string
         try:
             timestamp = datetime.fromisoformat(str(ts))
-        except Exception:
+        except (TypeError, ValueError):
             timestamp = datetime.now(UTC)
 
     if timestamp.tzinfo is None:
@@ -58,7 +58,7 @@ def handle_agent_summary(runtime: Runtime, label: str, msg: object) -> None:
         if runtime.config.monitor.console_verbosity in ("debug", "info"):
             runtime.console_sink.write_event(event)
 
-    except Exception as e:
+    except (AttributeError, TypeError, ValueError, RuntimeError) as e:
         runtime.console.print(f"[red]Error handling agent summary {label}: {e}[/red]")
 
 
@@ -74,7 +74,7 @@ def handle_heartbeat(runtime: Runtime, label: str, msg: object) -> None:
                 handle = agm.agents.get(label)
                 if handle is not None:
                     handle.last_heartbeat = timestamp
-            except Exception as e:
+            except (AttributeError, RuntimeError, TypeError, ValueError) as e:
                 runtime._debug(
                     f"[yellow]Failed to update heartbeat for {label}: {e}[/yellow]"
                 )
@@ -83,7 +83,7 @@ def handle_heartbeat(runtime: Runtime, label: str, msg: object) -> None:
             metrics = getattr(msg, "metrics", {})
             metrics_str = f" | {metrics}" if metrics else ""
             runtime.console.print(f"[cyan]❤️  {label}{metrics_str}[/cyan]")
-    except Exception as e:
+    except (AttributeError, RuntimeError, TypeError, ValueError) as e:
         runtime.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
 
 
@@ -138,7 +138,7 @@ def handle_agent_log(runtime: Runtime, label: str, msg: object) -> None:
                 runtime.console.print(prefix + message_text)
             else:
                 runtime.console.print(prefix + message_text, markup=False)
-    except Exception as e:
+    except (AttributeError, RuntimeError, TypeError, ValueError) as e:
         runtime.console.print(
             f"[red]Error rendering log from {label} (markup={markup}): {e}[/red]"
         )

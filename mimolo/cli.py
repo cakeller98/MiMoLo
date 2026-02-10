@@ -166,7 +166,7 @@ def _run_ops_command(
     except ConfigError as e:
         console.print(f"[red]Configuration error: {e}[/red]")
         sys.exit(2)
-    except Exception as e:
+    except (OSError, RuntimeError, TypeError, ValueError) as e:
         console.print(f"[red]Unexpected error: {e}[/red]")
         import traceback
 

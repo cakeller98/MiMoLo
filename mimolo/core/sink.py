@@ -10,6 +10,7 @@ Supports:
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -19,6 +20,8 @@ import yaml
 
 from mimolo.core.errors import SinkError
 from mimolo.core.event import Event, Segment
+
+logger = logging.getLogger(__name__)
 
 
 class BaseSink:
@@ -57,8 +60,9 @@ def _open_log_file_restricted(path: Path) -> TextIO:
     handle = open(path, "a", encoding="utf-8", opener=opener)
     try:
         os.chmod(path, 0o600)
-    except OSError:
-        pass
+    except OSError as e:
+        # Best-effort hardening; keep file usable even if chmod is unavailable.
+        logger.warning(f"Failed to set restricted permissions on {path}: {e}")
     return handle
 
 
@@ -80,7 +84,7 @@ class JSONLSink(BaseSink):
         # Create log directory with restricted permissions
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        except Exception as e:
+        except OSError as e:
             raise SinkError(
                 f"Failed to create log directory {log_dir}: {e}"
             ) from e
@@ -117,7 +121,7 @@ class JSONLSink(BaseSink):
         try:
             self._file_handle = _open_log_file_restricted(target_file)
             self._current_file = target_file
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             raise SinkError(
                 f"Failed to open log file {target_file}: {e}"
             ) from e
@@ -134,9 +138,9 @@ class JSONLSink(BaseSink):
             json.dump(record, self._file_handle, separators=(",", ":"))
             self._file_handle.write("\n")
             self._file_handle.flush()
-        except Exception as e:
-            if isinstance(e, SinkError):
-                raise
+        except SinkError:
+            raise
+        except (OSError, TypeError, ValueError) as e:
             raise SinkError(f"Failed to write segment: {e}") from e
 
     def write_event(self, event: Event) -> None:
@@ -151,9 +155,9 @@ class JSONLSink(BaseSink):
             json.dump(record, self._file_handle, separators=(",", ":"))
             self._file_handle.write("\n")
             self._file_handle.flush()
-        except Exception as e:
-            if isinstance(e, SinkError):
-                raise
+        except SinkError:
+            raise
+        except (OSError, TypeError, ValueError) as e:
             raise SinkError(f"Failed to write event: {e}") from e
 
     def flush(self) -> None:
@@ -187,7 +191,7 @@ class YAMLSink(BaseSink):
         # Create log directory
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        except Exception as e:
+        except OSError as e:
             raise SinkError(
                 f"Failed to create log directory {log_dir}: {e}"
             ) from e
@@ -210,7 +214,7 @@ class YAMLSink(BaseSink):
         try:
             self._file_handle = _open_log_file_restricted(target_file)
             self._current_file = target_file
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             raise SinkError(
                 f"Failed to open log file {target_file}: {e}"
             ) from e
@@ -223,9 +227,9 @@ class YAMLSink(BaseSink):
             yaml.dump(record, self._file_handle, default_flow_style=False, sort_keys=False)
             self._file_handle.write("---\n")
             self._file_handle.flush()
-        except Exception as e:
-            if isinstance(e, SinkError):
-                raise
+        except SinkError:
+            raise
+        except (OSError, TypeError, ValueError, yaml.YAMLError) as e:
             raise SinkError(f"Failed to write segment: {e}") from e
 
     def write_event(self, event: Event) -> None:
@@ -236,9 +240,9 @@ class YAMLSink(BaseSink):
             yaml.dump(record, self._file_handle, default_flow_style=False, sort_keys=False)
             self._file_handle.write("---\n")
             self._file_handle.flush()
-        except Exception as e:
-            if isinstance(e, SinkError):
-                raise
+        except SinkError:
+            raise
+        except (OSError, TypeError, ValueError, yaml.YAMLError) as e:
             raise SinkError(f"Failed to write event: {e}") from e
 
     def flush(self) -> None:
@@ -273,7 +277,7 @@ class MarkdownSink(BaseSink):
         # Create log directory
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        except Exception as e:
+        except OSError as e:
             raise SinkError(
                 f"Failed to create log directory {log_dir}: {e}"
             ) from e
@@ -338,7 +342,7 @@ class MarkdownSink(BaseSink):
                         )
                     f.write("\n")
 
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             raise SinkError(
                 f"Failed to write markdown file {file_path}: {e}"
             ) from e

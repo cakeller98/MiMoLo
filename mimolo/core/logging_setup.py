@@ -98,7 +98,7 @@ def setup_logging(
             file_handler.setFormatter(file_formatter)
 
             root_logger.addHandler(file_handler)
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             # Fallback: warn but don't crash
             root_logger.warning(f"Failed to setup file logging: {e}")
 

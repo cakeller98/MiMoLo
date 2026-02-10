@@ -19,10 +19,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from pydantic import ValidationError
 from rich.console import Console
 
 from mimolo.core.config import Config, PluginConfig, save_config
 from mimolo.core.cooldown import CooldownTimer
+from mimolo.core.errors import ConfigError, SinkError
 from mimolo.core.event import Event
 from mimolo.core.plugin_store import PluginStore
 from mimolo.core.runtime_agent_events import (
@@ -208,7 +210,10 @@ class Runtime:
         try:
             os.unlink(self._ipc_socket_path)
         except FileNotFoundError:
-            pass
+            # Socket file already absent; cleanup path is idempotent.
+            self._debug(
+                f"[dim]IPC socket already absent: {self._ipc_socket_path}[/dim]"
+            )
         except OSError as e:
             # OSError: filesystem cleanup can fail on shutdown races.
             self._debug(f"[yellow]IPC socket cleanup failed: {e}[/yellow]")
@@ -485,7 +490,7 @@ class Runtime:
         try:
             save_config(self.config, self._config_path)
             return True, "saved"
-        except Exception as e:
+        except ConfigError as e:
             detail = f"save_failed:{e}"
             self.console.print(f"[red]Failed to save config: {e}[/red]")
             return False, detail
@@ -507,7 +512,7 @@ class Runtime:
         try:
             raw_default = template.get("default_config", {})
             plugin_cfg = PluginConfig.model_validate(raw_default)
-        except Exception as e:
+        except ValidationError as e:
             return False, f"default_config_invalid:{e}", None
 
         self.config.plugins[new_label] = plugin_cfg
@@ -533,7 +538,7 @@ class Runtime:
         new_label = self._next_available_label(f"{label}_copy")
         try:
             dup_cfg = PluginConfig.model_validate(source_cfg.model_dump())
-        except Exception as e:
+        except ValidationError as e:
             return False, f"duplicate_invalid:{e}", None
 
         self.config.plugins[new_label] = dup_cfg
@@ -600,7 +605,7 @@ class Runtime:
 
         try:
             updated_cfg = PluginConfig.model_validate(merged)
-        except Exception as e:
+        except ValidationError as e:
             return False, f"invalid_updates:{e}"
 
         restart_needed = (
@@ -668,7 +673,7 @@ class Runtime:
             self._set_agent_state(label, "running", "spawned")
             self.console.print(f"[green]Spawned Agent: {label}[/green]")
             return True, "started"
-        except Exception as e:
+        except (FileNotFoundError, OSError, PermissionError, RuntimeError, ValueError) as e:
             detail = f"spawn_failed:{e}"
             self._set_agent_state(label, "error", detail)
             self.console.print(f"[red]Failed to spawn agent {label}: {e}[/red]")
@@ -685,7 +690,7 @@ class Runtime:
 
         try:
             handle.shutdown()
-        except Exception as e:
+        except (OSError, RuntimeError, ValueError) as e:
             detail = f"stop_failed:{e}"
             self._set_agent_state(label, "error", detail)
             self.console.print(f"[red]Failed stopping agent {label}: {e}[/red]")
@@ -821,7 +826,7 @@ class Runtime:
                         },
                     )
                     self.file_sink.write_event(exit_event)
-                except Exception as e:
+                except (SinkError, RuntimeError, ValueError, TypeError) as e:
                     self._debug(
                         f"[yellow]Failed to write agent_exit event for {label}: {e}[/yellow]"
                     )
@@ -853,7 +858,7 @@ class Runtime:
                             self.agent_last_flush[label] = now
                         if self.config.monitor.console_verbosity == "debug":
                             self.console.print(f"[cyan]Sent flush to {label}[/cyan]")
-                    except Exception as e:
+                    except (OSError, RuntimeError, ValueError, TypeError) as e:
                         self.console.print(f"[red]Error sending flush to {label}: {e}[/red]")
 
             # Drain all available messages from this agent
@@ -877,11 +882,11 @@ class Runtime:
                         try:
                             message = getattr(msg, "message", None) or getattr(msg, "data", None)
                             self.console.print(f"[red]Agent {label} error: {message}[/red]")
-                        except Exception as e:
+                        except (AttributeError, RuntimeError, TypeError, ValueError) as e:
                             self.console.print(
                                 f"[red]Agent {label} reported an error (unreadable payload): {e}[/red]"
                             )
-                except Exception as e:
+                except (AttributeError, RuntimeError, TypeError, ValueError) as e:
                     self.console.print(
                         f"[red]Error handling agent message from {label}: {e}[/red]"
                     )

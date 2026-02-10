@@ -95,7 +95,10 @@ class MessageChannel:
         try:
             os.unlink(self.socket_path)
         except FileNotFoundError:
-            pass
+            # Socket file already absent; nothing to clean.
+            logger.debug(
+                f"IPC socket file already absent before bind: {self.socket_path}"
+            )
 
         try:
             # Create and bind socket
@@ -231,7 +234,10 @@ class MessageChannel:
             try:
                 os.unlink(self.socket_path)
             except FileNotFoundError:
-                pass
+                # Cleanup is idempotent; missing socket on close is expected.
+                logger.debug(
+                    f"IPC socket file already removed at close: {self.socket_path}"
+                )
             except OSError as e:
                 logger.warning(
                     f"Failed to remove IPC socket file {self.socket_path}: {e}"
