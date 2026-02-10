@@ -223,6 +223,17 @@ Priority-index rule:
 - Done when:
   - Operations can list/install/upgrade installed agent packages from repository artifacts with clear policy outcomes.
   - Control can trigger the flow via stable commands.
+- Progress update (2026-02-10):
+  - packaging utility decomposition + hardening completed:
+    - `mimolo/utils/src/pack-agent.ts` reduced to CLI orchestration/dispatch
+    - packaging mode flows extracted to `mimolo/utils/src/pack_agent_modes.ts`
+    - core archive/manifest/hash/repo helpers live in `mimolo/utils/src/pack_agent_core.ts`
+    - CLI formatting/default-source helpers live in `mimolo/utils/src/pack_agent_cli_helpers.ts`
+    - shared error handling helpers added in `mimolo/utils/src/pack_agent_errors.ts`
+  - exception policy hardening applied in packaging toolchain:
+    - expected missing-path cases are errno-gated
+    - unexpected filesystem failures are rethrown (not silently swallowed)
+    - repository scan, source-list fallback, and source-list creation paths now follow explicit failure semantics
 
 ### Item 4 — Complete archive-before-purge workflow
 - Done when:

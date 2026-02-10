@@ -27,6 +27,12 @@
       "command": "poetry run python -m mimolo.cli monitor",
       "dependsOn": "install",
       "problemMatcher": []
+    },
+    {
+      "label": "qc:exceptions",
+      "type": "shell",
+      "command": "poetry run python scripts/qc_exception_scan.py",
+      "problemMatcher": []
     }
   ]
 }

@@ -15,5 +15,17 @@
   "terminal.integrated.defaultProfile.windows": "PowerShell",
   "python-envs.defaultEnvManager": "ms-python.python:poetry",
   "python-envs.defaultPackageManager": "ms-python.python:poetry",
-  "python-envs.pythonProjects": []
+  "python-envs.pythonProjects": [],
+  "mimolo.quality.exceptionPolicy": {
+    "goal": "Avoid try/catch and try/except for normal control flow.",
+    "allowOnly": [
+      "OS and filesystem boundary failures",
+      "network/subprocess boundary failures",
+      "plugin boundary normalization where no safer contract exists"
+    ],
+    "requiredJustification": "try/except here because no other way to achieve this safely",
+    "requireFinalQcReview": true,
+    "requireOwnerApproval": true
+  },
+  "chatgpt.openOnStartup": true
 }
