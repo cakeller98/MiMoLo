@@ -24,6 +24,23 @@ import {
   normalizeControlTimingSettings,
   parseControlSettingsFromToml,
 } from "./control_timing.js";
+import {
+  deriveInstanceLoopMs,
+  deriveLogLoopMs,
+  deriveStatusLoopMs,
+  extractAgentInstances,
+  extractTemplates,
+  normalizeDisconnectedStatusDetail,
+  normalizeMonitorSettings,
+  parseIpcResponse,
+} from "./control_proto_utils.js";
+import {
+  getWidgetManifestWrapper,
+  inspectPluginArchiveWrapper,
+  installPluginArchiveWrapper,
+  requestWidgetRenderWrapper,
+  runAgentCommandWrapper,
+} from "./control_command_wrappers.js";
 
 const electronRuntime = (
   (electronDefault as unknown as Record<string, unknown>) ??
@@ -676,13 +693,6 @@ function publishInstances(
   mainWindow.webContents.send("ops:instances", { instances });
 }
 
-function normalizeDisconnectedStatusDetail(detail: string): string {
-  if (detail === "ipc_connect_backoff") {
-    return "waiting_for_operations";
-  }
-  return detail;
-}
-
 function setStatus(state: OpsStatusPayload["state"], detail: string): void {
   const normalizedDetail =
     state === "disconnected" ? normalizeDisconnectedStatusDetail(detail) : detail;
@@ -735,185 +745,6 @@ function recordIpcConnectFailure(): void {
   const now = Date.now();
   ipcLastConnectFailureAt = now;
   ipcNextConnectAttemptAt = now + backoffMs;
-}
-
-function parseIpcResponse(rawLine: string): IpcResponsePayload {
-  if (rawLine.length === 0) {
-    throw new Error("empty_response");
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawLine);
-  } catch {
-    throw new Error("invalid_json_response");
-  }
-
-  if (!parsed || typeof parsed !== "object") {
-    throw new Error("invalid_response_shape");
-  }
-
-  const record = parsed as Record<string, unknown>;
-  return {
-    ok: record.ok === true,
-    cmd: typeof record.cmd === "string" ? record.cmd : undefined,
-    timestamp: typeof record.timestamp === "string" ? record.timestamp : undefined,
-    request_id:
-      typeof record.request_id === "string" ? record.request_id : undefined,
-    error: typeof record.error === "string" ? record.error : undefined,
-    data:
-      record.data && typeof record.data === "object"
-        ? (record.data as Record<string, unknown>)
-        : undefined,
-  };
-}
-
-function extractAgentInstances(
-  response: IpcResponsePayload,
-): Record<string, AgentInstanceSnapshot> {
-  const result: Record<string, AgentInstanceSnapshot> = {};
-  const instancesRaw = response.data?.instances;
-  if (!instancesRaw || typeof instancesRaw !== "object") {
-    return result;
-  }
-
-  const map = instancesRaw as Record<string, unknown>;
-  for (const [label, raw] of Object.entries(map)) {
-    if (!raw || typeof raw !== "object") {
-      continue;
-    }
-    const entry = raw as Record<string, unknown>;
-    const stateRaw = entry.state;
-    const detailRaw = entry.detail;
-    const configRaw = entry.config;
-    const templateRaw = entry.template_id;
-    const state =
-      stateRaw === "running" ||
-      stateRaw === "shutting-down" ||
-      stateRaw === "inactive" ||
-      stateRaw === "error"
-        ? stateRaw
-        : "inactive";
-    const detail = typeof detailRaw === "string" ? detailRaw : "configured";
-    const config =
-      configRaw && typeof configRaw === "object"
-        ? (configRaw as Record<string, unknown>)
-        : {};
-    const template_id =
-      typeof templateRaw === "string" ? templateRaw : label;
-    result[label] = {
-      label,
-      state,
-      detail,
-      config,
-      template_id,
-    };
-  }
-
-  return result;
-}
-
-function extractTemplates(
-  response: IpcResponsePayload,
-): Record<string, AgentTemplateSnapshot> {
-  const result: Record<string, AgentTemplateSnapshot> = {};
-  const templatesRaw = response.data?.templates;
-  if (!templatesRaw || typeof templatesRaw !== "object") {
-    return result;
-  }
-
-  const map = templatesRaw as Record<string, unknown>;
-  for (const [templateId, raw] of Object.entries(map)) {
-    if (!raw || typeof raw !== "object") {
-      continue;
-    }
-    const entry = raw as Record<string, unknown>;
-    const scriptRaw = entry.script;
-    const defaultRaw = entry.default_config;
-    const default_config =
-      defaultRaw && typeof defaultRaw === "object"
-        ? (defaultRaw as Record<string, unknown>)
-        : {};
-    result[templateId] = {
-      template_id: templateId,
-      script: typeof scriptRaw === "string" ? scriptRaw : "",
-      default_config,
-    };
-  }
-
-  return result;
-}
-
-function normalizeMonitorSettings(raw: unknown): MonitorSettingsSnapshot {
-  if (!raw || typeof raw !== "object") {
-    return { ...DEFAULT_MONITOR_SETTINGS };
-  }
-  const record = raw as Record<string, unknown>;
-
-  const cooldownRaw = record.cooldown_seconds;
-  const pollTickRaw = record.poll_tick_s;
-  const verbosityRaw = record.console_verbosity;
-
-  const cooldownParsed =
-    typeof cooldownRaw === "number" && Number.isFinite(cooldownRaw) && cooldownRaw > 0
-      ? cooldownRaw
-      : DEFAULT_MONITOR_SETTINGS.cooldown_seconds;
-  const pollTickParsed =
-    typeof pollTickRaw === "number" && Number.isFinite(pollTickRaw) && pollTickRaw > 0
-      ? pollTickRaw
-      : DEFAULT_MONITOR_SETTINGS.poll_tick_s;
-  const verbosityParsed =
-    verbosityRaw === "debug" ||
-    verbosityRaw === "info" ||
-    verbosityRaw === "warning" ||
-    verbosityRaw === "error"
-      ? verbosityRaw
-      : DEFAULT_MONITOR_SETTINGS.console_verbosity;
-
-  return {
-    cooldown_seconds: cooldownParsed,
-    poll_tick_s: pollTickParsed,
-    console_verbosity: verbosityParsed,
-  };
-}
-
-function deriveStatusLoopMs(settings: MonitorSettingsSnapshot): number {
-  if (lastStatus.state !== "connected") {
-    return Math.max(
-      1,
-      Math.round(controlTimingSettings.status_poll_disconnected_s * 1000),
-    );
-  }
-  return Math.max(
-    Math.round(settings.poll_tick_s * 1000),
-    Math.round(controlTimingSettings.status_poll_connected_s * 1000),
-  );
-}
-
-function deriveInstanceLoopMs(settings: MonitorSettingsSnapshot): number {
-  if (lastStatus.state !== "connected") {
-    return Math.max(
-      1,
-      Math.round(controlTimingSettings.instance_poll_disconnected_s * 1000),
-    );
-  }
-  return Math.max(
-    Math.round(settings.poll_tick_s * 1000),
-    Math.round(controlTimingSettings.instance_poll_connected_s * 1000),
-  );
-}
-
-function deriveLogLoopMs(settings: MonitorSettingsSnapshot): number {
-  if (lastStatus.state !== "connected") {
-    return Math.max(
-      1,
-      Math.round(controlTimingSettings.log_poll_disconnected_s * 1000),
-    );
-  }
-  return Math.max(
-    Math.round(settings.poll_tick_s * 1000),
-    Math.round(controlTimingSettings.log_poll_connected_s * 1000),
-  );
 }
 
 function publishMonitorSettings(): void {
@@ -1315,7 +1146,10 @@ async function refreshMonitorSettings(): Promise<void> {
     }
     const monitorRaw = response.data?.monitor;
     const controlRaw = response.data?.control;
-    lastMonitorSettings = normalizeMonitorSettings(monitorRaw);
+    lastMonitorSettings = normalizeMonitorSettings(
+      monitorRaw,
+      DEFAULT_MONITOR_SETTINGS,
+    );
     applyControlTimingSettings(controlRaw);
     publishMonitorSettings();
     restartBackgroundTimers();
@@ -1334,7 +1168,10 @@ async function updateMonitorSettings(
 
   const monitorRaw = response.data?.monitor;
   const controlRaw = response.data?.control;
-  lastMonitorSettings = normalizeMonitorSettings(monitorRaw);
+  lastMonitorSettings = normalizeMonitorSettings(
+    monitorRaw,
+    DEFAULT_MONITOR_SETTINGS,
+  );
   applyControlTimingSettings(controlRaw);
   publishMonitorSettings();
   restartBackgroundTimers();
@@ -1423,172 +1260,31 @@ async function loadInitialSnapshot(): Promise<void> {
 async function runAgentCommand(
   payload: ControlCommandPayload,
 ): Promise<IpcResponsePayload> {
-  const extra: Record<string, unknown> = {};
-  if (payload.label) {
-    extra.label = payload.label;
-  }
-  if (payload.template_id) {
-    extra.template_id = payload.template_id;
-  }
-  if (payload.requested_label) {
-    extra.requested_label = payload.requested_label;
-  }
-  if (payload.updates) {
-    extra.updates = payload.updates;
-  }
-  const trafficLabel = payload.label;
-  const response = await sendIpcCommand(payload.action, extra, trafficLabel);
-  await refreshAgentInstances();
-  return response;
-}
-
-function coerceNonEmptyString(raw: unknown): string | null {
-  if (typeof raw !== "string") {
-    return null;
-  }
-  const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function coerceBoolean(raw: unknown): boolean {
-  if (typeof raw === "boolean") {
-    return raw;
-  }
-  if (typeof raw !== "string") {
-    return false;
-  }
-  const normalized = raw.trim().toLowerCase();
-  return (
-    normalized === "1" ||
-    normalized === "true" ||
-    normalized === "yes" ||
-    normalized === "on"
-  );
+  return runAgentCommandWrapper(payload, sendIpcCommand, refreshAgentInstances);
 }
 
 async function getWidgetManifest(
   payload: Record<string, unknown>,
 ): Promise<IpcResponsePayload> {
-  const pluginId = coerceNonEmptyString(payload.plugin_id);
-  const instanceId = coerceNonEmptyString(payload.instance_id);
-  if (!pluginId || !instanceId) {
-    return {
-      ok: false,
-      error: !pluginId ? "missing_plugin_id" : "missing_instance_id",
-    };
-  }
-  const isManual = coerceBoolean(payload.manual);
-  return sendIpcCommand(
-    "get_widget_manifest",
-    {
-      plugin_id: pluginId,
-      instance_id: instanceId,
-    },
-    instanceId,
-    isManual ? "interactive" : "background",
-  );
+  return getWidgetManifestWrapper(payload, sendIpcCommand);
 }
 
 async function requestWidgetRender(
   payload: Record<string, unknown>,
 ): Promise<IpcResponsePayload> {
-  const pluginId = coerceNonEmptyString(payload.plugin_id);
-  const instanceId = coerceNonEmptyString(payload.instance_id);
-  if (!pluginId || !instanceId) {
-    return {
-      ok: false,
-      error: !pluginId ? "missing_plugin_id" : "missing_instance_id",
-    };
-  }
-
-  const requestId = coerceNonEmptyString(payload.request_id);
-  const mode = coerceNonEmptyString(payload.mode) || "html_fragment_v1";
-  const isManual = coerceBoolean(payload.manual);
-  const canvasRaw = payload.canvas;
-  const canvas =
-    canvasRaw && typeof canvasRaw === "object"
-      ? (canvasRaw as Record<string, unknown>)
-      : {};
-
-  return sendIpcCommand(
-    "request_widget_render",
-    {
-      plugin_id: pluginId,
-      instance_id: instanceId,
-      request_id: requestId || `${instanceId}-${Date.now()}`,
-      mode,
-      canvas,
-    },
-    instanceId,
-    isManual ? "interactive" : "background",
-  );
+  return requestWidgetRenderWrapper(payload, sendIpcCommand);
 }
 
 async function inspectPluginArchive(
   payload: Record<string, unknown>,
 ): Promise<IpcResponsePayload> {
-  if (!controlDevMode) {
-    return {
-      ok: false,
-      error: "dev_mode_required",
-      data: {
-        detail:
-          "plugin zip inspection/install is disabled outside developer mode",
-      },
-    };
-  }
-  const zipPath = coerceNonEmptyString(payload.zip_path);
-  if (!zipPath) {
-    return {
-      ok: false,
-      error: "missing_zip_path",
-    };
-  }
-  return sendIpcCommand("inspect_plugin_archive", {
-    zip_path: zipPath,
-  });
+  return inspectPluginArchiveWrapper(payload, sendIpcCommand, controlDevMode);
 }
 
 async function installPluginArchive(
   payload: Record<string, unknown>,
 ): Promise<IpcResponsePayload> {
-  if (!controlDevMode) {
-    return {
-      ok: false,
-      error: "dev_mode_required",
-      data: {
-        detail:
-          "plugin zip inspection/install is disabled outside developer mode",
-      },
-    };
-  }
-  const zipPath = coerceNonEmptyString(payload.zip_path);
-  if (!zipPath) {
-    return {
-      ok: false,
-      error: "missing_zip_path",
-    };
-  }
-
-  const actionRaw = coerceNonEmptyString(payload.action);
-  const cmd = actionRaw === "upgrade" ? "upgrade_plugin" : "install_plugin";
-  const pluginClassRaw = coerceNonEmptyString(payload.plugin_class) || "agents";
-  const pluginClass = pluginClassRaw.toLowerCase();
-  if (
-    pluginClass !== "agents" &&
-    pluginClass !== "reporters" &&
-    pluginClass !== "widgets"
-  ) {
-    return {
-      ok: false,
-      error: "invalid_plugin_class",
-    };
-  }
-
-  return sendIpcCommand(cmd, {
-    zip_path: zipPath,
-    plugin_class: pluginClass,
-  });
+  return installPluginArchiveWrapper(payload, sendIpcCommand, controlDevMode);
 }
 
 function restartBackgroundTimers(): void {
@@ -1605,9 +1301,21 @@ function restartBackgroundTimers(): void {
     instanceTimer = null;
   }
 
-  const statusMs = deriveStatusLoopMs(lastMonitorSettings);
-  const logMs = deriveLogLoopMs(lastMonitorSettings);
-  const instanceMs = deriveInstanceLoopMs(lastMonitorSettings);
+  const statusMs = deriveStatusLoopMs(
+    lastMonitorSettings,
+    lastStatus.state,
+    controlTimingSettings,
+  );
+  const logMs = deriveLogLoopMs(
+    lastMonitorSettings,
+    lastStatus.state,
+    controlTimingSettings,
+  );
+  const instanceMs = deriveInstanceLoopMs(
+    lastMonitorSettings,
+    lastStatus.state,
+    controlTimingSettings,
+  );
 
   statusTimer = setInterval(() => {
     void refreshIpcStatus();

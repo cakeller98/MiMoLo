@@ -11,8 +11,6 @@ The orchestrator:
 
 from __future__ import annotations
 
-import base64
-import html
 import os
 import socket
 import threading
@@ -23,12 +21,16 @@ from typing import Any, Literal, cast
 
 from rich.console import Console
 
-from mimolo.common.paths import get_mimolo_data_dir
 from mimolo.core.config import Config, PluginConfig, save_config
 from mimolo.core.cooldown import CooldownTimer
-from mimolo.core.errors import SinkError
 from mimolo.core.event import Event
 from mimolo.core.plugin_store import PluginStore
+from mimolo.core.runtime_agent_events import (
+    coerce_timestamp,
+    handle_agent_log,
+    handle_agent_summary,
+    handle_heartbeat,
+)
 from mimolo.core.runtime_ipc_commands import build_ipc_response
 from mimolo.core.runtime_ipc_server import (
     handle_ipc_line,
@@ -37,7 +39,14 @@ from mimolo.core.runtime_ipc_server import (
     serve_ipc_client_thread,
     serve_ipc_connection,
 )
+from mimolo.core.runtime_monitor_settings import update_monitor_settings
 from mimolo.core.runtime_shutdown import close_segment, flush_all_agents, shutdown_runtime
+from mimolo.core.runtime_widget_support import (
+    build_screen_tracker_widget_manifest,
+    build_screen_tracker_widget_render,
+    resolve_screen_tracker_thumbnail,
+    screen_tracker_thumbnail_data_uri,
+)
 from mimolo.core.sink import ConsoleSink, create_sink
 
 AgentLifecycleState = Literal["running", "shutting-down", "inactive", "error"]
@@ -432,208 +441,31 @@ class Runtime:
         self, instance_id: str
     ) -> tuple[Path | None, str | None]:
         """Return latest screen-tracker thumbnail path if available."""
-        data_root_raw = os.getenv("MIMOLO_DATA_DIR")
-        data_root = Path(data_root_raw) if data_root_raw else get_mimolo_data_dir()
-        base_root = (data_root / "agents" / "screen_tracker" / instance_id).resolve()
-        thumb_root = (base_root / "artifacts" / "thumb").resolve()
-
-        try:
-            thumb_root.relative_to(base_root)
-        except ValueError:
-            return None, "invalid_thumbnail_root"
-        if not thumb_root.exists():
-            return None, "thumbnail_root_missing"
-
-        candidates = [
-            p
-            for p in thumb_root.rglob("*")
-            if p.is_file() and p.suffix.lower() in {".jpg", ".jpeg", ".png", ".svg"}
-        ]
-        if not candidates:
-            return None, "no_thumbnail_artifacts"
-        latest = max(candidates, key=lambda p: p.stat().st_mtime_ns)
-        return latest, None
+        return resolve_screen_tracker_thumbnail(self, instance_id)
 
     def _screen_tracker_thumbnail_data_uri(
         self, thumbnail_path: Path
     ) -> tuple[str | None, str | None]:
         """Encode one thumbnail artifact as data URI for renderer-safe embedding."""
-        suffix = thumbnail_path.suffix.lower()
-        if suffix in {".jpg", ".jpeg"}:
-            mime = "image/jpeg"
-        elif suffix == ".png":
-            mime = "image/png"
-        elif suffix == ".svg":
-            mime = "image/svg+xml"
-        else:
-            return None, "unsupported_thumbnail_format"
-
-        try:
-            raw_bytes = thumbnail_path.read_bytes()
-        except OSError:
-            return None, "thumbnail_read_failed"
-        encoded = base64.b64encode(raw_bytes).decode("ascii")
-        return f"data:{mime};base64,{encoded}", None
+        return screen_tracker_thumbnail_data_uri(self, thumbnail_path)
 
     def _build_screen_tracker_widget_manifest(
         self, instance_id: str
     ) -> dict[str, Any]:
         """Build widget manifest for screen_tracker."""
-        plugin_cfg = self.config.plugins.get(instance_id)
-        if plugin_cfg is None:
-            return {
-                "accepted": False,
-                "status": "unknown_instance",
-                "widget": {
-                    "supports_render": False,
-                    "default_aspect_ratio": "16:9",
-                    "min_refresh_ms": 1000,
-                    "supported_actions": [],
-                    "content_modes": ["html_fragment_v1"],
-                },
-            }
-        min_refresh_ms = max(
-            1000, int(round(self._effective_heartbeat_interval_s(plugin_cfg) * 1000))
-        )
-        return {
-            "accepted": True,
-            "status": "ok",
-            "widget": {
-                "supports_render": True,
-                "default_aspect_ratio": "16:9",
-                "min_refresh_ms": min_refresh_ms,
-                "supported_actions": ["refresh"],
-                "content_modes": ["html_fragment_v1"],
-            },
-        }
+        return build_screen_tracker_widget_manifest(self, instance_id)
 
     def _build_screen_tracker_widget_render(
         self, instance_id: str, request_id: str | None, mode: str
     ) -> dict[str, Any]:
         """Build widget render payload for screen_tracker."""
-        plugin_cfg = self.config.plugins.get(instance_id)
-        if plugin_cfg is None:
-            return {
-                "accepted": False,
-                "status": "unknown_instance",
-                "request_id": request_id,
-                "render": {
-                    "mode": mode,
-                    "html": '<div class="widget-muted">unknown instance</div>',
-                    "ttl_ms": 1000,
-                    "state_token": None,
-                    "warnings": ["unknown_instance"],
-                },
-            }
-
-        latest_path, missing_reason = self._resolve_screen_tracker_thumbnail(instance_id)
-        ttl_ms = max(1000, int(round(self._effective_heartbeat_interval_s(plugin_cfg) * 1000)))
-
-        if latest_path is None:
-            reason_text = html.escape(missing_reason or "no_thumbnail_artifacts")
-            return {
-                "accepted": True,
-                "status": "ok",
-                "request_id": request_id,
-                "render": {
-                    "mode": mode,
-                    "html": (
-                        '<div class="widget-muted">'
-                        f"screen tracker waiting for captures ({reason_text})"
-                        "</div>"
-                    ),
-                    "ttl_ms": ttl_ms,
-                    "state_token": None,
-                    "warnings": [missing_reason or "no_thumbnail_artifacts"],
-                },
-            }
-
-        stat_result = latest_path.stat()
-        data_uri, uri_error = self._screen_tracker_thumbnail_data_uri(latest_path)
-        if data_uri is None:
-            reason_text = html.escape(uri_error or "thumbnail_read_failed")
-            return {
-                "accepted": True,
-                "status": "ok",
-                "request_id": request_id,
-                "render": {
-                    "mode": mode,
-                    "html": (
-                        '<div class="widget-muted">'
-                        f"screen tracker thumbnail unavailable ({reason_text})"
-                        "</div>"
-                    ),
-                    "ttl_ms": ttl_ms,
-                    "state_token": None,
-                    "warnings": [uri_error or "thumbnail_read_failed"],
-                },
-            }
-        safe_uri = html.escape(data_uri, quote=True)
-        safe_file = html.escape(latest_path.name)
-        captured_at = datetime.fromtimestamp(stat_result.st_mtime, UTC).isoformat()
-        safe_time = html.escape(captured_at)
-        state_token = f"{latest_path.name}:{stat_result.st_mtime_ns}"
-
-        html_fragment = (
-            '<div class="screen-widget-root">'
-            f'<img class="screen-widget-image" src="{safe_uri}" alt="Latest screen snapshot"/>'
-            '<div class="screen-widget-meta">'
-            f'<span class="screen-widget-file">{safe_file}</span>'
-            f'<time class="screen-widget-time" datetime="{safe_time}">{safe_time}</time>'
-            "</div>"
-            "</div>"
-        )
-
-        return {
-            "accepted": True,
-            "status": "ok",
-            "request_id": request_id,
-            "render": {
-                "mode": mode,
-                "html": html_fragment,
-                "ttl_ms": ttl_ms,
-                "state_token": state_token,
-                "warnings": [],
-            },
-        }
+        return build_screen_tracker_widget_render(self, instance_id, request_id, mode)
 
     def _update_monitor_settings(
         self, updates: dict[str, Any]
     ) -> tuple[bool, str, dict[str, Any]]:
         """Update monitor settings with strict key validation and persistence."""
-        allowed_update_keys = {
-            "cooldown_seconds",
-            "poll_tick_s",
-            "console_verbosity",
-        }
-        unknown_keys = sorted([k for k in updates.keys() if k not in allowed_update_keys])
-        if unknown_keys:
-            return (
-                False,
-                f"unknown_keys:{','.join(unknown_keys)}",
-                {"unknown_keys": unknown_keys},
-            )
-
-        merged = self.config.monitor.model_dump()
-        merged.update({k: v for k, v in updates.items() if k in allowed_update_keys})
-
-        try:
-            monitor_type = type(self.config.monitor)
-            updated_monitor = monitor_type.model_validate(merged)
-        except Exception as e:
-            return False, f"invalid_updates:{e}", {}
-
-        previous_monitor = self.config.monitor
-        self.config.monitor = updated_monitor
-        self.cooldown.cooldown_seconds = updated_monitor.cooldown_seconds
-
-        saved, save_detail = self._persist_runtime_config()
-        if not saved:
-            self.config.monitor = previous_monitor
-            self.cooldown.cooldown_seconds = previous_monitor.cooldown_seconds
-            return False, save_detail, {}
-
-        return True, "updated", self._snapshot_monitor_settings()
+        return update_monitor_settings(self, updates)
 
     def _next_available_label(self, base_label: str) -> str:
         """Generate a unique config label for a new agent instance."""
@@ -1056,18 +888,7 @@ class Runtime:
 
     def _coerce_timestamp(self, ts: object) -> datetime:
         """Coerce a timestamp value (str or datetime) into timezone-aware datetime."""
-        if isinstance(ts, datetime):
-            timestamp = ts
-        else:
-            # Try parsing ISO format string
-            try:
-                timestamp = datetime.fromisoformat(str(ts))
-            except Exception:
-                timestamp = datetime.now(UTC)
-
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=UTC)
-        return timestamp
+        return coerce_timestamp(self, ts)
 
     def _handle_agent_summary(self, label: str, msg: object) -> None:
         """Write Agent summary directly to file.
@@ -1079,40 +900,7 @@ class Runtime:
             label: agent label
             msg: parsed message object with attributes `timestamp`, `agent_label`, `data`.
         """
-        try:
-            ts = getattr(msg, "timestamp", None)
-            timestamp = self._coerce_timestamp(ts)
-            agent_label = getattr(msg, "agent_label", label)
-            raw_data: Any = getattr(msg, "data", None)
-            # Ensure data is always a dict
-            if not isinstance(raw_data, dict):
-                data: dict[str, Any] = {}
-            else:
-                data = cast(dict[str, Any], raw_data)
-
-            # Determine event type if provided, else default to 'summary'
-            event_type: str = "summary"
-            evt = data.get("event")
-            typ = data.get("type")
-            if evt:
-                event_type = str(evt)
-            elif typ:
-                event_type = str(typ)
-
-            event = Event(timestamp=timestamp, label=agent_label, event=event_type, data=data)
-
-            # Write summary directly to file (agent already aggregated the data)
-            try:
-                self.file_sink.write_event(event)
-            except SinkError as e:
-                self.console.print(f"[red]Sink error writing agent summary: {e}[/red]")
-
-            # Also log to console if verbose
-            if self.config.monitor.console_verbosity in ("debug", "info"):
-                self.console_sink.write_event(event)
-
-        except Exception as e:
-            self.console.print(f"[red]Error handling agent summary {label}: {e}[/red]")
+        handle_agent_summary(self, label, msg)
 
     def _handle_heartbeat(self, label: str, msg: object) -> None:
         """Handle a heartbeat message from a Agent.
@@ -1120,29 +908,7 @@ class Runtime:
         Updates agent health state and optionally logs to console.
         Heartbeats are NOT written to file - they're for health monitoring only.
         """
-        try:
-            ts = getattr(msg, "timestamp", None)
-            timestamp = self._coerce_timestamp(ts)
-
-            # Update AgentProcessManager handle state if present
-            agm = getattr(self, "agent_manager", None)
-            if agm is not None:
-                try:
-                    handle = agm.agents.get(label)
-                    if handle is not None:
-                        handle.last_heartbeat = timestamp
-                except Exception as e:
-                    self._debug(
-                        f"[yellow]Failed to update heartbeat for {label}: {e}[/yellow]"
-                    )
-
-            # Log to console in debug mode
-            if self.config.monitor.console_verbosity == "debug":
-                metrics = getattr(msg, "metrics", {})
-                metrics_str = f" | {metrics}" if metrics else ""
-                self.console.print(f"[cyan]❤️  {label}{metrics_str}[/cyan]")
-        except Exception as e:
-            self.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
+        handle_heartbeat(self, label, msg)
 
     def _handle_agent_log(self, label: str, msg: object) -> None:
         """Handle a structured log message from a Agent.
@@ -1155,69 +921,7 @@ class Runtime:
             label: Agent label (plugin name)
             msg: LogMessage instance with level, message, and markup fields
         """
-        # Extract log level (may be string or enum)
-        level_raw = getattr(msg, "level", "info")
-        if isinstance(level_raw, str):
-            level = level_raw.lower()
-        else:
-            level = str(level_raw).lower()
-
-        # Map verbosity setting to allowed log levels
-        verbosity_map = {
-            "debug": ["debug", "info", "warning", "error"],
-            "info": ["info", "warning", "error"],
-            "warning": ["warning", "error"],
-            "error": ["error"],
-        }
-
-        allowed_levels = verbosity_map.get(
-            self.config.monitor.console_verbosity,
-            ["info", "warning", "error"],
-        )
-
-        # Filter based on verbosity
-        if level not in allowed_levels:
-            return
-
-        # Extract message and markup flag
-        message_text = getattr(msg, "message", "")
-        markup = getattr(msg, "markup", True)
-
-        # Pre-process message to handle Unicode issues on Windows console
-        # Replace non-ASCII characters that might cause encoding errors
-        try:
-            # Test if the message can be encoded to the console encoding
-            message_text.encode(self.console.encoding or "utf-8")
-        except (UnicodeEncodeError, AttributeError) as e:
-            self._debug(
-                f"[yellow]Log message encoding mismatch for {label}: {e}[/yellow]"
-            )
-            # Fallback: replace non-ASCII with '?' to avoid crashes
-            message_text = message_text.encode(
-                "ascii", errors="replace"
-            ).decode("ascii")
-
-        # Render with Rich console (prefix with agent label)
-        prefix = f"[grey70][{label}][/grey70] "
-
-        # Handle multiline messages by splitting and printing each line
-        try:
-            if "\n" in message_text:
-                lines = message_text.split("\n")
-                for line in lines:
-                    if markup:
-                        self.console.print(prefix + line)
-                    else:
-                        self.console.print(prefix + line, markup=False)
-            else:
-                if markup:
-                    self.console.print(prefix + message_text)
-                else:
-                    self.console.print(prefix + message_text, markup=False)
-        except Exception as e:
-            self.console.print(
-                f"[red]Error rendering log from {label} (markup={markup}): {e}[/red]"
-            )
+        handle_agent_log(self, label, msg)
 
     def _flush_all_agents(self) -> None:
         """Send flush command to all active Agents."""

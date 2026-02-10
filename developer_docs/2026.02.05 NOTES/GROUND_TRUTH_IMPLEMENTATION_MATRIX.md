@@ -21,6 +21,9 @@ Verification snapshot:
   - `mimolo/core/runtime.py`
   - `mimolo/core/runtime_ipc_commands.py`
   - `mimolo/core/runtime_ipc_server.py`
+  - `mimolo/core/runtime_agent_events.py`
+  - `mimolo/core/runtime_widget_support.py`
+  - `mimolo/core/runtime_monitor_settings.py`
   - `mimolo/core/runtime_shutdown.py`
   - `mimolo/core/agent_process.py`
   - `mimolo/core/protocol.py`
@@ -55,6 +58,8 @@ Verification snapshot:
   - `mimolo/control_proto/src/main.ts`
   - `mimolo/control_proto/src/types.ts`
   - `mimolo/control_proto/src/control_timing.ts`
+  - `mimolo/control_proto/src/control_proto_utils.ts`
+  - `mimolo/control_proto/src/control_command_wrappers.ts`
   - `mimolo/control_proto/src/ui_html.ts`
 
 4. Runtime widget IPC command names (stable stubs)
