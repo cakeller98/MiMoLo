@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import sys
 import time
 from datetime import UTC, datetime
@@ -58,6 +59,16 @@ def _apply_monitor_env_overrides(config: Config) -> None:
     cache_dir = os.getenv("MIMOLO_MONITOR_CACHE_DIR")
     if cache_dir is not None and cache_dir.strip():
         config.monitor.cache_dir = cache_dir.strip()
+
+
+def _install_graceful_sigterm_handler(runtime: Runtime) -> None:
+    """Handle SIGTERM as a graceful orchestrator stop request."""
+
+    def _on_sigterm(signum: int, _frame: object | None) -> None:
+        if signum == signal.SIGTERM:
+            runtime._running = False
+
+    signal.signal(signal.SIGTERM, _on_sigterm)
 
 app = typer.Typer(
     name="mimolo",
@@ -146,6 +157,7 @@ def _run_ops_command(
 
         # Create and run runtime
         runtime = Runtime(config, console, config_path=config_path)
+        _install_graceful_sigterm_handler(runtime)
         try:
             runtime.run(max_iterations=1 if once else None)
         finally:

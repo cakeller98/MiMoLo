@@ -1,7 +1,7 @@
 """Core MiMoLo framework modules."""
 
 from mimolo.core.aggregate import SegmentAggregator
-from mimolo.core.config import Config, MonitorConfig, PluginConfig, load_config
+from mimolo.core.config import Config, ControlConfig, MonitorConfig, PluginConfig, load_config
 from mimolo.core.cooldown import CooldownState, CooldownTimer, SegmentState
 from mimolo.core.errors import (
     AggregationError,
@@ -41,6 +41,7 @@ __all__ = [
     "SegmentAggregator",
     # Config
     "Config",
+    "ControlConfig",
     "MonitorConfig",
     "PluginConfig",
     "load_config",

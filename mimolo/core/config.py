@@ -45,6 +45,33 @@ class MonitorConfig(BaseModel):
         return v
 
 
+class ControlConfig(BaseModel):
+    """Control-plane polling and IPC retry behavior."""
+
+    status_poll_connected_s: float = Field(default=1.0, gt=0)
+    status_poll_disconnected_s: float = Field(default=5.0, gt=0)
+    instance_poll_connected_s: float = Field(default=1.0, gt=0)
+    instance_poll_disconnected_s: float = Field(default=5.0, gt=0)
+    log_poll_connected_s: float = Field(default=1.0, gt=0)
+    log_poll_disconnected_s: float = Field(default=5.0, gt=0)
+    ipc_connect_backoff_initial_s: float = Field(default=1.0, gt=0)
+    ipc_connect_backoff_extended_s: float = Field(default=5.0, gt=0)
+    ipc_connect_backoff_escalate_after: int = Field(default=5, ge=1)
+    status_repeat_throttle_connected_s: float = Field(default=0.25, gt=0)
+    status_repeat_throttle_disconnected_s: float = Field(default=3.0, gt=0)
+    widget_auto_tick_s: float = Field(default=0.25, gt=0)
+    widget_auto_refresh_default_s: float = Field(default=15.0, gt=0)
+    ipc_request_timeout_s: float = Field(default=1.5, gt=0)
+    template_cache_ttl_s: float = Field(default=3.0, gt=0)
+    indicator_fade_step_s: float = Field(default=0.2, gt=0)
+    toast_duration_s: float = Field(default=2.8, gt=0)
+    stop_wait_disconnect_timeout_s: float = Field(default=5.0, gt=0)
+    stop_wait_disconnect_poll_s: float = Field(default=0.15, gt=0)
+    stop_wait_managed_exit_s: float = Field(default=1.0, gt=0)
+    stop_wait_graceful_exit_s: float = Field(default=5.0, gt=0)
+    stop_wait_forced_exit_s: float = Field(default=1.5, gt=0)
+
+
 class PluginConfig(BaseModel):
     """Per-plugin configuration (Agent only)."""
 
@@ -66,6 +93,7 @@ class Config(BaseModel):
     """Root configuration model."""
 
     monitor: MonitorConfig = Field(default_factory=MonitorConfig)
+    control: ControlConfig = Field(default_factory=ControlConfig)
     plugins: dict[str, PluginConfig] = Field(default_factory=dict)
 
     model_config = {"extra": "forbid"}
@@ -233,6 +261,7 @@ def _save_toml_config_roundtrip(config: Config, path: Path) -> None:
 def _sync_toml_document_from_config(doc: TOMLDocument, config: Config) -> None:
     """Mutate TOML document to match config model."""
     monitor_data = config.monitor.model_dump()
+    control_data = config.control.model_dump()
     plugins_data = {
         label: plugin_cfg.model_dump() for label, plugin_cfg in config.plugins.items()
     }
@@ -243,6 +272,14 @@ def _sync_toml_document_from_config(doc: TOMLDocument, config: Config) -> None:
         doc["monitor"] = monitor_table
     _sync_mapping_table(
         monitor_table, monitor_data, remove_missing_keys=True  # Any: tomlkit dynamic mapping table.
+    )
+
+    control_table = doc.get("control")
+    if control_table is None or not isinstance(control_table, dict):
+        control_table = tomlkit.table()
+        doc["control"] = control_table
+    _sync_mapping_table(
+        control_table, control_data, remove_missing_keys=True  # Any: tomlkit dynamic mapping table.
     )
 
     plugins_table = doc.get("plugins")

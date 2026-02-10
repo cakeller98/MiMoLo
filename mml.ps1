@@ -45,8 +45,8 @@ if ($IsWindows) {
     $DefaultOpsLogPath = Join-Path $env:TEMP "mimolo\operations.log"
 }
 else {
-    $DefaultIpcPath = "/tmp/mimolo/operations.sock"
-    $DefaultOpsLogPath = "/tmp/mimolo/operations.log"
+    $DefaultIpcPath = Join-Path $env:TEMP "mimolo/operations.sock"
+    $DefaultOpsLogPath = Join-Path $env:TEMP "mimolo/operations.log"
 }
 
 function Get-TomlValue {
@@ -280,8 +280,8 @@ elseif (-not $env:MIMOLO_CONTROL_DEV_MODE) {
 }
 
 if ($env:MIMOLO_IPC_PATH.Length -gt 100) {
-    Write-Host "[dev-stack] IPC path too long ($($env:MIMOLO_IPC_PATH.Length) > 100); falling back to /tmp/mimolo/operations.sock"
-    $env:MIMOLO_IPC_PATH = "/tmp/mimolo/operations.sock"
+    Write-Host "[dev-stack] IPC path too long ($($env:MIMOLO_IPC_PATH.Length) > 100); falling back to $DefaultIpcPath"
+    $env:MIMOLO_IPC_PATH = $DefaultIpcPath
 }
 
 $ipcDir = Split-Path -Parent $env:MIMOLO_IPC_PATH
@@ -548,6 +548,11 @@ function Run-AllTarget {
         $opsProc = Start-Process -FilePath "poetry" -ArgumentList $opsArguments -PassThru
     }
 
+    $autoStopOnExit = $env:MML_AUTOSTOP_ON_EXIT -eq "1"
+    if (-not $autoStopOnExit) {
+        Write-Host "[dev-stack] Operations will remain running after Control exits (set MML_AUTOSTOP_ON_EXIT=1 to restore auto-stop)."
+    }
+
     try {
         Write-Host "[dev-stack] Operations started (pid=$($opsProc.Id))"
 
@@ -566,8 +571,8 @@ function Run-AllTarget {
         Launch-Control
     }
     finally {
-        if (-not $opsProc.HasExited) {
-            Write-Host "[dev-stack] Stopping Operations (pid=$($opsProc.Id))..."
+        if ($autoStopOnExit -and -not $opsProc.HasExited) {
+            Write-Host "[dev-stack] MML_AUTOSTOP_ON_EXIT=1 -> stopping Operations (pid=$($opsProc.Id))..."
             Stop-Process -Id $opsProc.Id -Force
         }
     }

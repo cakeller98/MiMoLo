@@ -17,6 +17,46 @@
   # Console verbosity: debug, info, warning, error
   console_verbosity = "warning"
 
+# Control (Control Proto / dashboard IPC cadence + retry behavior)
+[control]
+  # Polling cadence when Operations is reachable.
+  status_poll_connected_s = 1.0
+  instance_poll_connected_s = 1.0
+  log_poll_connected_s = 1.0
+
+  # Polling cadence when Operations is unavailable/disconnected.
+  status_poll_disconnected_s = 5.0
+  instance_poll_disconnected_s = 5.0
+  log_poll_disconnected_s = 5.0
+
+  # IPC reconnect backoff policy.
+  ipc_connect_backoff_initial_s = 1.0
+  ipc_connect_backoff_extended_s = 5.0
+  ipc_connect_backoff_escalate_after = 5
+
+  # Status line update throttling (suppresses repeated identical chatter).
+  status_repeat_throttle_connected_s = 0.25
+  status_repeat_throttle_disconnected_s = 3.0
+
+  # IPC request / caching timing.
+  ipc_request_timeout_s = 1.5
+  template_cache_ttl_s = 3.0
+
+  # UI timing.
+  indicator_fade_step_s = 0.2
+  toast_duration_s = 2.8
+
+  # Operations stop sequencing windows.
+  stop_wait_disconnect_timeout_s = 5.0
+  stop_wait_disconnect_poll_s = 0.15
+  stop_wait_managed_exit_s = 1.0
+  stop_wait_graceful_exit_s = 5.0
+  stop_wait_forced_exit_s = 1.5
+
+  # Widget cadence defaults in Control.
+  widget_auto_tick_s = 0.25
+  widget_auto_refresh_default_s = 15.0
+
 # Agent Configuration
 journal_dir = "./journals"
 cache_dir = "./cache"

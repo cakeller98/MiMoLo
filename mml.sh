@@ -138,15 +138,16 @@ apply_environment_defaults() {
   export MIMOLO_RUNTIME_CONFIG_PATH="${MIMOLO_RUNTIME_CONFIG_PATH:-${CONFIG_RUNTIME_CONFIG_PATH:-$derived_runtime_config}}"
   export MIMOLO_CONFIG_SOURCE_PATH="${MIMOLO_CONFIG_SOURCE_PATH:-${CONFIG_CONFIG_SOURCE_PATH:-$derived_config_source}}"
 
-  local derived_ipc_path="/tmp/mimolo/operations.sock"
+  local tmp_root="${TMPDIR:-/tmp}"
+  local derived_ipc_path="${tmp_root%/}/mimolo/operations.sock"
   local derived_ops_log_path="${MIMOLO_DATA_DIR}/runtime/operations.log"
   export MIMOLO_IPC_PATH="${MIMOLO_IPC_PATH:-${CONFIG_IPC_PATH:-$derived_ipc_path}}"
   export MIMOLO_OPS_LOG_PATH="${MIMOLO_OPS_LOG_PATH:-${CONFIG_OPS_LOG_PATH:-$derived_ops_log_path}}"
 
-  # AF_UNIX socket paths are length-limited on macOS/Linux; fall back to a short tmp path.
+  # AF_UNIX socket paths are length-limited on macOS/Linux; keep socket path in temp.
   if ((${#MIMOLO_IPC_PATH} > IPC_SOCKET_MAX_LENGTH)); then
-    echo "[dev-stack] IPC path too long (${#MIMOLO_IPC_PATH} > ${IPC_SOCKET_MAX_LENGTH}); falling back to /tmp/mimolo/operations.sock"
-    export MIMOLO_IPC_PATH="/tmp/mimolo/operations.sock"
+    echo "[dev-stack] IPC path too long (${#MIMOLO_IPC_PATH} > ${IPC_SOCKET_MAX_LENGTH}); falling back to ${derived_ipc_path}"
+    export MIMOLO_IPC_PATH="$derived_ipc_path"
   fi
 
   local derived_monitor_log_dir="${MIMOLO_DATA_DIR}/operations/logs"
@@ -523,15 +524,18 @@ run_all_target() {
   fi
   operations_pid=$!
 
-  cleanup() {
-    if kill -0 "$operations_pid" 2>/dev/null; then
-      echo "[dev-stack] Stopping Operations (pid=$operations_pid)..."
-      kill "$operations_pid" 2>/dev/null || true
-    fi
-  }
-  trap cleanup EXIT INT TERM
-
   echo "[dev-stack] Operations started (pid=$operations_pid)"
+  if [[ "${MML_AUTOSTOP_ON_EXIT:-0}" == "1" ]]; then
+    cleanup() {
+      if kill -0 "$operations_pid" 2>/dev/null; then
+        echo "[dev-stack] MML_AUTOSTOP_ON_EXIT=1 -> stopping Operations (pid=$operations_pid)..."
+        kill "$operations_pid" 2>/dev/null || true
+      fi
+    }
+    trap cleanup EXIT INT TERM
+  else
+    echo "[dev-stack] Operations will remain running after Control exits (set MML_AUTOSTOP_ON_EXIT=1 to restore auto-stop)."
+  fi
 
   if [[ "$target" == "proto" ]]; then
     echo "[dev-stack] Waiting for IPC socket..."

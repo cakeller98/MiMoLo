@@ -23,11 +23,16 @@ declare module "electron" {
     static getAllWindows(): BrowserWindow[];
   }
 
+  export interface AppEvent {
+    preventDefault(): void;
+  }
+
   export interface App {
     whenReady(): Promise<void>;
     on(event: "activate", listener: () => void): void;
     on(event: "before-quit", listener: () => void): void;
     on(event: "window-all-closed", listener: () => void): void;
+    on(event: "will-quit", listener: (event: AppEvent) => void): void;
     quit(): void;
   }
 
@@ -64,11 +69,30 @@ declare module "electron" {
     filePaths: string[];
   }
 
+  export interface MessageBoxOptions {
+    type?: "none" | "info" | "error" | "question" | "warning";
+    buttons?: string[];
+    defaultId?: number;
+    cancelId?: number;
+    noLink?: boolean;
+    title?: string;
+    message?: string;
+    detail?: string;
+  }
+
+  export interface MessageBoxReturnValue {
+    response: number;
+  }
+
   export interface Dialog {
     showOpenDialog(
       browserWindow: BrowserWindow,
       options: OpenDialogOptions
     ): Promise<OpenDialogReturnValue>;
+    showMessageBox(
+      browserWindow: BrowserWindow | undefined,
+      options: MessageBoxOptions
+    ): Promise<MessageBoxReturnValue>;
   }
 
   export const app: App;

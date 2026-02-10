@@ -37,6 +37,31 @@ interface MonitorSettingsSnapshot {
   poll_tick_s: number;
 }
 
+interface ControlTimingSettings {
+  indicator_fade_step_s: number;
+  instance_poll_connected_s: number;
+  instance_poll_disconnected_s: number;
+  ipc_request_timeout_s: number;
+  ipc_connect_backoff_escalate_after: number;
+  ipc_connect_backoff_extended_s: number;
+  ipc_connect_backoff_initial_s: number;
+  log_poll_connected_s: number;
+  log_poll_disconnected_s: number;
+  status_poll_connected_s: number;
+  status_poll_disconnected_s: number;
+  status_repeat_throttle_connected_s: number;
+  status_repeat_throttle_disconnected_s: number;
+  stop_wait_disconnect_poll_s: number;
+  stop_wait_disconnect_timeout_s: number;
+  stop_wait_forced_exit_s: number;
+  stop_wait_graceful_exit_s: number;
+  stop_wait_managed_exit_s: number;
+  template_cache_ttl_s: number;
+  toast_duration_s: number;
+  widget_auto_refresh_default_s: number;
+  widget_auto_tick_s: number;
+}
+
 type AgentLifecycleState = "running" | "shutting-down" | "inactive" | "error";
 type AgentCommandAction =
   | "start_agent"
@@ -160,6 +185,7 @@ let opsLogWarningPrinted = false;
 let opsLogWriteQueue: Promise<void> = Promise.resolve();
 let operationsProcess: ReturnType<typeof spawn> | null = null;
 let operationsStopRequested = false;
+let quitInProgress = false;
 let operationsControlState: OperationsControlSnapshot = {
   state: "stopped",
   detail: "not_managed",
@@ -168,9 +194,33 @@ let operationsControlState: OperationsControlSnapshot = {
   timestamp: new Date().toISOString(),
 };
 
-const IPC_REQUEST_TIMEOUT_MS = 1500;
 const IPC_MAX_PENDING_REQUESTS = 256;
 type IpcSocket = ReturnType<typeof net.createConnection>;
+
+const DEFAULT_CONTROL_TIMING_SETTINGS: ControlTimingSettings = {
+  indicator_fade_step_s: 0.2,
+  status_poll_connected_s: 1.0,
+  status_poll_disconnected_s: 5.0,
+  instance_poll_connected_s: 1.0,
+  instance_poll_disconnected_s: 5.0,
+  log_poll_connected_s: 1.0,
+  log_poll_disconnected_s: 5.0,
+  ipc_request_timeout_s: 1.5,
+  ipc_connect_backoff_initial_s: 1.0,
+  ipc_connect_backoff_extended_s: 5.0,
+  ipc_connect_backoff_escalate_after: 5,
+  status_repeat_throttle_connected_s: 0.25,
+  status_repeat_throttle_disconnected_s: 3.0,
+  stop_wait_disconnect_poll_s: 0.15,
+  stop_wait_disconnect_timeout_s: 5.0,
+  stop_wait_managed_exit_s: 1.0,
+  stop_wait_graceful_exit_s: 5.0,
+  stop_wait_forced_exit_s: 1.5,
+  template_cache_ttl_s: 3.0,
+  toast_duration_s: 2.8,
+  widget_auto_tick_s: 0.25,
+  widget_auto_refresh_default_s: 15.0,
+};
 
 let ipcSocket: IpcSocket | null = null;
 let ipcSocketState: "disconnected" | "connecting" | "connected" = "disconnected";
@@ -181,9 +231,258 @@ let ipcConnectReject: ((error: Error) => void) | null = null;
 let ipcInFlightRequest: PendingIpcRequest | null = null;
 let ipcQueueDrainRunning = false;
 let ipcRequestCounter = 0;
+let ipcLastConnectFailureAt = 0;
+let ipcConnectFailureCount = 0;
+let ipcNextConnectAttemptAt = 0;
 const ipcPendingRequestQueue: PendingIpcRequest[] = [];
+let templateCache: { fetchedAtMs: number; templates: Record<string, AgentTemplateSnapshot> } | null = null;
+let templateRefreshInFlight: Promise<Record<string, AgentTemplateSnapshot>> | null = null;
+
+let controlTimingSettings: ControlTimingSettings = { ...DEFAULT_CONTROL_TIMING_SETTINGS };
+let ipcRequestTimeoutMs = Math.max(
+  1,
+  Math.round(DEFAULT_CONTROL_TIMING_SETTINGS.ipc_request_timeout_s * 1000),
+);
+let templateCacheTtlMs = Math.max(
+  1,
+  Math.round(DEFAULT_CONTROL_TIMING_SETTINGS.template_cache_ttl_s * 1000),
+);
+
+function coercePositiveNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function coercePositiveInteger(value: unknown, fallback: number): number {
+  const numeric = coercePositiveNumber(value, fallback);
+  if (!Number.isFinite(numeric) || numeric < 1) {
+    return fallback;
+  }
+  return Math.max(1, Math.floor(numeric));
+}
+
+function normalizeControlTimingSettings(raw: unknown): ControlTimingSettings {
+  const record = raw && typeof raw === "object"
+    ? (raw as Record<string, unknown>)
+    : {};
+  return {
+    indicator_fade_step_s: coercePositiveNumber(
+      record.indicator_fade_step_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.indicator_fade_step_s,
+    ),
+    status_poll_connected_s: coercePositiveNumber(
+      record.status_poll_connected_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.status_poll_connected_s,
+    ),
+    status_poll_disconnected_s: coercePositiveNumber(
+      record.status_poll_disconnected_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.status_poll_disconnected_s,
+    ),
+    instance_poll_connected_s: coercePositiveNumber(
+      record.instance_poll_connected_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.instance_poll_connected_s,
+    ),
+    instance_poll_disconnected_s: coercePositiveNumber(
+      record.instance_poll_disconnected_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.instance_poll_disconnected_s,
+    ),
+    log_poll_connected_s: coercePositiveNumber(
+      record.log_poll_connected_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.log_poll_connected_s,
+    ),
+    log_poll_disconnected_s: coercePositiveNumber(
+      record.log_poll_disconnected_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.log_poll_disconnected_s,
+    ),
+    ipc_request_timeout_s: coercePositiveNumber(
+      record.ipc_request_timeout_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.ipc_request_timeout_s,
+    ),
+    ipc_connect_backoff_initial_s: coercePositiveNumber(
+      record.ipc_connect_backoff_initial_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.ipc_connect_backoff_initial_s,
+    ),
+    ipc_connect_backoff_extended_s: coercePositiveNumber(
+      record.ipc_connect_backoff_extended_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.ipc_connect_backoff_extended_s,
+    ),
+    ipc_connect_backoff_escalate_after: coercePositiveInteger(
+      record.ipc_connect_backoff_escalate_after,
+      DEFAULT_CONTROL_TIMING_SETTINGS.ipc_connect_backoff_escalate_after,
+    ),
+    status_repeat_throttle_connected_s: coercePositiveNumber(
+      record.status_repeat_throttle_connected_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.status_repeat_throttle_connected_s,
+    ),
+    status_repeat_throttle_disconnected_s: coercePositiveNumber(
+      record.status_repeat_throttle_disconnected_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.status_repeat_throttle_disconnected_s,
+    ),
+    stop_wait_disconnect_poll_s: coercePositiveNumber(
+      record.stop_wait_disconnect_poll_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.stop_wait_disconnect_poll_s,
+    ),
+    stop_wait_disconnect_timeout_s: coercePositiveNumber(
+      record.stop_wait_disconnect_timeout_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.stop_wait_disconnect_timeout_s,
+    ),
+    stop_wait_managed_exit_s: coercePositiveNumber(
+      record.stop_wait_managed_exit_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.stop_wait_managed_exit_s,
+    ),
+    stop_wait_graceful_exit_s: coercePositiveNumber(
+      record.stop_wait_graceful_exit_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.stop_wait_graceful_exit_s,
+    ),
+    stop_wait_forced_exit_s: coercePositiveNumber(
+      record.stop_wait_forced_exit_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.stop_wait_forced_exit_s,
+    ),
+    template_cache_ttl_s: coercePositiveNumber(
+      record.template_cache_ttl_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.template_cache_ttl_s,
+    ),
+    toast_duration_s: coercePositiveNumber(
+      record.toast_duration_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.toast_duration_s,
+    ),
+    widget_auto_tick_s: coercePositiveNumber(
+      record.widget_auto_tick_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.widget_auto_tick_s,
+    ),
+    widget_auto_refresh_default_s: coercePositiveNumber(
+      record.widget_auto_refresh_default_s,
+      DEFAULT_CONTROL_TIMING_SETTINGS.widget_auto_refresh_default_s,
+    ),
+  };
+}
+
+function parseControlSettingsFromToml(tomlText: string): Partial<ControlTimingSettings> {
+  const parsed: Partial<ControlTimingSettings> = {};
+  const lines = tomlText.split(/\r?\n/);
+  let inControlSection = false;
+
+  for (const rawLine of lines) {
+    const noComment = rawLine.split("#", 2)[0]?.trim() ?? "";
+    if (noComment.length === 0) {
+      continue;
+    }
+    if (noComment.startsWith("[") && noComment.endsWith("]")) {
+      inControlSection = noComment === "[control]";
+      continue;
+    }
+    if (!inControlSection) {
+      continue;
+    }
+
+    const sepIndex = noComment.indexOf("=");
+    if (sepIndex < 1) {
+      continue;
+    }
+    const key = noComment.slice(0, sepIndex).trim();
+    const rawValue = noComment.slice(sepIndex + 1).trim();
+    const numericValue = Number(rawValue.replace(/^"|"$/g, ""));
+    if (!Number.isFinite(numericValue)) {
+      continue;
+    }
+
+    switch (key) {
+      case "indicator_fade_step_s":
+      case "status_poll_connected_s":
+      case "status_poll_disconnected_s":
+      case "instance_poll_connected_s":
+      case "instance_poll_disconnected_s":
+      case "log_poll_connected_s":
+      case "log_poll_disconnected_s":
+      case "ipc_request_timeout_s":
+      case "ipc_connect_backoff_initial_s":
+      case "ipc_connect_backoff_extended_s":
+      case "status_repeat_throttle_connected_s":
+      case "status_repeat_throttle_disconnected_s":
+      case "stop_wait_disconnect_poll_s":
+      case "stop_wait_disconnect_timeout_s":
+      case "stop_wait_managed_exit_s":
+      case "stop_wait_graceful_exit_s":
+      case "stop_wait_forced_exit_s":
+      case "template_cache_ttl_s":
+      case "toast_duration_s":
+      case "widget_auto_tick_s":
+      case "widget_auto_refresh_default_s":
+        parsed[key] = numericValue;
+        break;
+      case "ipc_connect_backoff_escalate_after":
+        parsed[key] = Math.max(1, Math.floor(numericValue));
+        break;
+      default:
+        break;
+    }
+  }
+
+  return parsed;
+}
+
+function applyControlTimingSettings(raw: unknown): void {
+  controlTimingSettings = normalizeControlTimingSettings(raw);
+  ipcRequestTimeoutMs = Math.max(
+    1,
+    Math.round(controlTimingSettings.ipc_request_timeout_s * 1000),
+  );
+  templateCacheTtlMs = Math.max(
+    1,
+    Math.round(controlTimingSettings.template_cache_ttl_s * 1000),
+  );
+}
+
+async function loadControlTimingSettingsFromConfigFile(): Promise<void> {
+  const configCandidates: string[] = [];
+  const runtimeConfigPath = runtimeProcess.env.MIMOLO_RUNTIME_CONFIG_PATH;
+  if (runtimeConfigPath && runtimeConfigPath.trim().length > 0) {
+    configCandidates.push(runtimeConfigPath.trim());
+  }
+  const sourceConfigPath = runtimeProcess.env.MIMOLO_CONFIG_SOURCE_PATH;
+  if (sourceConfigPath && sourceConfigPath.trim().length > 0) {
+    configCandidates.push(sourceConfigPath.trim());
+  }
+  configCandidates.push("mimolo.toml");
+
+  for (const candidate of configCandidates) {
+    try {
+      const content = await readFile(candidate, "utf8");
+      const parsed = parseControlSettingsFromToml(content);
+      applyControlTimingSettings(parsed);
+      return;
+    } catch {
+      continue;
+    }
+  }
+  applyControlTimingSettings(DEFAULT_CONTROL_TIMING_SETTINGS);
+}
 
 function buildHtml(): string {
+  const indicatorFadeStepMs = Math.max(
+    1,
+    Math.round(controlTimingSettings.indicator_fade_step_s * 1000),
+  );
+  const toastDurationMs = Math.max(
+    1,
+    Math.round(controlTimingSettings.toast_duration_s * 1000),
+  );
+  const widgetAutoTickMs = Math.max(
+    1,
+    Math.round(controlTimingSettings.widget_auto_tick_s * 1000),
+  );
+  const widgetAutoRefreshDefaultMs = Math.max(
+    1,
+    Math.round(controlTimingSettings.widget_auto_refresh_default_s * 1000),
+  );
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -701,6 +1000,7 @@ function buildHtml(): string {
       const widgetInFlight = new Set();
       const widgetManifestLoaded = new Set();
       const widgetNextAutoRefreshAt = new Map();
+      let opsConnected = false;
       let monitorSettingsState = {
         cooldown_seconds: 600,
         poll_tick_s: 0.2,
@@ -719,6 +1019,19 @@ function buildHtml(): string {
 
       function setStatus(text) {
         statusEl.textContent = text;
+      }
+
+      function setOpsConnectedState(connected) {
+        opsConnected = connected === true;
+        if (addAgentBtn) {
+          addAgentBtn.disabled = !opsConnected;
+        }
+        if (monitorSettingsBtn) {
+          monitorSettingsBtn.disabled = !opsConnected;
+        }
+        if (installPluginBtn) {
+          installPluginBtn.disabled = !opsConnected;
+        }
       }
 
       function normalizeMonitorSettings(raw) {
@@ -782,6 +1095,7 @@ function buildHtml(): string {
       }
 
       function applyGlobalBgState(opsState, opsDetail) {
+        setOpsConnectedState(opsState === "connected");
         if (!globalBgActivity) {
           return;
         }
@@ -822,11 +1136,92 @@ function buildHtml(): string {
         }
       }
 
+      function updateCardControlInteractivity(card, state) {
+        const cardState = typeof state === "string" ? state : "inactive";
+        const startBtn = card.querySelector('button[data-action="start_agent"]');
+        const stopBtn = card.querySelector('button[data-action="stop_agent"]');
+        const restartBtn = card.querySelector('button[data-action="restart_agent"]');
+        const widgetRefresh = card.querySelector(".js-widget-refresh");
+        const widgetToggle = card.querySelector(".js-widget-toggle");
+        const dupBtn = card.querySelector(".js-dup");
+        const delBtn = card.querySelector(".js-del");
+        const cfgBtn = card.querySelector(".js-cfg");
+
+        if (!opsConnected) {
+          for (const btn of [
+            startBtn,
+            stopBtn,
+            restartBtn,
+            widgetRefresh,
+            widgetToggle,
+            dupBtn,
+            delBtn,
+            cfgBtn,
+          ]) {
+            if (btn) {
+              btn.disabled = true;
+            }
+          }
+          return;
+        }
+
+        if (startBtn) {
+          startBtn.disabled = cardState === "running" || cardState === "shutting-down";
+        }
+        if (stopBtn) {
+          stopBtn.disabled = cardState !== "running";
+        }
+        if (restartBtn) {
+          restartBtn.disabled = cardState !== "running";
+        }
+        if (widgetRefresh) {
+          widgetRefresh.disabled = cardState !== "running";
+        }
+        if (widgetToggle) {
+          widgetToggle.disabled = cardState !== "running";
+        }
+        if (dupBtn) {
+          dupBtn.disabled = false;
+        }
+        if (delBtn) {
+          delBtn.disabled = false;
+        }
+        if (cfgBtn) {
+          cfgBtn.disabled = false;
+        }
+      }
+
+      function applyOpsDisconnectedCardState() {
+        if (opsConnected) {
+          return;
+        }
+        for (const [label, card] of cards.entries()) {
+          const life = card.querySelector(".js-life");
+          const stateText = card.querySelector(".js-state-text");
+          const detail = card.querySelector(".js-detail");
+          const bgLight = card.querySelector(".js-bg");
+          if (life) {
+            applyLifeClass(life, "inactive");
+          }
+          if (stateText) {
+            stateText.textContent = "inactive";
+          }
+          if (detail) {
+            detail.textContent = "operations unavailable";
+          }
+          setBgLightState(bgLight, "neutral");
+          updateCardControlInteractivity(card, "inactive");
+          widgetNextAutoRefreshAt.delete(label);
+        }
+      }
+
       async function runOpsControl(action) {
         if (!ipcRenderer) {
           append("[ops] control failed: ipc renderer unavailable");
           return;
         }
+        // Manual operator intent should bypass passive reconnect backoff.
+        ipcRenderer.invoke("mml:reset-reconnect-backoff").catch(() => undefined);
         try {
           const response = await ipcRenderer.invoke("mml:ops-control", { action });
           if (response && response.state) {
@@ -858,7 +1253,7 @@ function buildHtml(): string {
         toastHost.appendChild(toast);
         setTimeout(() => {
           toast.remove();
-        }, 2800);
+        }, ${toastDurationMs});
       }
 
       function showModal(build) {
@@ -1070,9 +1465,9 @@ function buildHtml(): string {
       }
 
       const INDICATOR_FADE_LEVELS = [0.9, 0.6, 0.3, 0.1];
-      const INDICATOR_FADE_STEP_MS = 200;
-      const WIDGET_AUTO_TICK_MS = 250;
-      const DEFAULT_WIDGET_AUTO_REFRESH_MS = 15000;
+      const INDICATOR_FADE_STEP_MS = ${indicatorFadeStepMs};
+      const WIDGET_AUTO_TICK_MS = ${widgetAutoTickMs};
+      const DEFAULT_WIDGET_AUTO_REFRESH_MS = ${widgetAutoRefreshDefaultMs};
       const INDICATOR_COLORS = {
         tx: { bg: "#2fcf70", glow: "47, 207, 112" },
         rx: { bg: "#d94c4c", glow: "217, 76, 76" },
@@ -1286,6 +1681,9 @@ function buildHtml(): string {
         if (!ipcRenderer) {
           return;
         }
+        if (!opsConnected) {
+          return;
+        }
         if (widgetInFlight.has(label)) {
           return;
         }
@@ -1399,6 +1797,9 @@ function buildHtml(): string {
       }
 
       function refreshWidgetsAuto() {
+        if (!opsConnected) {
+          return;
+        }
         const now = Date.now();
         for (const label of cards.keys()) {
           if (widgetPausedLabels.has(label)) {
@@ -1842,6 +2243,16 @@ function buildHtml(): string {
         try {
           const refresh = await ipcRenderer.invoke("mml:list-agent-templates");
           if (!(refresh && refresh.ok && refresh.templates)) {
+            if (refresh && refresh.error) {
+              const errText = String(refresh.error);
+              if (
+                errText !== "ipc_connect_backoff" &&
+                !errText.includes("ENOENT") &&
+                !errText.includes("ipc_socket_closed")
+              ) {
+                append("[ui] template refresh failed: " + errText);
+              }
+            }
             return;
           }
           templatesById.clear();
@@ -1850,7 +2261,13 @@ function buildHtml(): string {
           }
         } catch (err) {
           const detail = err instanceof Error ? err.message : "template_refresh_failed";
-          append("[ui] template refresh failed: " + detail);
+          if (
+            detail !== "ipc_connect_backoff" &&
+            !detail.includes("ENOENT") &&
+            !detail.includes("ipc_socket_closed")
+          ) {
+            append("[ui] template refresh failed: " + detail);
+          }
         }
       }
 
@@ -1978,6 +2395,7 @@ function buildHtml(): string {
           } else {
             setBgLightState(bgLight, "neutral");
           }
+          updateCardControlInteractivity(card, state);
           if (isNewCard) {
             if (state === "running") {
               const intervalMs = resolveWidgetAutoRefreshMs(instance);
@@ -2003,6 +2421,7 @@ function buildHtml(): string {
           perAgentTxIndicators.delete(label);
           perAgentRxIndicators.delete(label);
         }
+        applyOpsDisconnectedCardState();
       }
 
       async function refreshInitialState() {
@@ -2118,14 +2537,14 @@ function buildHtml(): string {
         }
         void refreshTemplatesCache();
         setInterval(() => {
-          void refreshTemplatesCache();
-        }, 4500);
-        setInterval(() => {
           refreshWidgetsAuto();
         }, WIDGET_AUTO_TICK_MS);
         ipcRenderer.on("ops:status", (_event, payload) => {
           setStatus(payload.state + " - " + payload.detail);
           applyGlobalBgState(payload.state, payload.detail);
+          if (payload.state !== "connected") {
+            applyOpsDisconnectedCardState();
+          }
         });
 
         ipcRenderer.on("ops:line", (_event, line) => {
@@ -2418,6 +2837,10 @@ function sleepMs(ms: number): Promise<void> {
 
 async function waitForIpcDisconnect(timeoutMs: number): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
+  const pollMs = Math.max(
+    1,
+    Math.round(controlTimingSettings.stop_wait_disconnect_poll_s * 1000),
+  );
   while (Date.now() < deadline) {
     try {
       const pingResponse = await sendIpcCommand(
@@ -2432,9 +2855,50 @@ async function waitForIpcDisconnect(timeoutMs: number): Promise<boolean> {
     } catch {
       return true;
     }
-    await sleepMs(150);
+    await sleepMs(pollMs);
   }
   return false;
+}
+
+async function requestOperationsStopOverIpc(): Promise<{
+  error?: string;
+  ok: boolean;
+}> {
+  try {
+    const stopResponse = await sendIpcCommand(
+      "control_orchestrator",
+      { action: "stop" },
+      undefined,
+      "interactive",
+    );
+    if (!stopResponse.ok) {
+      return {
+        ok: false,
+        error: stopResponse.error || "external_stop_rejected",
+      };
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "external_stop_failed";
+    return {
+      ok: false,
+      error: detail,
+    };
+  }
+
+  const disconnectTimeoutMs = Math.max(
+    1,
+    Math.round(controlTimingSettings.stop_wait_disconnect_timeout_s * 1000),
+  );
+  const disconnected = await waitForIpcDisconnect(disconnectTimeoutMs);
+  if (!disconnected) {
+    return {
+      ok: false,
+      error: "external_stop_timeout",
+    };
+  }
+  return {
+    ok: true,
+  };
 }
 
 async function stopOperationsProcess(): Promise<{
@@ -2445,37 +2909,12 @@ async function stopOperationsProcess(): Promise<{
   if (!operationsProcess) {
     if (lastStatus.state === "connected") {
       setOperationsControlState("stopping", "external_stop_requested", false, null);
-      try {
-        const stopResponse = await sendIpcCommand(
-          "control_orchestrator",
-          { action: "stop" },
-          undefined,
-          "interactive",
-        );
-        if (!stopResponse.ok) {
-          setOperationsControlState("running", "external_unmanaged", false, null);
-          return {
-            ok: false,
-            error: stopResponse.error || "external_stop_rejected",
-            state: operationsControlState,
-          };
-        }
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : "external_stop_failed";
+      const stopResult = await requestOperationsStopOverIpc();
+      if (!stopResult.ok) {
         setOperationsControlState("running", "external_unmanaged", false, null);
         return {
           ok: false,
-          error: detail,
-          state: operationsControlState,
-        };
-      }
-
-      const disconnected = await waitForIpcDisconnect(5000);
-      if (!disconnected) {
-        setOperationsControlState("running", "external_unmanaged", false, null);
-        return {
-          ok: false,
-          error: "external_stop_timeout",
+          error: stopResult.error,
           state: operationsControlState,
         };
       }
@@ -2494,6 +2933,32 @@ async function stopOperationsProcess(): Promise<{
   }
 
   const child = operationsProcess;
+
+  if (lastStatus.state === "connected") {
+    setOperationsControlState(
+      "stopping",
+      "managed_stop_requested_via_ipc",
+      true,
+      typeof child.pid === "number" ? child.pid : null,
+    );
+    const stopResult = await requestOperationsStopOverIpc();
+    if (stopResult.ok) {
+      await waitForProcessExit(
+        child,
+        Math.max(1, Math.round(controlTimingSettings.stop_wait_managed_exit_s * 1000)),
+      );
+      if (operationsProcess === child) {
+        operationsProcess = null;
+      }
+      operationsStopRequested = false;
+      setOperationsControlState("stopped", "stopped_via_ipc", false, null);
+      return {
+        ok: true,
+        state: operationsControlState,
+      };
+    }
+  }
+
   operationsStopRequested = true;
   setOperationsControlState(
     "stopping",
@@ -2514,7 +2979,10 @@ async function stopOperationsProcess(): Promise<{
     };
   }
 
-  const exitedGracefully = await waitForProcessExit(child, 5000);
+  const exitedGracefully = await waitForProcessExit(
+    child,
+    Math.max(1, Math.round(controlTimingSettings.stop_wait_graceful_exit_s * 1000)),
+  );
   if (!exitedGracefully && operationsProcess === child) {
     try {
       child.kill("SIGKILL");
@@ -2527,7 +2995,10 @@ async function stopOperationsProcess(): Promise<{
         state: operationsControlState,
       };
     }
-    await waitForProcessExit(child, 1500);
+    await waitForProcessExit(
+      child,
+      Math.max(1, Math.round(controlTimingSettings.stop_wait_forced_exit_s * 1000)),
+    );
   }
 
   if (operationsProcess === child) {
@@ -2601,16 +3072,65 @@ function publishInstances(
   mainWindow.webContents.send("ops:instances", { instances });
 }
 
+function normalizeDisconnectedStatusDetail(detail: string): string {
+  if (detail === "ipc_connect_backoff") {
+    return "waiting_for_operations";
+  }
+  return detail;
+}
+
 function setStatus(state: OpsStatusPayload["state"], detail: string): void {
+  const normalizedDetail =
+    state === "disconnected" ? normalizeDisconnectedStatusDetail(detail) : detail;
+  const connectedThrottleMs = Math.max(
+    1,
+    Math.round(controlTimingSettings.status_repeat_throttle_connected_s * 1000),
+  );
+  const disconnectedThrottleMs = Math.max(
+    1,
+    Math.round(controlTimingSettings.status_repeat_throttle_disconnected_s * 1000),
+  );
+  const throttleMs =
+    state === "disconnected" ? disconnectedThrottleMs : connectedThrottleMs;
+  const previousTimestampMs = Date.parse(lastStatus.timestamp);
+  const elapsedMs = Number.isNaN(previousTimestampMs)
+    ? Number.POSITIVE_INFINITY
+    : Date.now() - previousTimestampMs;
+  if (
+    lastStatus.state === state &&
+    lastStatus.detail === normalizedDetail &&
+    elapsedMs < throttleMs
+  ) {
+    return;
+  }
+
   lastStatus = {
     state,
-    detail,
+    detail: normalizedDetail,
     timestamp: new Date().toISOString(),
   };
   if (!mainWindow) {
     return;
   }
   mainWindow.webContents.send("ops:status", lastStatus);
+}
+
+function resetIpcConnectBackoff(): void {
+  ipcConnectFailureCount = 0;
+  ipcLastConnectFailureAt = 0;
+  ipcNextConnectAttemptAt = 0;
+}
+
+function recordIpcConnectFailure(): void {
+  ipcConnectFailureCount += 1;
+  const backoffSeconds =
+    ipcConnectFailureCount >= controlTimingSettings.ipc_connect_backoff_escalate_after
+      ? controlTimingSettings.ipc_connect_backoff_extended_s
+      : controlTimingSettings.ipc_connect_backoff_initial_s;
+  const backoffMs = Math.max(1, Math.round(backoffSeconds * 1000));
+  const now = Date.now();
+  ipcLastConnectFailureAt = now;
+  ipcNextConnectAttemptAt = now + backoffMs;
 }
 
 function parseIpcResponse(rawLine: string): IpcResponsePayload {
@@ -2754,15 +3274,42 @@ function normalizeMonitorSettings(raw: unknown): MonitorSettingsSnapshot {
 }
 
 function deriveStatusLoopMs(settings: MonitorSettingsSnapshot): number {
-  return Math.max(250, Math.round(settings.poll_tick_s * 1000));
+  if (lastStatus.state !== "connected") {
+    return Math.max(
+      1,
+      Math.round(controlTimingSettings.status_poll_disconnected_s * 1000),
+    );
+  }
+  return Math.max(
+    Math.round(settings.poll_tick_s * 1000),
+    Math.round(controlTimingSettings.status_poll_connected_s * 1000),
+  );
 }
 
 function deriveInstanceLoopMs(settings: MonitorSettingsSnapshot): number {
-  return Math.max(250, Math.round(settings.poll_tick_s * 1000));
+  if (lastStatus.state !== "connected") {
+    return Math.max(
+      1,
+      Math.round(controlTimingSettings.instance_poll_disconnected_s * 1000),
+    );
+  }
+  return Math.max(
+    Math.round(settings.poll_tick_s * 1000),
+    Math.round(controlTimingSettings.instance_poll_connected_s * 1000),
+  );
 }
 
 function deriveLogLoopMs(settings: MonitorSettingsSnapshot): number {
-  return Math.min(3000, Math.max(250, Math.round(settings.poll_tick_s * 1000)));
+  if (lastStatus.state !== "connected") {
+    return Math.max(
+      1,
+      Math.round(controlTimingSettings.log_poll_disconnected_s * 1000),
+    );
+  }
+  return Math.max(
+    Math.round(settings.poll_tick_s * 1000),
+    Math.round(controlTimingSettings.log_poll_connected_s * 1000),
+  );
 }
 
 function publishMonitorSettings(): void {
@@ -2834,6 +3381,17 @@ function settleInFlightWithError(reason: string): void {
   request.reject(new Error(reason));
 }
 
+function rejectPendingQueue(reason: string): void {
+  while (ipcPendingRequestQueue.length > 0) {
+    const pending = ipcPendingRequestQueue.shift();
+    if (!pending) {
+      continue;
+    }
+    clearRequestTimeout(pending);
+    pending.reject(new Error(reason));
+  }
+}
+
 function handleIpcSocketDisconnect(reason: string): void {
   if (ipcSocket) {
     ipcSocket.removeAllListeners();
@@ -2849,8 +3407,10 @@ function handleIpcSocketDisconnect(reason: string): void {
   ipcConnectPromise = null;
   ipcConnectResolve = null;
   ipcConnectReject = null;
+  recordIpcConnectFailure();
 
   settleInFlightWithError(reason);
+  rejectPendingQueue(reason);
 }
 
 function resolveInFlightResponse(response: IpcResponsePayload): void {
@@ -2909,6 +3469,10 @@ async function ensureIpcConnection(): Promise<void> {
   if (ipcSocketState === "connecting" && ipcConnectPromise) {
     return ipcConnectPromise;
   }
+  const now = Date.now();
+  if (now < ipcNextConnectAttemptAt) {
+    throw new Error("ipc_connect_backoff");
+  }
 
   ipcSocketState = "connecting";
   ipcConnectPromise = new Promise<void>((resolve, reject) => {
@@ -2922,6 +3486,7 @@ async function ensureIpcConnection(): Promise<void> {
 
   socket.on("connect", () => {
     ipcSocketState = "connected";
+    resetIpcConnectBackoff();
     const resolver = ipcConnectResolve;
     ipcConnectResolve = null;
     ipcConnectReject = null;
@@ -2960,7 +3525,10 @@ async function drainIpcQueue(): Promise<void> {
         await ensureIpcConnection();
       } catch (err) {
         const detail = err instanceof Error ? err.message : "ipc_connect_failed";
-        setStatus("disconnected", detail);
+        if (detail !== "ipc_connect_backoff") {
+          setStatus("disconnected", detail);
+        }
+        rejectPendingQueue(detail);
         return;
       }
 
@@ -2978,7 +3546,7 @@ async function drainIpcQueue(): Promise<void> {
         }
         handleIpcSocketDisconnect("timeout");
         void drainIpcQueue();
-      }, IPC_REQUEST_TIMEOUT_MS);
+      }, ipcRequestTimeoutMs);
 
       try {
         ipcSocket.write(`${JSON.stringify(nextRequest.payload)}\n`);
@@ -3071,6 +3639,9 @@ async function refreshIpcStatus(): Promise<void> {
 }
 
 async function refreshAgentInstances(): Promise<void> {
+  if (lastStatus.state !== "connected") {
+    return;
+  }
   try {
     const response = await sendIpcCommand(
       "get_agent_instances",
@@ -3100,6 +3671,33 @@ async function refreshTemplates(): Promise<Record<string, AgentTemplateSnapshot>
   return extractTemplates(response);
 }
 
+async function refreshTemplatesCached(forceRefresh = false): Promise<Record<string, AgentTemplateSnapshot>> {
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    templateCache &&
+    now - templateCache.fetchedAtMs < templateCacheTtlMs
+  ) {
+    return templateCache.templates;
+  }
+  if (templateRefreshInFlight) {
+    return templateRefreshInFlight;
+  }
+  templateRefreshInFlight = (async () => {
+    const templates = await refreshTemplates();
+    templateCache = {
+      templates,
+      fetchedAtMs: Date.now(),
+    };
+    return templates;
+  })();
+  try {
+    return await templateRefreshInFlight;
+  } finally {
+    templateRefreshInFlight = null;
+  }
+}
+
 async function refreshMonitorSettings(): Promise<void> {
   try {
     const response = await sendIpcCommand(
@@ -3112,7 +3710,9 @@ async function refreshMonitorSettings(): Promise<void> {
       return;
     }
     const monitorRaw = response.data?.monitor;
+    const controlRaw = response.data?.control;
     lastMonitorSettings = normalizeMonitorSettings(monitorRaw);
+    applyControlTimingSettings(controlRaw);
     publishMonitorSettings();
     restartBackgroundTimers();
   } catch {
@@ -3129,7 +3729,9 @@ async function updateMonitorSettings(
   }
 
   const monitorRaw = response.data?.monitor;
+  const controlRaw = response.data?.control;
   lastMonitorSettings = normalizeMonitorSettings(monitorRaw);
+  applyControlTimingSettings(controlRaw);
   publishMonitorSettings();
   restartBackgroundTimers();
   return response;
@@ -3436,8 +4038,74 @@ function stopBackgroundLoops(): void {
     clearInterval(instanceTimer);
     instanceTimer = null;
   }
-  haltManagedOperationsForShutdown();
   stopPersistentIpc();
+}
+
+function operationsMayBeRunning(): boolean {
+  if (operationsProcess) {
+    return true;
+  }
+  if (lastStatus.state === "connected") {
+    return true;
+  }
+  return (
+    operationsControlState.state === "running" ||
+    operationsControlState.state === "starting" ||
+    operationsControlState.state === "stopping"
+  );
+}
+
+async function handleQuitRequest(event: { preventDefault: () => void }): Promise<void> {
+  if (quitInProgress) {
+    return;
+  }
+  if (!operationsMayBeRunning()) {
+    stopBackgroundLoops();
+    quitInProgress = true;
+    app.quit();
+    return;
+  }
+
+  event.preventDefault();
+  const prompt = await dialog.showMessageBox(mainWindow ?? undefined, {
+    type: "question",
+    buttons: [
+      "Shutdown Operations + Agents",
+      "Leave Operations Running",
+      "Cancel",
+    ],
+    defaultId: 0,
+    cancelId: 2,
+    noLink: true,
+    title: "Quit MiMoLo Control Proto",
+    message: "Operations appears active. Choose quit behavior.",
+    detail:
+      "Shutdown will gracefully stop Operations and all Agents before closing Control.",
+  });
+
+  if (prompt.response === 2) {
+    return;
+  }
+
+  if (prompt.response === 0) {
+    const stopResult = await controlOperations({ action: "stop" });
+    if (!stopResult.ok) {
+      await dialog.showMessageBox(mainWindow ?? undefined, {
+        type: "error",
+        buttons: ["OK"],
+        defaultId: 0,
+        noLink: true,
+        title: "Shutdown Failed",
+        message: "Unable to stop Operations cleanly.",
+        detail: stopResult.error || "unknown_error",
+      });
+      return;
+    }
+  }
+
+  stopBackgroundLoops();
+  quitInProgress = true;
+  app.quit();
 }
 
 function createWindow(): void {
@@ -3468,8 +4136,14 @@ ipcMain.handle("mml:initial-state", () => {
     status: lastStatus,
     opsControl: operationsControlState,
     monitorSettings: lastMonitorSettings,
+    controlSettings: controlTimingSettings,
     instances: lastAgentInstances,
   };
+});
+
+ipcMain.handle("mml:reset-reconnect-backoff", () => {
+  resetIpcConnectBackoff();
+  return { ok: true };
 });
 
 ipcMain.handle("mml:ops-control", async (_event, payload: unknown) => {
@@ -3500,22 +4174,39 @@ ipcMain.handle("mml:ops-control", async (_event, payload: unknown) => {
 });
 
 ipcMain.handle("mml:list-agent-templates", async () => {
-  const templates = await refreshTemplates();
-  return {
-    ok: true,
-    templates,
-  };
+  try {
+    const templates = await refreshTemplatesCached(false);
+    return {
+      ok: true,
+      templates,
+    };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "template_query_failed";
+    return {
+      ok: false,
+      error: detail,
+      templates: {},
+    };
+  }
 });
 
 ipcMain.handle("mml:get-monitor-settings", async () => {
-  await refreshMonitorSettings();
-  return {
-    ok: true,
-    monitor: lastMonitorSettings,
-  };
+  try {
+    await refreshMonitorSettings();
+    return {
+      ok: true,
+      monitor: lastMonitorSettings,
+    };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "monitor_query_failed";
+    return {
+      ok: false,
+      error: detail,
+    };
+  }
 });
 
-ipcMain.handle("mml:update-monitor-settings", (_event, payload: unknown) => {
+ipcMain.handle("mml:update-monitor-settings", async (_event, payload: unknown) => {
   if (!payload || typeof payload !== "object") {
     return {
       ok: false,
@@ -3530,27 +4221,51 @@ ipcMain.handle("mml:update-monitor-settings", (_event, payload: unknown) => {
       error: "missing_updates",
     };
   }
-  return updateMonitorSettings(updatesRaw as Record<string, unknown>);
+  try {
+    return await updateMonitorSettings(updatesRaw as Record<string, unknown>);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "monitor_update_failed";
+    return {
+      ok: false,
+      error: detail,
+    };
+  }
 });
 
-ipcMain.handle("mml:get-widget-manifest", (_event, payload: unknown) => {
+ipcMain.handle("mml:get-widget-manifest", async (_event, payload: unknown) => {
   if (!payload || typeof payload !== "object") {
     return {
       ok: false,
       error: "invalid_widget_payload",
     };
   }
-  return getWidgetManifest(payload as Record<string, unknown>);
+  try {
+    return await getWidgetManifest(payload as Record<string, unknown>);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "widget_manifest_failed";
+    return {
+      ok: false,
+      error: detail,
+    };
+  }
 });
 
-ipcMain.handle("mml:request-widget-render", (_event, payload: unknown) => {
+ipcMain.handle("mml:request-widget-render", async (_event, payload: unknown) => {
   if (!payload || typeof payload !== "object") {
     return {
       ok: false,
       error: "invalid_widget_payload",
     };
   }
-  return requestWidgetRender(payload as Record<string, unknown>);
+  try {
+    return await requestWidgetRender(payload as Record<string, unknown>);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "widget_render_failed";
+    return {
+      ok: false,
+      error: detail,
+    };
+  }
 });
 
 ipcMain.handle("mml:pick-plugin-archive", async () => {
@@ -3653,10 +4368,17 @@ ipcMain.handle("mml:agent-command", (_event, payload: unknown) => {
     cmd.updates = updatesRaw as Record<string, unknown>;
   }
 
-  return runAgentCommand(cmd);
+  return runAgentCommand(cmd).catch((err: unknown) => {
+    const detail = err instanceof Error ? err.message : "agent_command_failed";
+    return {
+      ok: false,
+      error: detail,
+    };
+  });
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await loadControlTimingSettingsFromConfigFile();
   createWindow();
   startBackgroundLoops();
 
@@ -3668,12 +4390,15 @@ app.whenReady().then(() => {
 });
 
 app.on("before-quit", () => {
-  stopBackgroundLoops();
+  // Actual quit handling is centralized in `will-quit` to allow async prompt logic.
 });
 
 app.on("window-all-closed", () => {
-  stopBackgroundLoops();
   if (runtimeProcess.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("will-quit", (event) => {
+  void handleQuitRequest(event);
 });
