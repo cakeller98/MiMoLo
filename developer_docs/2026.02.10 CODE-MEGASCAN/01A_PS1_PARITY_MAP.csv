@@ -1,0 +1,7 @@
+ps1,sh,mode,similarity,confidence
+mml.ps1,mml.sh,translated_pair_skip_ps1_scan,0.016,strong_same_basename
+scripts/deploy_portable.ps1,scripts/deploy_portable.sh,translated_pair_skip_ps1_scan,0.165,strong_same_basename
+scripts/install_dev_tools_windows.ps1,,standalone_scan_ps1,,
+scripts/bundle_app.ps1,scripts/bundle_app.sh,translated_pair_skip_ps1_scan,0.008,strong_same_basename
+archive/start_scripts/start_control_dev.ps1,archive/start_scripts/start_control_dev.sh,translated_pair_skip_ps1_scan,0.011,strong_same_basename
+archive/start_scripts/start_monitor.ps1,archive/start_scripts/start_monitor.sh,translated_pair_skip_ps1_scan,0.000,strong_same_basename

@@ -4,6 +4,18 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 
 ## 2026-02-10
 
+### Added
+- Added comprehensive code-health audit bundle at `developer_docs/2026.02.10 CODE-MEGASCAN/` with:
+  - method/scope document
+  - per-file metrics (`raw_line_count`, per-file function min/max/avg)
+  - PS1-to-SH parity map (translated pair vs standalone)
+  - duplicate-function cluster report
+  - concern-boundary report and mixed-concern index
+  - Python exception-policy audit and CSV findings
+  - path portability and timing-literal candidate scans
+  - API surface index (module/function inventory)
+  - risk register and executive summary.
+
 ### Changed
 - Updated architecture-truth documentation to reflect active maintainability refactor of orchestration files:
   - `runtime.py` responsibilities are now partially extracted into dedicated modules:

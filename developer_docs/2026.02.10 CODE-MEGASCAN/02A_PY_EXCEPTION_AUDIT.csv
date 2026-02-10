@@ -1,0 +1,135 @@
+file,line,severity,except_line,issues
+mimolo/cli.py,166,medium,except ConfigError as e:,missing_exception_justification_comment
+mimolo/cli.py,169,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/agents/client_folder_activity/client_folder_activity.py,85,medium,except ValueError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/agents/client_folder_activity/client_folder_activity.py,120,medium,except OSError:,missing_actionable_diagnostic
+mimolo/agents/client_folder_activity/client_folder_activity.py,124,medium,except OSError:,missing_actionable_diagnostic
+mimolo/agents/client_folder_activity/client_folder_activity.py,135,medium,except ValueError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/agents/client_folder_activity/client_folder_activity.py,150,medium,except OSError:,missing_actionable_diagnostic
+mimolo/agents/base_agent.py,90,medium,except json.JSONDecodeError as e:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/agents/base_agent.py,101,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/agents/base_agent.py,139,medium,except Empty:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/agents/base_agent.py,245,medium,except Empty:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/agents/base_agent.py,276,medium,except KeyboardInterrupt:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/agents/screen_tracker/screen_tracker.py,484,medium,"except (OSError, RuntimeError) as error:",missing_actionable_diagnostic
+test_logging_manual.py,179,medium,except AssertionError as e:,missing_exception_justification_comment
+mimolo/core/ipc.py,97,critical,except FileNotFoundError:,except_pass_swallow|missing_actionable_diagnostic
+mimolo/core/ipc.py,116,medium,except OSError as e:,missing_exception_justification_comment
+mimolo/core/ipc.py,134,medium,except FileNotFoundError as e:,missing_exception_justification_comment
+mimolo/core/ipc.py,141,medium,except ConnectionRefusedError as e:,missing_exception_justification_comment
+mimolo/core/ipc.py,149,medium,except PermissionError as e:,missing_exception_justification_comment
+mimolo/core/ipc.py,156,medium,except OSError as e:,missing_exception_justification_comment
+mimolo/core/ipc.py,180,medium,except BlockingIOError:,except_returns_without_diagnostic
+mimolo/core/ipc.py,207,medium,"except (BrokenPipeError, ConnectionResetError) as e:",missing_exception_justification_comment
+mimolo/core/ipc.py,215,medium,except OSError as e:,missing_exception_justification_comment
+mimolo/core/ipc.py,224,medium,except OSError as e:,missing_exception_justification_comment
+mimolo/core/ipc.py,233,critical,except FileNotFoundError:,except_pass_swallow|missing_exception_justification_comment
+mimolo/core/ipc.py,235,medium,except OSError as e:,missing_exception_justification_comment
+mimolo/core/ipc.py,256,medium,"except (ValueError, TypeError) as e:",missing_exception_justification_comment
+mimolo/core/ipc.py,275,medium,"except (ValueError, TypeError) as e:",missing_exception_justification_comment
+mimolo/core/sink.py,60,critical,except OSError:,except_pass_swallow|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/sink.py,83,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/sink.py,120,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/sink.py,137,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/sink.py,154,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/sink.py,190,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/sink.py,213,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/sink.py,226,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/sink.py,239,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/sink.py,276,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/sink.py,341,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/config.py,131,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/config.py,138,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/config.py,186,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/config.py,212,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/config.py,247,medium,except FileNotFoundError:,missing_exception_justification_comment
+mimolo/core/config.py,249,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/config.py,257,medium,except OSError as e:,missing_exception_justification_comment
+mimolo/core/runtime_monitor_settings.py,34,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/aggregate.py,90,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/agent_debug.py,29,medium,except FileNotFoundError:,missing_actionable_diagnostic
+mimolo/core/agent_debug.py,77,medium,except FileNotFoundError:,missing_actionable_diagnostic
+mimolo/core/runtime_ipc_commands.py,104,medium,except ValueError as e:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/agent_logging.py,102,high,except Exception as e:,broad_exception_catch
+mimolo/core/ops_singleton.py,35,medium,except ProcessLookupError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/ops_singleton.py,37,medium,except PermissionError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/ops_singleton.py,46,medium,except OSError:,except_returns_without_diagnostic|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/ops_singleton.py,50,medium,except json.JSONDecodeError:,except_returns_without_diagnostic|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/ops_singleton.py,80,medium,except FileExistsError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/ops_singleton.py,90,medium,except OSError:,missing_actionable_diagnostic
+mimolo/core/ops_singleton.py,98,medium,except FileExistsError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/ops_singleton.py,122,medium,except OSError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_ipc_server.py,23,medium,except json.JSONDecodeError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_ipc_server.py,45,medium,except OSError:,missing_actionable_diagnostic
+mimolo/core/runtime_ipc_server.py,57,medium,except TimeoutError:,missing_actionable_diagnostic
+mimolo/core/runtime_ipc_server.py,59,medium,except OSError:,missing_actionable_diagnostic
+mimolo/core/runtime_ipc_server.py,68,medium,except UnicodeDecodeError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_ipc_server.py,108,medium,except OSError as e:,missing_actionable_diagnostic
+mimolo/core/runtime_ipc_server.py,119,medium,except TimeoutError:,missing_actionable_diagnostic
+mimolo/core/runtime_ipc_server.py,121,medium,except OSError:,missing_actionable_diagnostic
+mimolo/core/runtime_ipc_server.py,140,medium,except OSError:,missing_actionable_diagnostic
+mimolo/core/logging_setup.py,101,high,except Exception as e:,broad_exception_catch
+mimolo/core/plugin_store.py,113,medium,except ValueError as e:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/plugin_store.py,121,medium,"except (OSError, ValueError, zipfile.BadZipFile) as e:",missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/plugin_store.py,165,medium,"except (OSError, ValueError, zipfile.BadZipFile) as e:",missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/plugin_store.py,172,medium,except OSError:,missing_actionable_diagnostic
+mimolo/core/plugin_store.py,192,medium,"except (OSError, ValueError, zipfile.BadZipFile) as e:",missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/plugin_store.py,280,medium,"except (OSError, json.JSONDecodeError):",except_returns_without_diagnostic|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/plugin_store.py,300,medium,except json.JSONDecodeError as e:,missing_exception_justification_comment
+mimolo/core/agent_process.py,103,medium,except ValueError as e:,missing_exception_justification_comment
+mimolo/core/agent_process.py,114,medium,except OSError as e:,missing_exception_justification_comment
+mimolo/core/agent_process.py,125,medium,except Empty:,except_returns_without_diagnostic|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/agent_process.py,150,medium,except subprocess.TimeoutExpired:,missing_exception_justification_comment
+mimolo/core/agent_process.py,165,medium,except RuntimeError as e:,missing_exception_justification_comment
+mimolo/core/agent_process.py,196,medium,except ValueError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/agent_process.py,213,medium,except OSError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/agent_process.py,291,medium,except OSError as e:,missing_exception_justification_comment
+mimolo/core/agent_process.py,309,medium,except OSError as e:,missing_exception_justification_comment
+mimolo/core/agent_process.py,340,medium,except OSError as e:,missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,24,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,40,medium,except RuntimeError as e:,missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,66,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,72,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic
+mimolo/core/runtime_shutdown.py,129,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,169,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,180,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,193,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,215,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,236,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic
+mimolo/core/runtime_shutdown.py,262,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,270,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,280,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,294,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic
+mimolo/core/runtime_shutdown.py,319,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,325,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_shutdown.py,335,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/ipc_slowpoke.py,119,medium,"except (json.JSONDecodeError, FileNotFoundError):",missing_actionable_diagnostic
+mimolo/core/ipc_slowpoke.py,154,critical,"except (FileNotFoundError, OSError):",except_pass_swallow|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_agent_events.py,23,high,except Exception:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_agent_events.py,55,medium,except SinkError as e:,missing_exception_justification_comment
+mimolo/core/runtime_agent_events.py,61,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/runtime_agent_events.py,77,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_agent_events.py,86,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/runtime_agent_events.py,118,medium,"except (UnicodeEncodeError, AttributeError) as e:",missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_agent_events.py,141,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/runtime_widget_support.py,29,medium,except ValueError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime_widget_support.py,62,medium,except OSError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime.py,160,medium,except KeyboardInterrupt:,missing_exception_justification_comment
+mimolo/core/runtime.py,194,medium,except OSError:,missing_actionable_diagnostic
+mimolo/core/runtime.py,210,critical,except FileNotFoundError:,except_pass_swallow|missing_actionable_diagnostic
+mimolo/core/runtime.py,212,medium,except OSError as e:,missing_actionable_diagnostic
+mimolo/core/runtime.py,225,medium,except RuntimeError:,missing_actionable_diagnostic
+mimolo/core/runtime.py,260,medium,except OSError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime.py,265,medium,except ValueError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime.py,321,medium,except ValueError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime.py,351,medium,except ValueError:,missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime.py,488,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/runtime.py,510,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime.py,536,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime.py,603,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic|missing_exception_justification_comment
+mimolo/core/runtime.py,671,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/runtime.py,688,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/runtime.py,824,high,except Exception as e:,broad_exception_catch|missing_actionable_diagnostic
+mimolo/core/runtime.py,856,high,except Exception as e:,broad_exception_catch
+mimolo/core/runtime.py,880,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment
+mimolo/core/runtime.py,884,high,except Exception as e:,broad_exception_catch|missing_exception_justification_comment

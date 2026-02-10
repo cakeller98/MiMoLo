@@ -1,0 +1,114 @@
+# Concern Boundary Report
+
+Files with more than one logical concern detected (heuristic keyword model, non-test files only):
+
+- archive/start_scripts/start_control_dev.sh
+  - concerns: ui_render|ipc_transport|config_policy|filesystem_io|polling_timing|cli_scripts
+- mimolo-control/src/electron-shims.d.ts
+  - concerns: ui_render|security_trust
+- mimolo-control/src/main.ts
+  - concerns: ui_render|security_trust
+- mimolo/__init__.py
+  - concerns: config_policy|plugin_packaging|logging_diag
+- mimolo/agents/agent_example/agent_example.py
+  - concerns: plugin_packaging|polling_timing|logging_diag
+- mimolo/agents/agent_template/agent_template.py
+  - concerns: config_policy|plugin_packaging|polling_timing|logging_diag|cli_scripts
+- mimolo/agents/base_agent.py
+  - concerns: plugin_packaging|polling_timing|logging_diag
+- mimolo/agents/client_folder_activity/client_folder_activity.py
+  - concerns: config_policy|filesystem_io|polling_timing|logging_diag|cli_scripts
+- mimolo/agents/screen_tracker/screen_tracker.py
+  - concerns: process_lifecycle|config_policy|filesystem_io|plugin_packaging|polling_timing|logging_diag|cli_scripts
+- mimolo/cli.py
+  - concerns: ipc_transport|process_lifecycle|config_policy|filesystem_io|plugin_packaging|polling_timing|logging_diag|cli_scripts|security_trust
+- mimolo/control_proto/src/control_command_wrappers.ts
+  - concerns: ui_render|ipc_transport|plugin_packaging|logging_diag
+- mimolo/control_proto/src/control_ipc_handlers.ts
+  - concerns: ui_render|ipc_transport|config_policy|plugin_packaging|polling_timing|logging_diag
+- mimolo/control_proto/src/control_operations.ts
+  - concerns: ipc_transport|process_lifecycle|config_policy|filesystem_io|polling_timing|logging_diag|cli_scripts
+- mimolo/control_proto/src/control_persistent_ipc.ts
+  - concerns: ipc_transport|polling_timing|logging_diag|cli_scripts
+- mimolo/control_proto/src/control_proto_utils.ts
+  - concerns: ipc_transport|config_policy|polling_timing|logging_diag
+- mimolo/control_proto/src/control_timing.ts
+  - concerns: ui_render|ipc_transport|config_policy|polling_timing
+- mimolo/control_proto/src/electron-shims.d.ts
+  - concerns: ui_render|ipc_transport|logging_diag|security_trust
+- mimolo/control_proto/src/index.ts
+  - concerns: ipc_transport|plugin_packaging|polling_timing|logging_diag|cli_scripts
+- mimolo/control_proto/src/main.ts
+  - concerns: ui_render|ipc_transport|config_policy|filesystem_io|plugin_packaging|polling_timing|logging_diag|cli_scripts|security_trust
+- mimolo/control_proto/src/node-shims.d.ts
+  - concerns: ipc_transport|process_lifecycle|filesystem_io|polling_timing|logging_diag
+- mimolo/control_proto/src/preload.ts
+  - concerns: ui_render|ipc_transport
+- mimolo/control_proto/src/types.ts
+  - concerns: ui_render|ipc_transport|config_policy|polling_timing|logging_diag
+- mimolo/control_proto/src/ui_html.ts
+  - concerns: ui_render|ipc_transport|config_policy|filesystem_io|plugin_packaging|polling_timing|logging_diag|cli_scripts|security_trust
+- mimolo/core/__init__.py
+  - concerns: config_policy|plugin_packaging|polling_timing|logging_diag
+- mimolo/core/agent_debug.py
+  - concerns: process_lifecycle|logging_diag
+- mimolo/core/agent_logging.py
+  - concerns: config_policy|plugin_packaging|polling_timing|logging_diag
+- mimolo/core/agent_menu.py
+  - concerns: polling_timing|logging_diag
+- mimolo/core/agent_process.py
+  - concerns: ipc_transport|process_lifecycle|config_policy|filesystem_io|plugin_packaging|polling_timing|logging_diag|security_trust
+- mimolo/core/aggregate.py
+  - concerns: plugin_packaging|polling_timing|logging_diag
+- mimolo/core/config.py
+  - concerns: ui_render|ipc_transport|config_policy|filesystem_io|plugin_packaging|polling_timing|logging_diag|cli_scripts|security_trust
+- mimolo/core/cooldown.py
+  - concerns: config_policy|polling_timing|logging_diag
+- mimolo/core/errors.py
+  - concerns: config_policy|plugin_packaging|logging_diag
+- mimolo/core/event.py
+  - concerns: plugin_packaging|polling_timing|logging_diag|security_trust
+- mimolo/core/ipc_slowpoke.py
+  - concerns: ui_render|ipc_transport|filesystem_io|plugin_packaging|polling_timing|logging_diag
+- mimolo/core/ipc.py
+  - concerns: ipc_transport|filesystem_io|plugin_packaging|logging_diag|cli_scripts|security_trust
+- mimolo/core/logging_setup.py
+  - concerns: config_policy|plugin_packaging|logging_diag|cli_scripts
+- mimolo/core/ops_singleton.py
+  - concerns: filesystem_io|logging_diag|security_trust
+- mimolo/core/plugin_store.py
+  - concerns: ui_render|config_policy|filesystem_io|plugin_packaging|logging_diag|security_trust
+- mimolo/core/plugin.py
+  - concerns: plugin_packaging|polling_timing|logging_diag|security_trust
+- mimolo/core/protocol.py
+  - concerns: polling_timing|logging_diag
+- mimolo/core/registry.py
+  - concerns: plugin_packaging|polling_timing|logging_diag
+- mimolo/core/runtime_agent_events.py
+  - concerns: config_policy|polling_timing|logging_diag
+- mimolo/core/runtime_ipc_commands.py
+  - concerns: ui_render|ipc_transport|config_policy|filesystem_io|plugin_packaging|logging_diag
+- mimolo/core/runtime_ipc_server.py
+  - concerns: ipc_transport|filesystem_io|polling_timing|logging_diag|cli_scripts|security_trust
+- mimolo/core/runtime_monitor_settings.py
+  - concerns: config_policy|polling_timing|security_trust
+- mimolo/core/runtime_shutdown.py
+  - concerns: ipc_transport|config_policy|polling_timing|logging_diag
+- mimolo/core/runtime_widget_support.py
+  - concerns: ui_render|ipc_transport|config_policy|filesystem_io|plugin_packaging|polling_timing|logging_diag
+- mimolo/core/runtime.py
+  - concerns: ui_render|ipc_transport|process_lifecycle|config_policy|filesystem_io|plugin_packaging|polling_timing|logging_diag|cli_scripts|security_trust
+- mimolo/core/sink.py
+  - concerns: ui_render|config_policy|filesystem_io|logging_diag|security_trust
+- mimolo/utils/src/pack-agent.ts
+  - concerns: config_policy|filesystem_io|plugin_packaging|logging_diag|cli_scripts
+- mml.sh
+  - concerns: ui_render|ipc_transport|config_policy|filesystem_io|plugin_packaging|polling_timing|logging_diag|cli_scripts|security_trust
+- scripts/bundle_app.sh
+  - concerns: ui_render|ipc_transport|config_policy|filesystem_io|plugin_packaging|logging_diag|cli_scripts
+- scripts/deploy_portable.sh
+  - concerns: config_policy|filesystem_io|plugin_packaging|logging_diag|cli_scripts
+- scripts/install_dev_tools_windows.ps1
+  - concerns: config_policy|filesystem_io|plugin_packaging|logging_diag|security_trust
+- test_logging_manual.py
+  - concerns: ipc_transport|filesystem_io|plugin_packaging|logging_diag|security_trust

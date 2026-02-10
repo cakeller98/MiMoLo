@@ -1,0 +1,88 @@
+file,line,excerpt
+mml.sh,480,s.settimeout(0.25)
+mimolo/agents/client_folder_activity/client_folder_activity.py,385,"sample_interval=max(0.25, poll_interval_s),"
+mimolo/agents/base_agent.py,156,time.sleep(0.1)
+mimolo/agents/base_agent.py,243,"start, end, snapshot = self.flush_queue.get(timeout=1.0)"
+mimolo/agents/base_agent.py,273,worker_thread.join(timeout=0.5)
+mimolo/agents/base_agent.py,275,summarizer_thread.join(timeout=0.5)
+mimolo/core/config.py,27,agent_heartbeat_timeout_s: float = 30.0  # Miss threshold
+mimolo/core/config.py,29,"cooldown_seconds: float = Field(default=600.0, gt=0)"
+mimolo/core/config.py,30,"poll_tick_s: float = Field(default=0.2, gt=0)"
+mimolo/core/config.py,51,"status_poll_connected_s: float = Field(default=1.0, gt=0)"
+mimolo/core/config.py,52,"status_poll_disconnected_s: float = Field(default=5.0, gt=0)"
+mimolo/core/config.py,53,"instance_poll_connected_s: float = Field(default=1.0, gt=0)"
+mimolo/core/config.py,54,"instance_poll_disconnected_s: float = Field(default=5.0, gt=0)"
+mimolo/core/config.py,55,"log_poll_connected_s: float = Field(default=1.0, gt=0)"
+mimolo/core/config.py,56,"log_poll_disconnected_s: float = Field(default=5.0, gt=0)"
+mimolo/core/config.py,57,"ipc_connect_backoff_initial_s: float = Field(default=1.0, gt=0)"
+mimolo/core/config.py,58,"ipc_connect_backoff_extended_s: float = Field(default=5.0, gt=0)"
+mimolo/core/config.py,59,"ipc_connect_backoff_escalate_after: int = Field(default=5, ge=1)"
+mimolo/core/config.py,64,"ipc_request_timeout_s: float = Field(default=1.5, gt=0)"
+mimolo/core/config.py,68,"stop_wait_disconnect_timeout_s: float = Field(default=5.0, gt=0)"
+mimolo/core/config.py,69,"stop_wait_disconnect_poll_s: float = Field(default=0.15, gt=0)"
+mimolo/core/runtime_ipc_server.py,51,conn.settimeout(0.2)
+mimolo/core/runtime_ipc_server.py,112,server_sock.settimeout(0.2)
+mimolo/core/cooldown.py,62,if cooldown_seconds <= 0:
+mimolo/core/agent_process.py,121,"def read_message(self, timeout: float = 0.001) -> AgentMessage | None:"
+mimolo/core/agent_process.py,149,self.process.wait(timeout=3.0)
+mimolo/core/agent_process.py,164,self._stdout_thread.join(timeout=1.0)
+mimolo/core/runtime_shutdown.py,103,shutdown_timeout_s = 4.0
+mimolo/core/runtime_shutdown.py,134,msg = handle.read_message(timeout=0.05)
+mimolo/core/runtime_shutdown.py,249,while (msg := handle.read_message(timeout=0.01)) is not None:
+mimolo/core/plugin.py,41,poll_interval_s: float = 5.0
+mimolo/core/plugin.py,49,if self.poll_interval_s <= 0:
+mimolo/core/plugin.py,67,poll_interval_s=3.0
+mimolo/core/ipc_slowpoke.py,77,"POLL_INTERVAL = 0.1  # 100ms polling; high CPU usage comes from many agents polling, not the interval itself"
+mimolo/core/runtime.py,199,self._ipc_thread.join(timeout=1.0)
+mimolo/core/runtime.py,860,while (msg := handle.read_message(timeout=0.001)) is not None:
+mimolo/control_proto/src/control_proto_utils.ts,138,"typeof cooldownRaw === ""number"" && Number.isFinite(cooldownRaw) && cooldownRaw > 0"
+mimolo/control_proto/src/control_proto_utils.ts,142,"typeof pollTickRaw === ""number"" && Number.isFinite(pollTickRaw) && pollTickRaw > 0"
+mimolo/control_proto/src/control_proto_utils.ts,168,"Math.round(timing.status_poll_disconnected_s * 1000),"
+mimolo/control_proto/src/control_proto_utils.ts,172,"Math.round(settings.poll_tick_s * 1000),"
+mimolo/control_proto/src/control_proto_utils.ts,173,"Math.round(timing.status_poll_connected_s * 1000),"
+mimolo/control_proto/src/control_proto_utils.ts,185,"Math.round(timing.instance_poll_disconnected_s * 1000),"
+mimolo/control_proto/src/control_proto_utils.ts,189,"Math.round(settings.poll_tick_s * 1000),"
+mimolo/control_proto/src/control_proto_utils.ts,190,"Math.round(timing.instance_poll_connected_s * 1000),"
+mimolo/control_proto/src/control_proto_utils.ts,202,"Math.round(timing.log_poll_disconnected_s * 1000),"
+mimolo/control_proto/src/control_proto_utils.ts,206,"Math.round(settings.poll_tick_s * 1000),"
+mimolo/control_proto/src/control_proto_utils.ts,207,"Math.round(timing.log_poll_connected_s * 1000),"
+mimolo/control_proto/src/control_persistent_ipc.ts,164,"this.nextConnectAttemptAt = Date.now() + Math.max(1, backoffMs);"
+mimolo/control_proto/src/control_persistent_ipc.ts,307,"const requestTimeoutMs = Math.max(1, timing.requestTimeoutMs);"
+mimolo/control_proto/src/main.ts,95,"cooldown_seconds: 600,"
+mimolo/control_proto/src/main.ts,96,"poll_tick_s: 0.2,"
+mimolo/control_proto/src/main.ts,115,"status_poll_connected_s: 1.0,"
+mimolo/control_proto/src/main.ts,116,"status_poll_disconnected_s: 5.0,"
+mimolo/control_proto/src/main.ts,117,"instance_poll_connected_s: 1.0,"
+mimolo/control_proto/src/main.ts,118,"instance_poll_disconnected_s: 5.0,"
+mimolo/control_proto/src/main.ts,119,"log_poll_connected_s: 1.0,"
+mimolo/control_proto/src/main.ts,120,"log_poll_disconnected_s: 5.0,"
+mimolo/control_proto/src/main.ts,121,"ipc_request_timeout_s: 1.5,"
+mimolo/control_proto/src/main.ts,122,"ipc_connect_backoff_initial_s: 1.0,"
+mimolo/control_proto/src/main.ts,123,"ipc_connect_backoff_extended_s: 5.0,"
+mimolo/control_proto/src/main.ts,124,"ipc_connect_backoff_escalate_after: 5,"
+mimolo/control_proto/src/main.ts,127,"stop_wait_disconnect_poll_s: 0.15,"
+mimolo/control_proto/src/main.ts,128,"stop_wait_disconnect_timeout_s: 5.0,"
+mimolo/control_proto/src/main.ts,321,"Math.round(controlTimingSettings.ipc_request_timeout_s * 1000),"
+mimolo/control_proto/src/main.ts,325,"Math.round(controlTimingSettings.ipc_connect_backoff_initial_s * 1000),"
+mimolo/control_proto/src/main.ts,329,"Math.round(controlTimingSettings.ipc_connect_backoff_extended_s * 1000),"
+mimolo/control_proto/src/main.ts,369,"Math.max(1, Math.round(controlTimingSettings.stop_wait_disconnect_poll_s * 1000)),"
+mimolo/control_proto/src/main.ts,371,"Math.max(1, Math.round(controlTimingSettings.stop_wait_disconnect_timeout_s * 1000)),"
+mimolo/control_proto/src/ui_html.ts,542,"cooldown_seconds: 600,"
+mimolo/control_proto/src/ui_html.ts,543,"poll_tick_s: 0.2,"
+mimolo/control_proto/src/ui_html.ts,577,"cooldown_seconds: 600,"
+mimolo/control_proto/src/ui_html.ts,578,"poll_tick_s: 0.2,"
+mimolo/control_proto/src/ui_html.ts,586,"typeof cooldownRaw === ""number"" && Number.isFinite(cooldownRaw) && cooldownRaw > 0"
+mimolo/control_proto/src/ui_html.ts,590,"typeof pollTickRaw === ""number"" && Number.isFinite(pollTickRaw) && pollTickRaw > 0"
+mimolo/control_proto/src/ui_html.ts,932,"pollLabel.textContent = ""poll_tick_s (seconds, > 0)"";"
+mimolo/control_proto/src/ui_html.ts,935,"pollInput.step = ""0.1"";"
+mimolo/control_proto/src/ui_html.ts,936,"pollInput.min = ""0.1"";"
+mimolo/control_proto/src/ui_html.ts,941,"cooldownLabel.textContent = ""cooldown_seconds (seconds, > 0)"";"
+mimolo/control_proto/src/ui_html.ts,944,"cooldownInput.step = ""1"";"
+mimolo/control_proto/src/ui_html.ts,945,"cooldownInput.min = ""1"";"
+mimolo/control_proto/src/ui_html.ts,976,if (!Number.isFinite(pollTick) || pollTick <= 0) {
+mimolo/control_proto/src/ui_html.ts,977,"append(""[ui] monitor settings invalid: poll_tick_s must be > 0"");"
+mimolo/control_proto/src/ui_html.ts,980,if (!Number.isFinite(cooldownSeconds) || cooldownSeconds <= 0) {
+mimolo/control_proto/src/ui_html.ts,981,"append(""[ui] monitor settings invalid: cooldown_seconds must be > 0"");"
+mimolo/control_proto/src/ui_html.ts,1304,Math.round(monitorSettingsState.poll_tick_s * 1000)
+mimolo/control_proto/src/control_operations.ts,162,"const pollMs = Math.max(1, this.deps.getStopWaitDisconnectPollMs());"
+mimolo/control_proto/src/control_operations.ts,205,"Math.max(1, this.deps.getStopWaitDisconnectTimeoutMs()),"

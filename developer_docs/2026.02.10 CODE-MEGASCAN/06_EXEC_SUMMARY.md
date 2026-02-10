@@ -1,0 +1,80 @@
+# Exec Summary
+
+- scanned files (effective): 88
+- skipped generated/vendor/temp files: yes
+- ps1 parity entries: 6
+- translated ps1 skipped from full scan: 5
+- mixed-concern files (non-test): 55
+- python exception findings (non-test): 134
+- path portability candidates (non-test): 45
+- timing literal candidates (non-test): 87
+- duplicate clusters: 4
+
+## Largest files (non-test)
+- mimolo/control_proto/src/ui_html.ts: 2128 lines
+- mimolo/utils/src/pack-agent.ts: 1030 lines
+- mimolo/core/runtime.py: 944 lines
+- mimolo/control_proto/src/main.ts: 840 lines
+- mml.sh: 681 lines
+- mimolo/agents/screen_tracker/screen_tracker.py: 655 lines
+- mimolo/core/runtime_ipc_commands.py: 618 lines
+- mimolo/control_proto/src/control_operations.ts: 446 lines
+- mimolo/core/sink.py: 431 lines
+- mimolo/agents/client_folder_activity/client_folder_activity.py: 394 lines
+- mimolo/core/plugin_store.py: 394 lines
+- scripts/bundle_app.sh: 378 lines
+- mimolo/core/agent_process.py: 373 lines
+- mimolo/core/runtime_shutdown.py: 340 lines
+- mimolo/control_proto/src/control_persistent_ipc.ts: 339 lines
+- mimolo/core/ipc.py: 329 lines
+- mimolo/core/config.py: 319 lines
+- mimolo/agents/agent_template/agent_template.py: 309 lines
+- scripts/deploy_portable.sh: 299 lines
+- mimolo/control_proto/src/control_ipc_handlers.ts: 298 lines
+- mimolo/agents/base_agent.py: 279 lines
+- mimolo/cli.py: 238 lines
+- mimolo/control_proto/src/control_proto_utils.ts: 234 lines
+- archive/start_scripts/start_control_dev.sh: 233 lines
+- mimolo/core/agent_logging.py: 215 lines
+
+## Longest functions (non-test)
+- mimolo/control_proto/src/ui_html.ts:3 buildHtml (2125 lines)
+- mimolo/core/runtime_ipc_commands.py:12 build_ipc_response (607 lines)
+- mimolo/core/runtime_shutdown.py:43 shutdown_runtime (298 lines)
+- mimolo/control_proto/src/control_ipc_handlers.ts:46 registerIpcHandlers (252 lines)
+- mimolo/utils/src/pack-agent.ts:533 processSourceList (250 lines)
+- mimolo/control_proto/src/ui_html.ts:1482 showInstallDialog (223 lines)
+- mimolo/utils/src/pack-agent.ts:837 main (191 lines)
+- mimolo/utils/src/pack-agent.ts:559 for (154 lines)
+- mimolo/core/agent_process.py:225 spawn_agent (133 lines)
+- mimolo/core/runtime.py:280 _discover_agent_templates (105 lines)
+- mimolo/control_proto/src/ui_html.ts:1811 ensureCard (99 lines)
+- mimolo/control_proto/src/control_timing.ts:24 normalizeControlTimingSettings (98 lines)
+- mimolo/core/runtime.py:793 _tick (96 lines)
+- mimolo/core/agent_menu.py:38 show_agent_list (95 lines)
+- mimolo/core/runtime_widget_support.py:101 build_screen_tracker_widget_render (90 lines)
+- mimolo/utils/src/pack-agent.ts:915 if (84 lines)
+- mimolo/core/logging_setup.py:24 setup_logging (84 lines)
+- mimolo/control_proto/src/ui_html.ts:1217 refreshWidgetForLabel (83 lines)
+- mimolo/core/plugin_store.py:103 install_plugin_archive (82 lines)
+- mimolo/agents/screen_tracker/screen_tracker.py:436 _accumulate (79 lines)
+- mimolo/agents/screen_tracker/screen_tracker.py:577 main (79 lines)
+- mimolo/agents/client_folder_activity/client_folder_activity.py:317 main (78 lines)
+- mimolo/control_proto/src/ui_html.ts:922 editMonitorSettingsModal (76 lines)
+- mimolo/control_proto/src/ui_html.ts:1566 runInspection (76 lines)
+- mimolo/cli.py:103 _run_ops_command (75 lines)
+- mimolo/core/plugin_store.py:284 _read_archive_descriptor (72 lines)
+- mml.sh:322 print_usage (69 lines)
+- mimolo/control_proto/src/ui_html.ts:1706 installArchivePassive (69 lines)
+- mimolo/utils/src/pack-agent.ts:614 if (67 lines)
+- mimolo/control_proto/src/control_timing.ts:123 parseControlSettingsFromToml (65 lines)
+- mimolo/control_proto/src/ui_html.ts:1014 createActivityIndicator (64 lines)
+- mimolo/core/aggregate.py:54 build_segment (63 lines)
+- mimolo/agents/screen_tracker/screen_tracker.py:111 __init__ (62 lines)
+- mimolo/core/runtime_ipc_server.py:86 ipc_server_loop (60 lines)
+- mimolo/core/runtime.py:578 _update_agent_instance (58 lines)
+- mimolo/utils/src/pack-agent.ts:274 parseArgs (57 lines)
+- mimolo/core/runtime_agent_events.py:90 handle_agent_log (56 lines)
+- mimolo/agents/agent_template/agent_template.py:107 __init__ (55 lines)
+- mimolo/core/runtime.py:58 __init__ (55 lines)
+- mimolo/control_proto/src/control_timing.ts:130 for (55 lines)

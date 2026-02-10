@@ -9,6 +9,9 @@ Verification snapshot:
 - `poetry run ruff check .` => clean
 - `npm run build` in `mimolo/control_proto` => clean
 
+Deep scan reference:
+- `developer_docs/2026.02.10 CODE-MEGASCAN/` (repo-wide py/ts/sh + ps1-parity audit artifacts)
+
 ## 1) Implemented (Current Ground Truth)
 
 1. Operations runtime and Agent JLP lifecycle
