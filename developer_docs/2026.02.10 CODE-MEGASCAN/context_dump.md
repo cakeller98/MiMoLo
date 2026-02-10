@@ -80,3 +80,20 @@ Continue Item 10 by selecting next largest orchestrator slice and applying the s
 2. remove implicit/exception-driven control flow,
 3. run strict QC,
 4. update matrix + changelog.
+
+## Confirmed Execution Order (User-Directed)
+Work these maintainability slices in this exact order, one commit-ready slice at a time (not together):
+1. `mimolo/utils/src/pack_agent_core.ts`
+2. `mimolo/control_proto/src/ui_renderer_sections/commands_and_install.ts`
+3. `mimolo/agents/screen_tracker/screen_tracker.py`
+
+Rationale captured from user direction:
+- Do `pack_agent_core.ts` first to complete the current pack-agent maintainability arc to a high standard.
+- Do `commands_and_install.ts` next because it opens high-value reuse opportunities for installer/deployment flows.
+- Do `screen_tracker.py` third after infrastructure concerns are cleaner.
+
+## Scripts Refactor Direction (Design Intent)
+- After the current refactor slices, migrate automation logic from `./scripts` into reusable TypeScript modules under `mimolo/utils`.
+- Prefer reusable shared modules for concerns like semver/version policy, packaging/deployment orchestration, and common command flows.
+- Keep `mml.sh`, `mml.ps1`, and `mml.toml` backward compatible, but progressively thin them into wrappers over reusable utilities.
+- Preserve behavior compatibility while reducing duplicated shell/PowerShell logic.
