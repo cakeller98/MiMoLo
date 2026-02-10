@@ -48,7 +48,11 @@ Purpose: compact carry-forward context without duplicating canonical docs.
 - Runtime and Control proto have ongoing decomposition into focused modules.
 - `pack-agent` decomposition complete across:
   - `pack-agent.ts` (CLI orchestration),
-  - `pack_agent_modes.ts` (mode flows),
+  - `pack_agent_modes.ts` (compat export barrel),
+  - `pack_agent_source_list_mode.ts` (source-list processing + source-list creation flows),
+  - `pack_agent_single_mode.ts` (single-agent pack flow),
+  - `pack_agent_versioning.ts` (semver bump policy),
+  - `pack_agent_packing_helpers.ts` (shared pack workspace + shared skip-note helpers),
   - `pack_agent_core.ts` (core manifest/hash/repo/archive),
   - `pack_agent_cli_helpers.ts` (CLI support),
   - `pack_agent_errors.ts` (shared helpers).

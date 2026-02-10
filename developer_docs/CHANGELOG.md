@@ -132,6 +132,16 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
       - source-list generation mode
       - single-agent pack mode
   - reduced `pack-agent.ts` to CLI orchestration/dispatch only (no embedded package/repository mode logic).
+- Continued pack-agent concern-boundary decomposition and deduplication:
+  - converted `mimolo/utils/src/pack_agent_modes.ts` into a compatibility export barrel and moved concrete mode implementations into:
+    - `mimolo/utils/src/pack_agent_source_list_mode.ts`
+    - `mimolo/utils/src/pack_agent_single_mode.ts`
+    - `mimolo/utils/src/pack_agent_versioning.ts`
+  - extracted shared behavior that had been duplicated across source-list and single-agent flows into:
+    - `mimolo/utils/src/pack_agent_packing_helpers.ts`
+      - shared temporary pack workspace orchestration (`packAgentToRepo`)
+      - shared repository-skip guidance output (`logRepoSkipNote`)
+  - result: mode modules now focus on decision/control flow, while shared pack mechanics and repeated operator messaging are centralized.
 - Continued pack-agent exception-flow hardening to align with explicit-control policy:
   - replaced `processSourceList` expected validation throws (missing source path / non-directory source path / missing `build-manifest.toml`) with deterministic conditional error accounting + final failure status.
   - replaced throw-based argument validation in `pack-agent.ts` with explicit parse-result contracts.
