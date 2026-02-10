@@ -19,6 +19,8 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
     - `poetry run mypy mimolo` => clean
     - `poetry run ruff check .` => clean
     - `npm run build` in `mimolo/control_proto` => clean
+  - added a `Priority Index` section so reprioritization can be done without renumbering backlog items.
+  - converted active backlog entries to linkable `Item N` headings and updated the priority index to Obsidian-style section links with editable labels (`<highest item>`, `<next item>`).
 
 ## 2026-02-08
 
