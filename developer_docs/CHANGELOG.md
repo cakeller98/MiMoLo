@@ -125,6 +125,15 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
   - into:
     - `mimolo/utils/src/pack_agent_core.ts`
   - `pack-agent.ts` now focuses more on CLI flow/control logic while archive/manifest primitives are isolated for reuse and further modularization.
+- Continued pack-agent core concern split with compatibility preservation:
+  - `mimolo/utils/src/pack_agent_core.ts` converted into a compatibility export barrel.
+  - concrete concerns extracted into focused modules:
+    - `mimolo/utils/src/pack_agent_types.ts`
+    - `mimolo/utils/src/pack_agent_contracts.ts`
+    - `mimolo/utils/src/pack_agent_repository.ts`
+    - `mimolo/utils/src/pack_agent_manifest_io.ts`
+    - `mimolo/utils/src/pack_agent_archive.ts`
+  - call sites remained stable via `pack_agent_core.ts` re-exports while reducing core-module complexity.
 - Continued tooling maintainability decomposition for pack-agent utility:
   - extracted mode-specific flows from `mimolo/utils/src/pack-agent.ts` into:
     - `mimolo/utils/src/pack_agent_modes.ts`

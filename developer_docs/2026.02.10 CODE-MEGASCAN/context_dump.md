@@ -53,7 +53,12 @@ Purpose: compact carry-forward context without duplicating canonical docs.
   - `pack_agent_single_mode.ts` (single-agent pack flow),
   - `pack_agent_versioning.ts` (semver bump policy),
   - `pack_agent_packing_helpers.ts` (shared pack workspace + shared skip-note helpers),
-  - `pack_agent_core.ts` (core manifest/hash/repo/archive),
+  - `pack_agent_core.ts` (compat export barrel),
+  - `pack_agent_types.ts` (pack-agent type contracts),
+  - `pack_agent_contracts.ts` (manifest/source schema + semver validation contracts),
+  - `pack_agent_repository.ts` (repository scan/path/dir policies),
+  - `pack_agent_manifest_io.ts` (manifest + build-manifest TOML mutation I/O),
+  - `pack_agent_archive.ts` (hashing/archive/verification I/O),
   - `pack_agent_cli_helpers.ts` (CLI support),
   - `pack_agent_errors.ts` (shared helpers).
 - Recent hardening removed expected-validation throws in source-list mode and replaced with deterministic conditional accounting + explicit mode results.
@@ -83,16 +88,17 @@ Continue Item 10 by selecting next largest orchestrator slice and applying the s
 
 ## Confirmed Execution Order (User-Directed, Updated)
 Work in this exact order, one commit-ready slice at a time (not together):
-1. Phase 1 MML shell decomposition first (no TypeScript yet):
+1. Pack-agent maintainability completion first:
+  - `mimolo/utils/src/pack_agent_core.ts` final concern split and dedup pass.
+2. Phase 1 MML shell decomposition (no TypeScript yet):
   - `mml.sh` delegates to `scripts/mml/<concern>.sh` modules by concern.
   - preserve behavior exactly while splitting concerns.
-2. Phase 2 MML TypeScript migration:
+3. Phase 2 MML TypeScript migration:
   - move concern logic to `mimolo/utils/src/mml/<concern>.ts`.
   - wrappers become thin launchers:
     - `mml.sh` -> compiled `mml.js` -> concern modules
     - `mml.ps1` -> compiled `mml.js` -> concern modules
-3. Then continue maintainability slices in order:
-  - `mimolo/utils/src/pack_agent_core.ts`
+4. Then continue maintainability slices in order:
   - `mimolo/control_proto/src/ui_renderer_sections/commands_and_install.ts`
   - `mimolo/agents/screen_tracker/screen_tracker.py`
 

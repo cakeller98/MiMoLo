@@ -228,12 +228,18 @@ Priority-index rule:
   - packaging utility decomposition + hardening completed:
     - `mimolo/utils/src/pack-agent.ts` reduced to CLI orchestration/dispatch
     - packaging mode orchestration split into focused modules:
-      - `mimolo/utils/src/pack_agent_modes.ts` (compat export barrel)
-      - `mimolo/utils/src/pack_agent_source_list_mode.ts` (source-list processing + source-list creation flows)
-      - `mimolo/utils/src/pack_agent_single_mode.ts` (single-agent packing flow)
-      - `mimolo/utils/src/pack_agent_versioning.ts` (semver bump policy)
-      - `mimolo/utils/src/pack_agent_packing_helpers.ts` (shared pack workspace + shared skip-note helpers)
-    - core archive/manifest/hash/repo helpers live in `mimolo/utils/src/pack_agent_core.ts`
+    - `mimolo/utils/src/pack_agent_modes.ts` (compat export barrel)
+    - `mimolo/utils/src/pack_agent_source_list_mode.ts` (source-list processing + source-list creation flows)
+    - `mimolo/utils/src/pack_agent_single_mode.ts` (single-agent packing flow)
+    - `mimolo/utils/src/pack_agent_versioning.ts` (semver bump policy)
+    - `mimolo/utils/src/pack_agent_packing_helpers.ts` (shared pack workspace + shared skip-note helpers)
+    - core concerns now split behind compatibility exports:
+      - `mimolo/utils/src/pack_agent_core.ts` (compat export barrel)
+      - `mimolo/utils/src/pack_agent_types.ts`
+      - `mimolo/utils/src/pack_agent_contracts.ts`
+      - `mimolo/utils/src/pack_agent_repository.ts`
+      - `mimolo/utils/src/pack_agent_manifest_io.ts`
+      - `mimolo/utils/src/pack_agent_archive.ts`
     - CLI formatting/default-source helpers live in `mimolo/utils/src/pack_agent_cli_helpers.ts`
     - shared error handling helpers added in `mimolo/utils/src/pack_agent_errors.ts`
     - duplicate single/source-list pack workspace logic removed via shared helper (`packAgentToRepo`)
