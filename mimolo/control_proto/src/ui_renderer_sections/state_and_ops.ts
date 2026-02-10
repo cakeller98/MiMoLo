@@ -250,7 +250,12 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
           return;
         }
         // Manual operator intent should bypass passive reconnect backoff.
-        ipcRenderer.invoke("mml:reset-reconnect-backoff").catch(() => undefined);
+        void ipcRenderer
+          .invoke("mml:reset-reconnect-backoff")
+          .catch((error) => {
+            const detail = error instanceof Error ? error.message : String(error);
+            append("[ops] warning: unable to reset reconnect backoff: " + detail);
+          });
         try {
           const response = await ipcRenderer.invoke("mml:ops-control", { action });
           if (response && response.state) {

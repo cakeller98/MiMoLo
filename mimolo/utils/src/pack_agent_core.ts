@@ -97,34 +97,34 @@ export async function findHighestRepoVersion(
   outDir: string,
   pluginId: string,
 ): Promise<RepoVersion | null> {
-  try {
-    const items = await fs.readdir(outDir, { withFileTypes: true });
-    const pattern = new RegExp(`^${escapeRegExp(pluginId)}_v(.+)\\.zip$`);
-    const versions: RepoVersion[] = [];
-    for (const item of items) {
-      if (!item.isFile()) {
-        continue;
-      }
-      const match = item.name.match(pattern);
-      if (!match) {
-        continue;
-      }
-      const ver = match[1];
-      if (semver.valid(ver) && semver.clean(ver) === ver) {
-        versions.push({ version: ver, path: path.join(outDir, item.name) });
-      }
+  const items = await fs.readdir(outDir, { withFileTypes: true });
+  const pattern = new RegExp(`^${escapeRegExp(pluginId)}_v(.+)\\.zip$`);
+  const versions: RepoVersion[] = [];
+  for (const item of items) {
+    if (!item.isFile()) {
+      continue;
     }
-    if (versions.length === 0) {
-      return null;
+    const match = item.name.match(pattern);
+    if (!match) {
+      continue;
     }
-    versions.sort((a, b) => semver.rcompare(a.version, b.version));
-    return versions[0];
-  } catch (err) {
-    const error = err as NodeJS.ErrnoException;
-    if (error.code === "ENOENT") {
-      return null;
+    const ver = match[1];
+    if (semver.valid(ver) && semver.clean(ver) === ver) {
+      versions.push({ version: ver, path: path.join(outDir, item.name) });
     }
-    throw err;
+  }
+  if (versions.length === 0) {
+    return null;
+  }
+  versions.sort((a, b) => semver.rcompare(a.version, b.version));
+  return versions[0];
+}
+
+export async function ensureRepoDir(outDir: string): Promise<void> {
+  await fs.mkdir(outDir, { recursive: true });
+  const stat = await fs.stat(outDir);
+  if (!stat.isDirectory()) {
+    throw new Error(`repository path is not a directory: ${outDir}`);
   }
 }
 

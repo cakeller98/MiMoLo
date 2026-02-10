@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import semver from "semver";
@@ -12,6 +12,7 @@ import type {
 import { formatDisplayPath, formatTimestamp, writeSourcesBackup } from "./pack_agent_cli_helpers.js";
 import {
   findHighestRepoVersion,
+  ensureRepoDir,
   normalizeSemver,
   packZip,
   readBuildManifest,
@@ -36,6 +37,37 @@ export type SourceListProcessOptions = {
   sourcesCreated: boolean;
 };
 
+export type SourceListProcessResult = {
+  hadErrors: boolean;
+  errorCount: number;
+  packedCount: number;
+  skippedCount: number;
+  sourceListStatus: "created" | "updated" | "unchanged";
+};
+
+export type CreateSourceListResult = {
+  created: boolean;
+  sourcesPath: string;
+  skippedNoManifest: string[];
+  message?: string;
+};
+
+export type SinglePackOptions = {
+  sourcePath: string;
+  out?: string;
+  release?: ReleaseType;
+  prerelease?: PrereleaseType;
+  verifyExisting: boolean;
+  forcePack: boolean;
+};
+
+export type SinglePackResult = {
+  hadErrors: boolean;
+  errorCount: number;
+  skipped: boolean;
+  packed: boolean;
+};
+
 export function bumpVersion(
   current: string,
   release?: ReleaseType,
@@ -55,7 +87,9 @@ export function bumpVersion(
   return current;
 }
 
-export async function processSourceList(options: SourceListProcessOptions): Promise<void> {
+export async function processSourceList(
+  options: SourceListProcessOptions,
+): Promise<SourceListProcessResult> {
   const listPath = options.sourceListPath;
   const rawList = await fs.readFile(listPath, "utf8");
   const entries = await readSourcesFile(listPath);
@@ -83,55 +117,27 @@ export async function processSourceList(options: SourceListProcessOptions): Prom
   for (let i = 0; i < updated.length; i += 1) {
     const entry = updated[i];
     const agentDir = path.resolve(listDir, entry.path);
-    try {
-      const stat = await fs.stat(agentDir);
-      if (!stat.isDirectory()) {
-        throw new Error("path is not a directory");
-      }
-    } catch {
-      console.error(`    [${entry.id}] missing path: ${formatDisplayPath(agentDir)}`);
-      hadErrors = true;
-      errorCount += 1;
-      continue;
+    if (!existsSync(agentDir)) {
+      throw new Error(`[${entry.id}] missing path: ${formatDisplayPath(agentDir)}`);
+    }
+    const stat = await fs.stat(agentDir);
+    if (!stat.isDirectory()) {
+      throw new Error(`[${entry.id}] source path is not a directory: ${formatDisplayPath(agentDir)}`);
+    }
+    const manifestPath = path.join(agentDir, "build-manifest.toml");
+    if (!existsSync(manifestPath)) {
+      throw new Error(`[${entry.id}] missing build-manifest.toml: ${formatDisplayPath(manifestPath)}`);
     }
 
-    let bm: BuildManifest;
-    try {
-      bm = await readBuildManifest(agentDir);
-    } catch (err) {
-      console.error(
-        `    [${entry.id}] failed to read build-manifest.toml: ${(err as Error).message}`,
-      );
-      hadErrors = true;
-      errorCount += 1;
-      continue;
-    }
-
-    let sourceVer: string;
-    let bmVer: string;
-    try {
-      sourceVer = normalizeSemver(entry.ver, `${entry.id} sources.ver`);
-      bmVer = normalizeSemver(bm.version, `${entry.id} build-manifest.toml version`);
-    } catch (err) {
-      console.error(`    [${entry.id}] ${(err as Error).message}`);
-      hadErrors = true;
-      errorCount += 1;
-      continue;
-    }
+    const bm: BuildManifest = await readBuildManifest(agentDir);
+    const sourceVer: string = normalizeSemver(entry.ver, `${entry.id} sources.ver`);
+    const bmVer: string = normalizeSemver(bm.version, `${entry.id} build-manifest.toml version`);
 
     const baseVersion = semver.gte(bmVer, sourceVer) ? bmVer : sourceVer;
     const buildVersion = bumpVersion(baseVersion, options.release, options.prerelease);
     const outDir = resolveOutDir(agentDir, options.out);
-    let repoVer: RepoVersion | null = null;
-
-    try {
-      repoVer = await findHighestRepoVersion(outDir, bm.plugin_id);
-    } catch (err) {
-      console.error(`    [${entry.id}] failed to read repository: ${(err as Error).message}`);
-      hadErrors = true;
-      errorCount += 1;
-      continue;
-    }
+    await ensureRepoDir(outDir);
+    const repoVer: RepoVersion | null = await findHighestRepoVersion(outDir, bm.plugin_id);
 
     if (repoVer) {
       if (semver.gt(repoVer.version, buildVersion)) {
@@ -290,53 +296,61 @@ export async function processSourceList(options: SourceListProcessOptions): Prom
   console.log(`completed: ${formatTimestamp()}`);
   console.log("");
 
-  if (hadErrors) {
-    process.exitCode = 1;
-  }
+  return {
+    hadErrors,
+    errorCount,
+    packedCount,
+    skippedCount,
+    sourceListStatus,
+  };
 }
 
-export async function createSourceListFromDir(agentRoot: string, force?: boolean): Promise<void> {
+export async function createSourceListFromDir(
+  agentRoot: string,
+  force?: boolean,
+): Promise<CreateSourceListResult> {
   const sourcesPath = path.join(agentRoot, "sources.json");
-  try {
-    await fs.access(sourcesPath);
-    if (!force) {
-      console.error(
-        `sources.json already exists at ${formatDisplayPath(sourcesPath)} (use --force to overwrite)`,
-      );
-      process.exitCode = 1;
-      return;
-    }
-  } catch {
-    // OK - file does not exist.
+  const rootItems = await fs.readdir(agentRoot, { withFileTypes: true });
+  const existingSources = rootItems.some(
+    (item) => item.isFile() && item.name === "sources.json",
+  );
+  if (existingSources && !force) {
+    return {
+      created: false,
+      sourcesPath,
+      skippedNoManifest: [],
+      message: `sources.json already exists at ${formatDisplayPath(sourcesPath)} (use --force to overwrite)`,
+    };
   }
 
-  const items = await fs.readdir(agentRoot, { withFileTypes: true });
+  const candidateDirs = rootItems
+    .filter((item) => item.isDirectory())
+    .map((item) => item.name);
+  const skippedNoManifest: string[] = [];
+  const agentDirs: string[] = [];
+
+  for (const dirName of candidateDirs) {
+    const entries = await fs.readdir(path.join(agentRoot, dirName), { withFileTypes: true });
+    const hasManifest = entries.some(
+      (entry) => entry.isFile() && entry.name === "build-manifest.toml",
+    );
+    if (hasManifest) {
+      agentDirs.push(dirName);
+    } else {
+      skippedNoManifest.push(dirName);
+    }
+  }
+
   const sources: SourceEntry[] = [];
-
-  for (const item of items) {
-    if (!item.isDirectory()) {
-      continue;
-    }
-    const agentDir = path.join(agentRoot, item.name);
-    const manifestPath = path.join(agentDir, "build-manifest.toml");
-    try {
-      await fs.access(manifestPath);
-    } catch {
-      continue;
-    }
-
-    try {
-      const bm = await readBuildManifest(agentDir);
-      const ver = normalizeSemver(bm.version, `${item.name} build-manifest.toml version`);
-      sources.push({
-        id: item.name,
-        path: item.name,
-        ver,
-      });
-    } catch (err) {
-      console.error(`[${item.name}] ${(err as Error).message}`);
-      process.exitCode = 1;
-    }
+  for (const dirName of agentDirs) {
+    const agentDir = path.join(agentRoot, dirName);
+    const bm = await readBuildManifest(agentDir);
+    const ver = normalizeSemver(bm.version, `${dirName} build-manifest.toml version`);
+    sources.push({
+      id: dirName,
+      path: dirName,
+      ver,
+    });
   }
 
   const payload: SourcesFile = { sources };
@@ -344,4 +358,153 @@ export async function createSourceListFromDir(agentRoot: string, force?: boolean
   console.log("");
   console.log("created:");
   console.log(`    ${formatDisplayPath(sourcesPath)}`);
+  if (skippedNoManifest.length > 0) {
+    console.log("skipped folders (no build-manifest.toml):");
+    for (const skipped of skippedNoManifest.sort()) {
+      console.log(`    - ${skipped}`);
+    }
+  }
+  return {
+    created: true,
+    sourcesPath,
+    skippedNoManifest,
+  };
+}
+
+export async function packSingleAgent(options: SinglePackOptions): Promise<SinglePackResult> {
+  const agentDir = path.resolve(options.sourcePath);
+  // Default output is ../repository relative to the source agent folder.
+  const outDir = resolveOutDir(agentDir, options.out);
+
+  const bm = await readBuildManifest(agentDir);
+  const hasBump = Boolean(options.release || options.prerelease);
+  const desiredVersion = bumpVersion(bm.version, options.release, options.prerelease);
+  let skipped = false;
+
+  await ensureRepoDir(outDir);
+  const repoVer: RepoVersion | null = await findHighestRepoVersion(outDir, bm.plugin_id);
+
+  if (repoVer) {
+    if (semver.gt(repoVer.version, desiredVersion)) {
+      console.log("");
+      console.log("conflicts:");
+      console.log(`    [${bm.plugin_id}]`);
+      console.log(
+        `        build-manifest.toml: v${bm.version} (${formatDisplayPath(path.join(agentDir, "build-manifest.toml"))})`,
+      );
+      console.log(`        repository: v${repoVer.version} (${formatDisplayPath(repoVer.path)})`);
+      console.log(
+        `        message: something's not write, you have output (v${repoVer.version}) that supersedes the build-manifest.toml (v${bm.version}). Resolve this manually before packing can continue.`,
+      );
+      console.log("");
+      return {
+        hadErrors: true,
+        errorCount: 1,
+        skipped: false,
+        packed: false,
+      };
+    }
+
+    if (semver.eq(repoVer.version, desiredVersion)) {
+      if (hasBump && !options.forcePack) {
+        console.log("");
+        console.log("conflicts:");
+        console.log(`    [${bm.plugin_id}]`);
+        console.log(
+          `        build-manifest.toml: v${bm.version} (${formatDisplayPath(path.join(agentDir, "build-manifest.toml"))})`,
+        );
+        console.log(`        repository: v${repoVer.version} (${formatDisplayPath(repoVer.path)})`);
+        console.log(
+          `        message: something's not write, you requested a version bump but output (v${repoVer.version}) already exists. Resolve this manually before packing can continue.`,
+        );
+        console.log("");
+        return {
+          hadErrors: true,
+          errorCount: 1,
+          skipped: false,
+          packed: false,
+        };
+      }
+
+      if (!hasBump && !options.forcePack) {
+        if (options.verifyExisting) {
+          const bmForBuild: BuildManifest = { ...bm, version: desiredVersion };
+          const matches = await verifyExistingArchive(agentDir, bmForBuild, repoVer.path);
+          if (!matches) {
+            console.log("");
+            console.log("conflicts:");
+            console.log(`    [${bm.plugin_id}]`);
+            console.log(
+              `        build-manifest.toml: v${bm.version} (${formatDisplayPath(path.join(agentDir, "build-manifest.toml"))})`,
+            );
+            console.log(
+              `        repository: v${repoVer.version} (${formatDisplayPath(repoVer.path)})`,
+            );
+            console.log(
+              `        message: something's not write, repository output (v${repoVer.version}) does not match current sources for the same version. Resolve this manually before packing can continue.`,
+            );
+            console.log("");
+            return {
+              hadErrors: true,
+              errorCount: 1,
+              skipped: false,
+              packed: false,
+            };
+          }
+          console.log(
+            `skipped: ${repoVer.version} already exists in repository (verified, assumed current revision)`,
+          );
+          skipped = true;
+        } else {
+          console.log(
+            `skipped: ${repoVer.version} already exists in repository (assumed current revision)`,
+          );
+          skipped = true;
+        }
+      }
+
+      if (options.forcePack) {
+        console.log(`${repoVer.version} exists in repository (force-pack overwriting)`);
+      }
+    }
+  }
+
+  if (skipped) {
+    console.log("");
+    console.log(
+      "note: if you did not expect repo to be skipped, it is a good idea to periodically run the " +
+        "--verify-existing flag to confirm the hashes of all current agents before public release to ensure " +
+        "that the released artifact is the version that was expected. --force-pack can also be used but this " +
+        "will overwrite artifacts and if you are not careful it is possible that a version mismatch could occur. " +
+        "best to use --verify-existing unless you know what you're doing.",
+    );
+    console.log("");
+    return {
+      hadErrors: false,
+      errorCount: 0,
+      skipped: true,
+      packed: false,
+    };
+  }
+
+  if (bm.version !== desiredVersion) {
+    bm.version = desiredVersion;
+    await updateBuildManifest(agentDir, bm);
+  }
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "mimolo-pack-"));
+  try {
+    const manifestPath = await writeManifest(tmpDir, bm);
+    const hashesPath = await writePayloadHashes(agentDir, tmpDir, bm);
+    await packZip(agentDir, bm, outDir, manifestPath, hashesPath);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+
+  console.log(`packed ${bm.plugin_id} v${bm.version}`);
+  return {
+    hadErrors: false,
+    errorCount: 0,
+    skipped: false,
+    packed: true,
+  };
 }

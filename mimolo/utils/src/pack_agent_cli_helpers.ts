@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { existsSync, promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SourceEntry, SourcesFile } from "./pack_agent_core.js";
@@ -25,44 +25,37 @@ export function formatTimestamp(date: Date = new Date()): string {
 }
 
 export async function readPackageVersion(): Promise<string> {
-  try {
-    const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-    const pkgPath = path.resolve(moduleDir, "..", "package.json");
-    const raw = await fs.readFile(pkgPath, "utf8");
-    const data = JSON.parse(raw) as { version?: string };
-    return typeof data.version === "string" ? data.version : "unknown";
-  } catch {
+  const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+  const pkgPath = path.resolve(moduleDir, "..", "package.json");
+  // Package metadata file is optional at runtime for this utility.
+  if (!existsSync(pkgPath)) {
     return "unknown";
   }
+  const raw = await fs.readFile(pkgPath, "utf8");
+  const data = JSON.parse(raw) as { version?: string };
+  return typeof data.version === "string" ? data.version : "unknown";
 }
 
 export async function resolveDefaultSourcesCandidates(): Promise<string[]> {
   const candidates: string[] = [];
   const localList = path.resolve(process.cwd(), "sources.json");
-  try {
-    await fs.access(localList);
+  if (existsSync(localList)) {
     candidates.push(localList);
-  } catch {
-    // try agents/sources.json relative to cwd
   }
   const agentsList = path.resolve(process.cwd(), "..", "agents", "sources.json");
-  try {
-    await fs.access(agentsList);
+  if (existsSync(agentsList)) {
     candidates.push(agentsList);
-  } catch {
-    return candidates;
   }
   return candidates;
 }
 
 export async function resolveDefaultAgentsDir(): Promise<string | null> {
   const agentsDir = path.resolve(process.cwd(), "..", "agents");
-  try {
-    const stat = await fs.stat(agentsDir);
-    return stat.isDirectory() ? agentsDir : null;
-  } catch {
+  if (!existsSync(agentsDir)) {
     return null;
   }
+  const stat = await fs.stat(agentsDir);
+  return stat.isDirectory() ? agentsDir : null;
 }
 
 export function logSourcesSelection(selected: string, candidates?: string[]): void {

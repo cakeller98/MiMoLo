@@ -125,6 +125,20 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
   - into:
     - `mimolo/utils/src/pack_agent_core.ts`
   - `pack-agent.ts` now focuses more on CLI flow/control logic while archive/manifest primitives are isolated for reuse and further modularization.
+- Continued tooling maintainability decomposition for pack-agent utility:
+  - extracted mode-specific flows from `mimolo/utils/src/pack-agent.ts` into:
+    - `mimolo/utils/src/pack_agent_modes.ts`
+      - source-list processing mode
+      - source-list generation mode
+      - single-agent pack mode
+  - reduced `pack-agent.ts` to CLI orchestration/dispatch only (no embedded package/repository mode logic).
+- Added utility error-hardening helpers at:
+  - `mimolo/utils/src/pack_agent_errors.ts`
+  - standardized errno-aware handling (`ENOENT` expected-path cases) in pack-agent helper/mode/core modules with explicit rethrow on unexpected failures.
+- Hardened Control renderer non-critical promise handling:
+  - replaced silent swallow on reconnect-backoff reset invocation in
+    `mimolo/control_proto/src/ui_renderer_sections/state_and_ops.ts`
+  - now emits explicit warning line when reset command fails.
 - Tightened runtime exception handling policy across core paths by replacing broad catches with explicit exception tuples and preserving plugin-boundary broad handling only where intentionally justified.
 - Updated canonical backlog reality to note that Item 1 lifecycle hardening work now includes maintainability-oriented module boundary cleanup, not only behavior fixes.
 - Refreshed verification snapshot context in active planning docs to stay aligned with latest strict checks and targeted IPC/runtime regression slices.
