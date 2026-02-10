@@ -2,6 +2,21 @@
 
 All notable documentation changes under `developer_docs/` are tracked in this file.
 
+## 2026-02-10
+
+### Changed
+- Updated architecture-truth documentation to reflect active maintainability refactor of orchestration files:
+  - `runtime.py` responsibilities are now partially extracted into dedicated modules:
+    - `mimolo/core/runtime_ipc_commands.py` (IPC command routing)
+    - `mimolo/core/runtime_ipc_server.py` (IPC socket server plumbing)
+    - `mimolo/core/runtime_shutdown.py` (shutdown/flush/segment lifecycle)
+  - `mimolo/control_proto/src/main.ts` responsibilities are now partially extracted into:
+    - `mimolo/control_proto/src/types.ts` (shared control/runtime types)
+    - `mimolo/control_proto/src/control_timing.ts` (control timing parsing/normalization)
+    - `mimolo/control_proto/src/ui_html.ts` (renderer HTML template)
+- Updated canonical backlog reality to note that Item 1 lifecycle hardening work now includes maintainability-oriented module boundary cleanup, not only behavior fixes.
+- Refreshed verification snapshot context in active planning docs to stay aligned with latest strict checks and targeted IPC/runtime regression slices.
+
 ## 2026-02-09
 
 ### Changed

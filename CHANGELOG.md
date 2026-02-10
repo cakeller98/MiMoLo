@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md`.
 
+## 2026-02-10
+
+### Changed
+- Refactored Control proto maintainability boundaries without changing behavior:
+  - extracted shared runtime/control type contracts into `mimolo/control_proto/src/types.ts`
+  - extracted control timing TOML parsing/normalization into `mimolo/control_proto/src/control_timing.ts`
+  - extracted renderer HTML/template payload from `main.ts` into `mimolo/control_proto/src/ui_html.ts`
+  - `mimolo/control_proto/src/main.ts` now acts as orchestration glue across these modules.
+- Refactored Operations runtime maintainability boundaries without changing behavior:
+  - extracted IPC command routing from `mimolo/core/runtime.py` into `mimolo/core/runtime_ipc_commands.py`
+  - extracted IPC socket server plumbing from `mimolo/core/runtime.py` into `mimolo/core/runtime_ipc_server.py`
+  - extracted flush/segment/shutdown lifecycle orchestration from `mimolo/core/runtime.py` into `mimolo/core/runtime_shutdown.py`
+  - `Runtime` methods now delegate to focused helper modules while preserving existing call sites and contracts.
+
 ## 2026-02-09
 
 ### Added

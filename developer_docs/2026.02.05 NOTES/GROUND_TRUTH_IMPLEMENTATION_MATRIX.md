@@ -19,6 +19,9 @@ Verification snapshot:
   - lifecycle state snapshots for Control
 - Evidence:
   - `mimolo/core/runtime.py`
+  - `mimolo/core/runtime_ipc_commands.py`
+  - `mimolo/core/runtime_ipc_server.py`
+  - `mimolo/core/runtime_shutdown.py`
   - `mimolo/core/agent_process.py`
   - `mimolo/core/protocol.py`
 
@@ -50,6 +53,9 @@ Verification snapshot:
   - plugin zip install UI is disabled by default and enabled only in explicit developer mode (`MIMOLO_CONTROL_DEV_MODE=1`, for example via `mml.sh --dev`)
 - Evidence:
   - `mimolo/control_proto/src/main.ts`
+  - `mimolo/control_proto/src/types.ts`
+  - `mimolo/control_proto/src/control_timing.ts`
+  - `mimolo/control_proto/src/ui_html.ts`
 
 4. Runtime widget IPC command names (stable stubs)
 - Status: Implemented as non-breaking stubs
@@ -148,6 +154,15 @@ Priority-index rule:
     - explicit Control quit prompt (`leave running` vs `shutdown operations+agents`)
     - comprehensive lifecycle regression coverage for repeated start/stop/restart/quit cycles
     - residual orphan-process scenarios still under active investigation and hardening
+- Progress update (2026-02-10):
+  - implemented:
+    - maintainability refactor in-progress for lifecycle-critical orchestrators:
+      - Runtime IPC command routing extracted from `runtime.py` into `runtime_ipc_commands.py`
+      - Runtime IPC server plumbing extracted into `runtime_ipc_server.py`
+      - Runtime shutdown/flush/segment lifecycle extracted into `runtime_shutdown.py`
+      - Control proto `main.ts` split into focused modules (`types.ts`, `control_timing.ts`, `ui_html.ts`)
+  - remaining:
+    - continue decomposition until orchestration files are coordinator-only and easier to audit under Item 1 hardening goals
 
 ### Item 2 — Implement true widget render pipeline through Operations
 - Done when:

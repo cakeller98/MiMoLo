@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import base64
 import html
-import json
 import os
 import socket
 import threading
@@ -29,9 +28,15 @@ from mimolo.core.config import Config, PluginConfig, save_config
 from mimolo.core.cooldown import CooldownTimer
 from mimolo.core.errors import SinkError
 from mimolo.core.event import Event
-from mimolo.core.ipc import MAX_SOCKET_PATH_LENGTH
 from mimolo.core.plugin_store import PluginStore
 from mimolo.core.runtime_ipc_commands import build_ipc_response
+from mimolo.core.runtime_ipc_server import (
+    handle_ipc_line,
+    ipc_server_loop,
+    send_ipc_response,
+    serve_ipc_client_thread,
+    serve_ipc_connection,
+)
 from mimolo.core.runtime_shutdown import close_segment, flush_all_agents, shutdown_runtime
 from mimolo.core.sink import ConsoleSink, create_sink
 
@@ -935,136 +940,23 @@ class Runtime:
 
     def _handle_ipc_line(self, line: str) -> dict[str, Any]:
         """Parse one JSON-line request and produce a response."""
-        now = datetime.now(UTC).isoformat()
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            return {"ok": False, "timestamp": now, "error": "invalid_json"}
-
-        if not isinstance(payload, dict):
-            return {"ok": False, "timestamp": now, "error": "invalid_payload"}
-        request = cast(dict[str, Any], payload)
-        response = self._build_ipc_response(request)
-        request_id_raw = request.get("request_id")
-        request_id = (
-            str(request_id_raw).strip()
-            if request_id_raw is not None and str(request_id_raw).strip()
-            else ""
-        )
-        if request_id:
-            response["request_id"] = request_id
-        return response
+        return handle_ipc_line(self, line)
 
     def _send_ipc_response(self, conn: socket.socket, payload: dict[str, Any]) -> bool:
         """Send a single JSON-line response to an IPC client."""
-        try:
-            conn.sendall((json.dumps(payload) + "\n").encode("utf-8"))
-            return True
-        except OSError:
-            # OSError: client may disconnect while response is being written.
-            return False
+        return send_ipc_response(conn, payload)
 
     def _serve_ipc_connection(self, conn: socket.socket) -> None:
         """Serve one IPC client connection until disconnect/stop."""
-        conn.settimeout(0.2)
-        buffer = ""
-
-        while not self._ipc_stop_event.is_set():
-            try:
-                chunk = conn.recv(4096)
-            except TimeoutError:
-                continue
-            except OSError:
-                # OSError: client socket may close/reset unexpectedly.
-                return
-
-            if not chunk:
-                return
-
-            try:
-                buffer += chunk.decode("utf-8")
-            except UnicodeDecodeError:
-                response = {
-                    "ok": False,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                    "error": "invalid_utf8",
-                }
-                self._send_ipc_response(conn, response)
-                return
-
-            while "\n" in buffer:
-                line, buffer = buffer.split("\n", 1)
-                line = line.strip()
-                if not line:
-                    continue
-                response = self._handle_ipc_line(line)
-                if not self._send_ipc_response(conn, response):
-                    return
+        serve_ipc_connection(self, conn)
 
     def _ipc_server_loop(self) -> None:
         """Accept IPC connections and process control commands."""
-        if not self._ipc_socket_path:
-            return
-
-        socket_path = self._ipc_socket_path
-        if len(socket_path) > MAX_SOCKET_PATH_LENGTH:
-            self.console.print(
-                f"[red]IPC socket path too long ({len(socket_path)} > {MAX_SOCKET_PATH_LENGTH}).[/red]"
-            )
-            return
-
-        socket_dir = Path(socket_path).parent
-        socket_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self._cleanup_ipc_socket_file()
-
-        server_sock: socket.socket | None = None
-        try:
-            server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            server_sock.bind(socket_path)
-            try:
-                os.chmod(socket_path, 0o600)
-            except OSError as e:
-                # OSError: chmod can fail on some filesystems; keep IPC alive with existing perms.
-                self._debug(f"[yellow]IPC socket chmod failed: {e}[/yellow]")
-            server_sock.listen(4)
-            server_sock.settimeout(0.2)
-            self._ipc_server_socket = server_sock
-            self._debug(f"[dim]IPC server listening at {socket_path}[/dim]")
-
-            while not self._ipc_stop_event.is_set():
-                try:
-                    conn, _ = server_sock.accept()
-                except TimeoutError:
-                    continue
-                except OSError:
-                    # OSError: listener may be closed during shutdown.
-                    if self._ipc_stop_event.is_set():
-                        break
-                    continue
-                ipc_conn_thread = threading.Thread(
-                    target=self._serve_ipc_client_thread,
-                    args=(conn,),
-                    name="mimolo-ipc-client",
-                    daemon=True,
-                )
-                ipc_conn_thread.start()
-        except OSError as e:
-            # OSError: bind/listen can fail due path/permission conflicts.
-            self.console.print(f"[red]IPC server failed to start: {e}[/red]")
-        finally:
-            if server_sock is not None:
-                try:
-                    server_sock.close()
-                except OSError:
-                    # OSError: best-effort close on shutdown path.
-                    pass
-            self._ipc_server_socket = None
-            self._cleanup_ipc_socket_file()
+        ipc_server_loop(self)
 
     def _serve_ipc_client_thread(self, conn: socket.socket) -> None:
         """Serve one IPC client connection on its own thread."""
-        with conn:
-            self._serve_ipc_connection(conn)
+        serve_ipc_client_thread(self, conn)
 
     def _tick(self) -> None:
         """Execute one tick of the event loop."""
