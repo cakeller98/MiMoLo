@@ -162,6 +162,7 @@ async function confirmAutoCreate(agentsDir: string, silent?: boolean): Promise<b
     }
     return ok;
   } finally {
+    // Readline handle must always be closed to avoid dangling TTY resources.
     rl.close();
   }
 }
@@ -272,6 +273,7 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
+  // CLI entrypoint boundary: emit actionable diagnostics and exit non-zero.
   const detail = error instanceof Error ? error.message : String(error);
   console.error(detail);
   process.exitCode = 1;

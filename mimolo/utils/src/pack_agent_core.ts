@@ -42,6 +42,7 @@ export async function readBuildManifest(agentDir: string): Promise<BuildManifest
   const manifestPath = path.join(agentDir, "build-manifest.toml");
   const raw = await fs.readFile(manifestPath, "utf8");
   const data = toml.parse(raw) as BuildManifest;
+  // Manifest schema validity is a hard contract; invalid input must fail fast.
   if (!data.plugin_id || !data.name || !data.version || !data.entry || !data.files) {
     throw new Error("build-manifest.toml missing required fields");
   }
@@ -60,6 +61,7 @@ export function escapeRegExp(value: string): string {
 export function normalizeSemver(raw: string, label: string): string {
   const trimmed = raw.trim();
   const valid = semver.valid(trimmed);
+  // Version normalization is contract validation, not optional coercion.
   if (!valid || semver.clean(trimmed) !== trimmed) {
     throw new Error(`${label} must be strict semver (e.g. 1.2.3), got: ${raw}`);
   }
@@ -69,6 +71,7 @@ export function normalizeSemver(raw: string, label: string): string {
 export async function readSourcesFile(listPath: string): Promise<SourceEntry[]> {
   const raw = await fs.readFile(listPath, "utf8");
   const data = JSON.parse(raw) as SourcesFile;
+  // Sources schema is ground-truth input for build mode and must be explicit.
   if (!data || !Array.isArray(data.sources)) {
     throw new Error("sources.json must be an object with a 'sources' array");
   }
@@ -123,6 +126,7 @@ export async function findHighestRepoVersion(
 export async function ensureRepoDir(outDir: string): Promise<void> {
   await fs.mkdir(outDir, { recursive: true });
   const stat = await fs.stat(outDir);
+  // Directory type mismatch is an environment/setup fault and should stop execution.
   if (!stat.isDirectory()) {
     throw new Error(`repository path is not a directory: ${outDir}`);
   }
@@ -235,6 +239,7 @@ export async function packZip(
       archive.file(abs, { name: zipPathRel });
     }
 
+    // Archiver finalize may reject asynchronously; route directly to Promise rejection.
     archive.finalize().catch(reject);
   });
 }
@@ -256,6 +261,7 @@ export async function verifyExistingArchive(
     ]);
     return repoHash === tmpHash;
   } finally {
+    // Always clean temporary verification artifacts, independent of pack/hash outcome.
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 }

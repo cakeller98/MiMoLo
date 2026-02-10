@@ -234,6 +234,16 @@ Priority-index rule:
     - expected missing-path cases are errno-gated
     - unexpected filesystem failures are rethrown (not silently swallowed)
     - repository scan, source-list fallback, and source-list creation paths now follow explicit failure semantics
+  - exception/throw hardening checklist (pack-agent utility module):
+    - [x] Replace `processSourceList` expected validation throws with explicit conditional error accounting:
+      - `mimolo/utils/src/pack_agent_modes.ts`:
+        - missing source path
+        - source path not a directory
+        - missing `build-manifest.toml`
+    - [x] Keep core contract/invariant throws only (schema + strict semver + repo-dir invariant) and document them in code comments where needed.
+    - [x] Keep cleanup-only `try/finally` blocks (tmp directories/readline close), no catch-and-continue behavior.
+    - [x] Keep boundary catch sites only (`main().catch`, `archive.finalize().catch(reject)`), with explicit diagnostics.
+    - [x] Re-run strict QC (`npm --prefix mimolo/utils run build`, `poetry run ruff check .`, `poetry run mypy mimolo scripts/qc_exception_scan.py`, `poetry run pytest -q`) and record results in changelog on check-in.
 
 ### Item 4 — Complete archive-before-purge workflow
 - Done when:

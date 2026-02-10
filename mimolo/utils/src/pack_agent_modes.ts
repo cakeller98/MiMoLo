@@ -118,15 +118,28 @@ export async function processSourceList(
     const entry = updated[i];
     const agentDir = path.resolve(listDir, entry.path);
     if (!existsSync(agentDir)) {
-      throw new Error(`[${entry.id}] missing path: ${formatDisplayPath(agentDir)}`);
+      console.error(`    [${entry.id}] missing path: ${formatDisplayPath(agentDir)}`);
+      hadErrors = true;
+      errorCount += 1;
+      continue;
     }
     const stat = await fs.stat(agentDir);
     if (!stat.isDirectory()) {
-      throw new Error(`[${entry.id}] source path is not a directory: ${formatDisplayPath(agentDir)}`);
+      console.error(
+        `    [${entry.id}] source path is not a directory: ${formatDisplayPath(agentDir)}`,
+      );
+      hadErrors = true;
+      errorCount += 1;
+      continue;
     }
     const manifestPath = path.join(agentDir, "build-manifest.toml");
     if (!existsSync(manifestPath)) {
-      throw new Error(`[${entry.id}] missing build-manifest.toml: ${formatDisplayPath(manifestPath)}`);
+      console.error(
+        `    [${entry.id}] missing build-manifest.toml: ${formatDisplayPath(manifestPath)}`,
+      );
+      hadErrors = true;
+      errorCount += 1;
+      continue;
     }
 
     const bm: BuildManifest = await readBuildManifest(agentDir);
@@ -225,6 +238,7 @@ export async function processSourceList(
       const hashesPath = await writePayloadHashes(agentDir, tmpDir, bmForBuild);
       await packZip(agentDir, bmForBuild, outDir, manifestPath, hashesPath);
     } finally {
+      // Always remove temporary pack workspace, regardless of pack success/failure.
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
 
@@ -497,6 +511,7 @@ export async function packSingleAgent(options: SinglePackOptions): Promise<Singl
     const hashesPath = await writePayloadHashes(agentDir, tmpDir, bm);
     await packZip(agentDir, bm, outDir, manifestPath, hashesPath);
   } finally {
+    // Always remove temporary pack workspace, regardless of pack success/failure.
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
 

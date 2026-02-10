@@ -132,6 +132,11 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
       - source-list generation mode
       - single-agent pack mode
   - reduced `pack-agent.ts` to CLI orchestration/dispatch only (no embedded package/repository mode logic).
+- Continued pack-agent exception-flow hardening to align with explicit-control policy:
+  - replaced `processSourceList` expected validation throws (missing source path / non-directory source path / missing `build-manifest.toml`) with deterministic conditional error accounting + final failure status.
+  - replaced throw-based argument validation in `pack-agent.ts` with explicit parse-result contracts.
+  - replaced mode-internal process-exit signaling in `pack_agent_modes.ts` with typed mode results consumed at CLI boundary.
+  - annotated remaining invariant/cleanup/boundary exception sites with explicit rationale comments.
 - Added utility error-hardening helpers at:
   - `mimolo/utils/src/pack_agent_errors.ts`
   - standardized errno-aware handling (`ENOENT` expected-path cases) in pack-agent helper/mode/core modules with explicit rethrow on unexpected failures.
@@ -142,6 +147,11 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 - Tightened runtime exception handling policy across core paths by replacing broad catches with explicit exception tuples and preserving plugin-boundary broad handling only where intentionally justified.
 - Updated canonical backlog reality to note that Item 1 lifecycle hardening work now includes maintainability-oriented module boundary cleanup, not only behavior fixes.
 - Refreshed verification snapshot context in active planning docs to stay aligned with latest strict checks and targeted IPC/runtime regression slices.
+- Verified strict QC for this hardening pass:
+  - `npm --prefix mimolo/utils run build` => clean
+  - `poetry run ruff check .` => clean
+  - `poetry run mypy mimolo scripts/qc_exception_scan.py` => clean
+  - `poetry run pytest -q` => 132 passed
 
 ## 2026-02-09
 
