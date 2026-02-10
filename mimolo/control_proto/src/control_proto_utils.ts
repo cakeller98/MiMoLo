@@ -162,15 +162,11 @@ export function deriveStatusLoopMs(
   status: OpsStatusPayload["state"],
   timing: ControlTimingSettings,
 ): number {
-  if (status !== "connected") {
-    return Math.max(
-      1,
-      Math.round(timing.status_poll_disconnected_s * 1000),
-    );
-  }
-  return Math.max(
-    Math.round(settings.poll_tick_s * 1000),
-    Math.round(timing.status_poll_connected_s * 1000),
+  return deriveLoopIntervalMs(
+    status,
+    settings.poll_tick_s,
+    timing.status_poll_connected_s,
+    timing.status_poll_disconnected_s,
   );
 }
 
@@ -179,15 +175,11 @@ export function deriveInstanceLoopMs(
   status: OpsStatusPayload["state"],
   timing: ControlTimingSettings,
 ): number {
-  if (status !== "connected") {
-    return Math.max(
-      1,
-      Math.round(timing.instance_poll_disconnected_s * 1000),
-    );
-  }
-  return Math.max(
-    Math.round(settings.poll_tick_s * 1000),
-    Math.round(timing.instance_poll_connected_s * 1000),
+  return deriveLoopIntervalMs(
+    status,
+    settings.poll_tick_s,
+    timing.instance_poll_connected_s,
+    timing.instance_poll_disconnected_s,
   );
 }
 
@@ -196,15 +188,26 @@ export function deriveLogLoopMs(
   status: OpsStatusPayload["state"],
   timing: ControlTimingSettings,
 ): number {
+  return deriveLoopIntervalMs(
+    status,
+    settings.poll_tick_s,
+    timing.log_poll_connected_s,
+    timing.log_poll_disconnected_s,
+  );
+}
+
+function deriveLoopIntervalMs(
+  status: OpsStatusPayload["state"],
+  pollTickSeconds: number,
+  connectedFloorSeconds: number,
+  disconnectedSeconds: number,
+): number {
   if (status !== "connected") {
-    return Math.max(
-      1,
-      Math.round(timing.log_poll_disconnected_s * 1000),
-    );
+    return Math.max(1, Math.round(disconnectedSeconds * 1000));
   }
   return Math.max(
-    Math.round(settings.poll_tick_s * 1000),
-    Math.round(timing.log_poll_connected_s * 1000),
+    Math.round(pollTickSeconds * 1000),
+    Math.round(connectedFloorSeconds * 1000),
   );
 }
 

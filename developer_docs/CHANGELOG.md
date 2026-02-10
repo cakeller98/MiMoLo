@@ -36,6 +36,20 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
   - `mimolo/control_proto/src/control_operations.ts` now owns Operations process lifecycle policy.
   - `mimolo/control_proto/src/control_ipc_handlers.ts` now owns Electron IPC handler registration and payload validation.
   - `mimolo/control_proto/src/main.ts` is now reduced to composition/wiring concerns rather than carrying transport/process/API implementation directly.
+- Continued Control renderer maintainability decomposition:
+  - `mimolo/control_proto/src/ui_html.ts` is now a thin composer for style, shell, and renderer script assembly.
+  - moved CSS and DOM shell concerns into:
+    - `mimolo/control_proto/src/ui_style.ts`
+    - `mimolo/control_proto/src/ui_shell.ts`
+  - moved renderer script into sectioned modules with stable execution order:
+    - `mimolo/control_proto/src/ui_renderer_script.ts`
+    - `mimolo/control_proto/src/ui_renderer_sections/state_and_ops.ts`
+    - `mimolo/control_proto/src/ui_renderer_sections/modals.ts`
+    - `mimolo/control_proto/src/ui_renderer_sections/indicators_and_widgets.ts`
+    - `mimolo/control_proto/src/ui_renderer_sections/commands_and_install.ts`
+    - `mimolo/control_proto/src/ui_renderer_sections/cards_and_bootstrap.ts`
+- Reduced duplicate loop-interval policy logic in `mimolo/control_proto/src/control_proto_utils.ts` by extracting a shared internal helper (`deriveLoopIntervalMs`) used by status/instance/log poll cadence derivations.
+- Tightened runtime exception handling policy across core paths by replacing broad catches with explicit exception tuples and preserving plugin-boundary broad handling only where intentionally justified.
 - Updated canonical backlog reality to note that Item 1 lifecycle hardening work now includes maintainability-oriented module boundary cleanup, not only behavior fixes.
 - Refreshed verification snapshot context in active planning docs to stay aligned with latest strict checks and targeted IPC/runtime regression slices.
 
