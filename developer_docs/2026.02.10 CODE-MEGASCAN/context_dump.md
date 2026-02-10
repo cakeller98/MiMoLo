@@ -72,6 +72,10 @@ Purpose: compact carry-forward context without duplicating canonical docs.
     - `bash -n mml.sh && bash -n scripts/mml/*.sh`
     - `./mml.sh help`
     - `./mml.sh env`
+- Portable runtime startup hardening:
+  - Ops launch paths now support a Poetry-free runtime startup path via explicit `MIMOLO_OPERATIONS_PYTHON`.
+  - deploy now provisions `temp_debug/bin/.venv` and hydrates it from the existing Poetry environment (network-independent in constrained environments).
+  - bundle app now exports `MIMOLO_OPERATIONS_PYTHON` into bundled runtime defaults so Control can start Operations without requiring `poetry` on runtime PATH.
 
 ## Remaining Exception Patterns in pack-agent module (intentional)
 - Core invariant throws (schema/semver/repo-dir contract): keep.

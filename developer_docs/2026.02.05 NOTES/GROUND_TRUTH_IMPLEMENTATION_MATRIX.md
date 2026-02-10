@@ -320,6 +320,10 @@ Priority-index rule:
     - `./mml.sh help` => PASS
     - `./mml.sh env` => PASS
     - `./mml.sh --no-cache help` => PASS
+  - runtime launch hardening follow-up:
+    - `scripts/deploy_portable.sh` now provisions a portable runtime interpreter at `temp_debug/bin/.venv/...` and hydrates dependencies from the local Poetry environment (no network dependency for this step in constrained environments).
+    - Control startup path now supports explicit interpreter launch via `MIMOLO_OPERATIONS_PYTHON`, avoiding hard runtime dependency on `poetry run ...`.
+    - `scripts/bundle_app.sh` now writes `MIMOLO_OPERATIONS_PYTHON` into bundle defaults (`bundle_main.mjs`) so bundled Control can start Operations without poetry launcher presence.
 
 ### Item 11 — Fix pack-agent `--verify-existing` deterministic archive verification
 - Status: Implemented (2026-02-10)

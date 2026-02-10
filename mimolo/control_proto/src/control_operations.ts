@@ -49,6 +49,13 @@ function quoteBashArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function resolvePortableOperationsPython(
+  env: RuntimeProcess["env"],
+): string {
+  const explicit = (env.MIMOLO_OPERATIONS_PYTHON || "").trim();
+  return explicit.length > 0 ? explicit : "";
+}
+
 function waitForProcessExit(
   processRef: ReturnType<typeof spawn>,
   timeoutMs: number,
@@ -141,6 +148,19 @@ export class OperationsController {
   private buildStartCommand(): { args: string[]; command: string } {
     const configPath = this.deps.runtimeProcess.env.MIMOLO_RUNTIME_CONFIG_PATH || "";
     const override = this.deps.runtimeProcess.env.MIMOLO_OPERATIONS_START_CMD || "";
+    const portablePython = resolvePortableOperationsPython(
+      this.deps.runtimeProcess.env,
+    );
+    if (override.trim().length === 0 && portablePython.length > 0) {
+      const args = ["-m", "mimolo.cli", "ops"];
+      if (configPath) {
+        args.push("--config", configPath);
+      }
+      return {
+        command: portablePython,
+        args,
+      };
+    }
     const defaultCmd = configPath
       ? `exec poetry run python -m mimolo.cli ops --config ${quoteBashArg(configPath)}`
       : "exec poetry run python -m mimolo.cli ops";

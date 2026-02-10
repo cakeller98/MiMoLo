@@ -179,6 +179,11 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
     - `./mml.sh help`
     - `./mml.sh env`
     - `./mml.sh --no-cache help`
+- Hardened portable runtime startup to remove runtime Poetry launcher dependency:
+  - `scripts/deploy_portable.sh` now provisions portable Python runtime at `temp_debug/bin/.venv` and hydrates it from the local Poetry environment site-packages.
+  - `scripts/mml/common.sh` `run_ops_command` now prefers `MIMOLO_OPERATIONS_PYTHON` (or portable `.venv` python path) before falling back to `poetry run`.
+  - `mimolo/control_proto/src/control_operations.ts` now supports direct interpreter startup when `MIMOLO_OPERATIONS_PYTHON` is present.
+  - `scripts/bundle_app.sh` now writes `MIMOLO_OPERATIONS_PYTHON` into bundle defaults so bundled app operations controls do not require poetry launcher on runtime PATH.
 - Hardened Control renderer non-critical promise handling:
   - replaced silent swallow on reconnect-backoff reset invocation in
     `mimolo/control_proto/src/ui_renderer_sections/state_and_ops.ts`

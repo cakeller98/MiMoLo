@@ -19,6 +19,107 @@ SOURCE_LIST_PATH="${MIMOLO_RELEASE_AGENTS_PATH:-}"
 NO_BUILD=0
 FORCE_SYNC=0
 
+resolve_portable_python_path() {
+  if [[ "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == cygwin* || "${OS:-}" == Windows_NT ]]; then
+    printf "%s/.venv/Scripts/python.exe" "$BIN_DIR"
+  else
+    printf "%s/.venv/bin/python" "$BIN_DIR"
+  fi
+}
+
+resolve_host_python() {
+  if command -v python3 >/dev/null 2>&1; then
+    printf "python3"
+    return
+  fi
+  if command -v python >/dev/null 2>&1; then
+    printf "python"
+    return
+  fi
+  if command -v poetry >/dev/null 2>&1; then
+    poetry run python -c "import sys; print(sys.executable)"
+    return
+  fi
+  printf ""
+}
+
+ensure_portable_runtime_venv() {
+  local venv_python
+  venv_python="$(resolve_portable_python_path)"
+  if [[ ! -x "$venv_python" ]]; then
+    local host_python
+    host_python="$(resolve_host_python)"
+    if [[ -z "$host_python" ]]; then
+      echo "[deploy] missing python runtime; cannot create portable .venv" >&2
+      exit 2
+    fi
+    echo "[deploy] creating portable runtime venv at $BIN_DIR/.venv"
+    "$host_python" -m venv "$BIN_DIR/.venv"
+  fi
+
+  if [[ ! -x "$venv_python" ]]; then
+    echo "[deploy] portable runtime python missing after venv creation: $venv_python" >&2
+    exit 2
+  fi
+
+  if "$venv_python" - <<'PY' >/dev/null 2>&1
+import mimolo  # noqa: F401
+import pydantic  # noqa: F401
+import rich  # noqa: F401
+import tomlkit  # noqa: F401
+import typer  # noqa: F401
+import yaml  # noqa: F401
+PY
+  then
+    echo "[deploy] portable runtime already ready: $venv_python"
+    return
+  fi
+
+  if ! command -v poetry >/dev/null 2>&1; then
+    echo "[deploy] poetry required to hydrate portable runtime from existing environment" >&2
+    exit 2
+  fi
+
+  local source_site
+  source_site="$(poetry run python -c "import site; print(next(p for p in site.getsitepackages() if p.endswith('site-packages')))" 2>/dev/null || true)"
+  if [[ -z "$source_site" || ! -d "$source_site" ]]; then
+    echo "[deploy] unable to resolve poetry site-packages source" >&2
+    exit 2
+  fi
+
+  local target_site
+  target_site="$("$venv_python" -c "import site; print(next(p for p in site.getsitepackages() if p.endswith('site-packages')))" 2>/dev/null || true)"
+  if [[ -z "$target_site" || ! -d "$target_site" ]]; then
+    echo "[deploy] unable to resolve portable venv site-packages target" >&2
+    exit 2
+  fi
+
+  echo "[deploy] hydrating portable runtime from poetry environment..."
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a "$source_site"/ "$target_site"/
+    rsync -a "$REPO_ROOT/mimolo/" "$target_site/mimolo/"
+  else
+    cp -R "$source_site"/. "$target_site"/
+    rm -rf "$target_site/mimolo"
+    cp -R "$REPO_ROOT/mimolo" "$target_site/mimolo"
+  fi
+
+  if ! "$venv_python" - <<'PY' >/dev/null 2>&1
+import mimolo  # noqa: F401
+import pydantic  # noqa: F401
+import rich  # noqa: F401
+import tomlkit  # noqa: F401
+import typer  # noqa: F401
+import yaml  # noqa: F401
+PY
+  then
+    echo "[deploy] portable runtime hydration failed validation imports" >&2
+    exit 2
+  fi
+
+  echo "[deploy] portable runtime ready: $venv_python"
+}
+
 usage() {
   cat <<'EOF'
 Portable deploy utility
@@ -186,6 +287,8 @@ sync_dir "$REPO_ROOT/mimolo/" "$BIN_DIR/runtime/mimolo/"
 
 chmod +x "$BIN_DIR/mml.sh" || true
 chmod +x "$BIN_DIR/scripts/bundle_app.sh" || true
+
+ensure_portable_runtime_venv
 
 if [[ ! -f "$SOURCE_LIST_PATH" ]]; then
   echo "[deploy] missing source list: $SOURCE_LIST_PATH" >&2

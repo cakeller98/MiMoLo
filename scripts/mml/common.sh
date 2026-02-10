@@ -155,7 +155,25 @@ has_config_arg() {
 
 run_ops_command() {
   local -a ops_args=("$@")
-  local -a cmd=(poetry run python -m mimolo.cli ops)
+  local ops_python="${MIMOLO_OPERATIONS_PYTHON:-}"
+  if [[ -z "$ops_python" ]]; then
+    local candidate=""
+    if [[ "${OSTYPE:-}" == msys* || "${OSTYPE:-}" == cygwin* || "${OS:-}" == Windows_NT ]]; then
+      candidate="$MIMOLO_BIN_DIR/.venv/Scripts/python.exe"
+    else
+      candidate="$MIMOLO_BIN_DIR/.venv/bin/python"
+    fi
+    if [[ -x "$candidate" ]]; then
+      ops_python="$candidate"
+    fi
+  fi
+
+  local -a cmd=()
+  if [[ -n "$ops_python" ]]; then
+    cmd=("$ops_python" -m mimolo.cli ops)
+  else
+    cmd=(poetry run python -m mimolo.cli ops)
+  fi
   if ! has_config_arg "$@"; then
     cmd+=(--config "$MIMOLO_RUNTIME_CONFIG_PATH")
   fi
