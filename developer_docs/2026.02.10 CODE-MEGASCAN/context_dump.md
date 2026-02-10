@@ -64,6 +64,14 @@ Purpose: compact carry-forward context without duplicating canonical docs.
   - `pack_agent_cli_helpers.ts` (CLI support),
   - `pack_agent_errors.ts` (shared helpers).
 - Recent hardening removed expected-validation throws in source-list mode and replaced with deterministic conditional accounting + explicit mode results.
+- MML Phase 1 shell decomposition is now active and materially progressed:
+  - `mml.sh` reduced to coordinator-only entrypoint (74 LOC).
+  - concern modules now live in `scripts/mml/`:
+    - `common.sh`, `prepare.sh`, `launch.sh`, `process.sh`, `usage.sh`, `args.sh`, `dispatch.sh`.
+  - smoke checks passing:
+    - `bash -n mml.sh && bash -n scripts/mml/*.sh`
+    - `./mml.sh help`
+    - `./mml.sh env`
 
 ## Remaining Exception Patterns in pack-agent module (intentional)
 - Core invariant throws (schema/semver/repo-dir contract): keep.

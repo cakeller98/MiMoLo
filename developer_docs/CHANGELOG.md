@@ -164,6 +164,21 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 - Added utility error-hardening helpers at:
   - `mimolo/utils/src/pack_agent_errors.ts`
   - standardized errno-aware handling (`ENOENT` expected-path cases) in pack-agent helper/mode/core modules with explicit rethrow on unexpected failures.
+- Continued maintainability decomposition for launcher shell orchestration:
+  - split `mml.sh` concerns into focused modules under `scripts/mml/`:
+    - `common.sh` (config/env/runtime command wiring)
+    - `prepare.sh` (prepare/cleanup/build guards)
+    - `launch.sh` (operations/control/proto launch + IPC wait)
+    - `process.sh` (process inspection)
+    - `usage.sh` (help/env output)
+    - `args.sh` (global flag parsing)
+    - `dispatch.sh` (command routing)
+  - reduced `mml.sh` from 518 LOC to 74 LOC so it now acts as a coordinator-only entrypoint.
+  - validated launcher behavior parity with syntax + smoke checks:
+    - `bash -n mml.sh && bash -n scripts/mml/*.sh`
+    - `./mml.sh help`
+    - `./mml.sh env`
+    - `./mml.sh --no-cache help`
 - Hardened Control renderer non-critical promise handling:
   - replaced silent swallow on reconnect-backoff reset invocation in
     `mimolo/control_proto/src/ui_renderer_sections/state_and_ops.ts`

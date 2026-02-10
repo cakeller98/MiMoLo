@@ -304,6 +304,22 @@ Priority-index rule:
   - each maintainability slice includes strict QC verification and synchronized docs/changelog updates.
 - Scope note:
   - this item is now the top execution priority and supersedes behavior-feature sequencing when there is a tradeoff.
+- Progress update (2026-02-10):
+  - implemented:
+    - Phase 1 MML shell concern decomposition now has focused modules under `scripts/mml/`:
+      - `common.sh` (config/env/runtime command wiring)
+      - `prepare.sh` (prepare/cleanup/build guards)
+      - `launch.sh` (operations/control/proto launch + IPC wait)
+      - `process.sh` (process inspection)
+      - `usage.sh` (help/env rendering)
+      - `args.sh` (global flag parsing)
+      - `dispatch.sh` (command routing)
+    - `mml.sh` reduced from 518 LOC to 74 LOC and now acts as coordinator-only entrypoint.
+  - validation rerun:
+    - `bash -n mml.sh && bash -n scripts/mml/*.sh` => PASS
+    - `./mml.sh help` => PASS
+    - `./mml.sh env` => PASS
+    - `./mml.sh --no-cache help` => PASS
 
 ### Item 11 — Fix pack-agent `--verify-existing` deterministic archive verification
 - Status: Implemented (2026-02-10)
