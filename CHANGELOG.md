@@ -6,6 +6,16 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
 ## 2026-02-09
 
 ### Added
+- Added a validated `[control]` timing configuration surface in `mimolo.toml` (via `ControlConfig`) for Control-proto cadence/retry behavior:
+  - connected/disconnected status polling
+  - connected/disconnected instance polling
+  - connected/disconnected log polling
+  - reconnect backoff (initial/extended/escalation threshold)
+  - status repeat throttling
+  - widget auto tick/default refresh
+  - IPC request timeout and template cache TTL
+  - indicator fade step + toast duration
+  - operations stop/disconnect wait windows.
 - Added runtime monitor settings IPC commands in Operations:
   - `get_monitor_settings`
   - `update_monitor_settings`
@@ -37,6 +47,17 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
   - plus orchestrator control IPC tests in `tests/test_runtime_orchestrator_control_ipc.py`.
 
 ### Changed
+- Updated Control proto reconnect behavior to be policy-driven from `[control]` settings instead of hard-coded constants.
+- Updated Control proto disconnected UX semantics:
+  - repeated identical disconnected status updates are throttled.
+  - reconnect attempts back off and escalate per config policy.
+  - disconnected `ipc_connect_backoff` status is normalized to waiting semantics.
+- Updated Control proto interactivity gating:
+  - per-agent action buttons and widget controls are disabled when Operations is unavailable.
+  - top-level Add/Monitor/Install buttons are disabled when Operations is unavailable.
+  - disconnected card lifecycle indicators normalize to inactive instead of stale `shutting-down`.
+- Updated runtime monitor-settings snapshot payload to include `control` timing settings for Control consumption.
+- Updated runtime IPC socket startup robustness so a socket chmod failure no longer aborts the IPC server startup path.
 - Updated Control background refresh loops to derive cadence from runtime monitor settings (`poll_tick_s`) instead of hardcoded intervals.
 - Updated widget auto-refresh interval resolution to respect effective heartbeat cadence plus global monitor floor.
 - Updated `screen_tracker` artifact semantics to include both full and thumbnail references with lightweight metadata payloads.

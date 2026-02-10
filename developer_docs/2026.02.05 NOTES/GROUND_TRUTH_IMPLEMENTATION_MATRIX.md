@@ -1,10 +1,10 @@
 # Ground Truth Implementation Matrix (Canonical Active Backlog)
 
-Date: 2026-02-09
+Date: 2026-02-10
 Rule: code and tests are implementation truth when docs differ.
 
 Verification snapshot:
-- `poetry run pytest -q` => 131 passed
+- `poetry run pytest -q` => 132 passed
 - `poetry run mypy mimolo` => clean
 - `poetry run ruff check .` => clean
 - `npm run build` in `mimolo/control_proto` => clean
@@ -44,6 +44,9 @@ Verification snapshot:
   - `+ Add` modal uses the live template registry as ground-truth source for instance creation
   - widget panel on each card with manual update + pause/play
   - persistent IPC channel with bounded queued requests and timeout handling
+  - reconnect/poll/backoff timing policy loaded from `[control]` in `mimolo.toml` (no hard-coded cadence policy)
+  - disconnected-state status throttling and reconnect backoff escalation
+  - disconnected-state interactivity gating (instance controls, widget controls, and top-level add/config/install actions disabled while Operations is unavailable)
   - plugin zip install UI is disabled by default and enabled only in explicit developer mode (`MIMOLO_CONTROL_DEV_MODE=1`, for example via `mml.sh --dev`)
 - Evidence:
   - `mimolo/control_proto/src/main.ts`
@@ -138,6 +141,9 @@ Priority-index rule:
     - operations singleton lock guard in runtime startup path
     - Control stop path can request external/unmanaged Operations shutdown via IPC
     - launcher process diagnostics (`mml.sh ps`, `mml.ps1 ps`)
+    - Control disconnect policy hardening:
+      - transport status chatter reduced via configurable throttling/backoff
+      - control actions are disabled while Operations is unavailable
   - remaining:
     - explicit Control quit prompt (`leave running` vs `shutdown operations+agents`)
     - comprehensive lifecycle regression coverage for repeated start/stop/restart/quit cycles

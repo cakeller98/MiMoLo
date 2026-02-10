@@ -5,6 +5,10 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 ## 2026-02-09
 
 ### Changed
+- Updated implementation matrix and changelog truth alignment for Control reconnect/cadence policy:
+  - Control timing is now explicitly TOML-driven via `[control]` policy keys.
+  - reconnect churn mitigation is now documented as config-first behavior (throttled status + escalating backoff).
+  - disconnected interactivity policy is documented: instance/widget/top-level control actions are disabled while Operations is unavailable.
 - Updated changelog alignment to reflect current implementation status:
   - Control proto now renders sanitized widget HTML fragments in-canvas.
   - Operations/runtime now exposes monitor settings IPC read/update commands and persists validated monitor updates.
@@ -15,7 +19,7 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
   - promoted Operations lifecycle/process-ownership hardening as explicit highest-priority execution item.
   - documented partial completion progress (`mimolo ops` singleton guard, process diagnostics, external-stop IPC path) and remaining gaps.
   - refreshed verification snapshot from strict rerun:
-    - `poetry run pytest -q` => 131 passed
+    - `poetry run pytest -q` => 132 passed
     - `poetry run mypy mimolo` => clean
     - `poetry run ruff check .` => clean
     - `npm run build` in `mimolo/control_proto` => clean
