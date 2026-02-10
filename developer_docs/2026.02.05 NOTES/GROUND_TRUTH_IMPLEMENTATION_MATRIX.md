@@ -31,6 +31,7 @@ Deep scan reference:
   - `mimolo/core/runtime_agent_events.py`
   - `mimolo/core/runtime_agent_lifecycle.py`
   - `mimolo/core/runtime_agent_registry.py`
+  - `mimolo/core/runtime_tick.py`
   - `mimolo/core/runtime_widget_support.py`
   - `mimolo/core/runtime_monitor_settings.py`
   - `mimolo/core/runtime_shutdown.py`
@@ -72,6 +73,9 @@ Deep scan reference:
     - `mimolo/control_proto/src/control_persistent_ipc.ts`
     - `mimolo/control_proto/src/control_operations.ts`
     - `mimolo/control_proto/src/control_operations_state.ts`
+    - `mimolo/control_proto/src/control_env.ts`
+    - `mimolo/control_proto/src/control_ops_log_writer.ts`
+    - `mimolo/control_proto/src/control_timing_loader.ts`
     - `mimolo/control_proto/src/control_ipc_handlers.ts`
     - `mimolo/control_proto/src/control_snapshot_refresher.ts`
     - `mimolo/control_proto/src/control_window_publisher.ts`
@@ -182,11 +186,15 @@ Priority-index rule:
       - Runtime shutdown/flush/segment lifecycle extracted into `runtime_shutdown.py`
       - Control proto `main.ts` split into focused modules (`types.ts`, `control_timing.ts`, `ui_html.ts`, `control_persistent_ipc.ts`, `control_operations.ts`, `control_ipc_handlers.ts`)
       - Control proto additional main-process concern extraction:
+        - `control_env.ts` (runtime environment/path/flag resolution)
         - `control_ops_log_tailer.ts` (ops log init/tail/read cursor lifecycle)
+        - `control_ops_log_writer.ts` (queued append-only runtime log writer)
+        - `control_timing_loader.ts` (timing config candidate load/parse bootstrap)
         - `control_template_cache.ts` (template refresh cache + in-flight de-dup)
         - `control_background_loops.ts` (status/log/instance loop timer orchestration)
         - `control_quit.ts` (quit policy + prompt-driven shutdown decision flow)
         - `control_window.ts` (BrowserWindow creation + HTML load composition)
+        - `control_operations_state.ts` (Operations lifecycle state store + publish)
         - `control_snapshot_refresher.ts` (status/monitor/instance/template refresh orchestration + initial snapshot bootstrap)
         - `control_window_publisher.ts` (all BrowserWindow publish/event fanout in one place)
       - Runtime widget IPC command routing extraction:
@@ -201,6 +209,8 @@ Priority-index rule:
         - `runtime_agent_lifecycle.py` (start/spawn/stop/restart operations decoupled from runtime loop coordinator)
       - Runtime agent-registry extraction:
         - `runtime_agent_registry.py` (state snapshots, template discovery, instance/cadence helper branch decoupled from runtime loop coordinator)
+      - Runtime tick-loop extraction:
+        - `runtime_tick.py` (control-action drain + flush/message routing + exit-reap branch decoupled from runtime loop coordinator)
   - remaining:
     - continue decomposition until orchestration files are coordinator-only and easier to audit under Item 1 hardening goals
 

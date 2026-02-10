@@ -15,7 +15,7 @@ import os
 import socket
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -23,8 +23,6 @@ from rich.console import Console
 
 from mimolo.core.config import Config, PluginConfig
 from mimolo.core.cooldown import CooldownTimer
-from mimolo.core.errors import SinkError
-from mimolo.core.event import Event
 from mimolo.core.plugin_store import PluginStore
 from mimolo.core.runtime_agent_events import (
     coerce_timestamp,
@@ -70,6 +68,7 @@ from mimolo.core.runtime_ipc_server import (
 )
 from mimolo.core.runtime_monitor_settings import update_monitor_settings
 from mimolo.core.runtime_shutdown import close_segment, flush_all_agents, shutdown_runtime
+from mimolo.core.runtime_tick import execute_tick
 from mimolo.core.runtime_widget_support import (
     build_screen_tracker_widget_manifest,
     build_screen_tracker_widget_render,
@@ -406,99 +405,7 @@ class Runtime:
 
     def _tick(self) -> None:
         """Execute one tick of the event loop."""
-        self._tick_count += 1
-        now = datetime.now(UTC)
-        self._process_control_actions()
-
-        # Track and report unexpected agent exits
-        for label, handle in list(self.agent_manager.agents.items()):
-            if not handle.is_alive():
-                exit_code = handle.process.poll()
-                last_heartbeat = (
-                    handle.last_heartbeat.isoformat()
-                    if handle.last_heartbeat
-                    else None
-                )
-                self.console.print(
-                    f"[red]Agent {label} exited unexpectedly (code={exit_code})[/red]"
-                )
-                try:
-                    exit_event = Event(
-                        timestamp=now,
-                        label="orchestrator",
-                        event="agent_exit",
-                        data={
-                            "agent": label,
-                            "exit_code": exit_code,
-                            "last_heartbeat": last_heartbeat,
-                            "note": "Agent process exited without shutdown sequence",
-                        },
-                    )
-                    self.file_sink.write_event(exit_event)
-                except (SinkError, RuntimeError, ValueError, TypeError) as e:
-                    self._debug(
-                        f"[yellow]Failed to write agent_exit event for {label}: {e}[/yellow]"
-                    )
-                # Remove dead handle to avoid repeated alerts
-                detail = f"exit_code:{exit_code}" if exit_code is not None else "exit_code:unknown"
-                self._set_agent_state(label, "error", detail)
-                del self.agent_manager.agents[label]
-                continue
-
-        # Check for cooldown expiration
-        if self.cooldown.check_expiration(now):
-            self._close_segment()
-
-        # Poll Agent messages
-        from mimolo.core.protocol import CommandType, OrchestratorCommand
-
-        for label, handle in list(self.agent_manager.agents.items()):
-            # Check if it's time to send flush command
-            plugin_config = self.config.plugins.get(label)
-            if plugin_config and plugin_config.plugin_type == "agent":
-                last_flush = self.agent_last_flush.get(label)
-                flush_interval = self._effective_agent_flush_interval_s(plugin_config)
-
-                # Send flush if interval elapsed or never flushed
-                if last_flush is None or (now - last_flush).total_seconds() >= flush_interval:
-                    try:
-                        flush_cmd = OrchestratorCommand(cmd=CommandType.FLUSH)
-                        if handle.send_command(flush_cmd):
-                            self.agent_last_flush[label] = now
-                        if self.config.monitor.console_verbosity == "debug":
-                            self.console.print(f"[cyan]Sent flush to {label}[/cyan]")
-                    except (OSError, RuntimeError, ValueError, TypeError) as e:
-                        self.console.print(f"[red]Error sending flush to {label}: {e}[/red]")
-
-            # Drain all available messages from this agent
-            while (msg := handle.read_message(timeout=0.001)) is not None:
-                try:
-                    # Message routing by type (msg.type may be str or Enum)
-                    mtype = getattr(msg, "type", None)
-                    if isinstance(mtype, str):
-                        t = mtype
-                    else:
-                        t = str(mtype).lower()
-
-                    if t == "heartbeat" or t.endswith("heartbeat"):
-                        self._handle_heartbeat(label, msg)
-                    elif t == "summary" or t.endswith("summary"):
-                        self._handle_agent_summary(label, msg)
-                    elif t == "log" or t.endswith("log"):
-                        self._handle_agent_log(label, msg)
-                    elif t == "error" or t.endswith("error"):
-                        # Log agent-reported error
-                        try:
-                            message = getattr(msg, "message", None) or getattr(msg, "data", None)
-                            self.console.print(f"[red]Agent {label} error: {message}[/red]")
-                        except (AttributeError, RuntimeError, TypeError, ValueError) as e:
-                            self.console.print(
-                                f"[red]Agent {label} reported an error (unreadable payload): {e}[/red]"
-                            )
-                except (AttributeError, RuntimeError, TypeError, ValueError) as e:
-                    self.console.print(
-                        f"[red]Error handling agent message from {label}: {e}[/red]"
-                    )
+        execute_tick(self)
 
     def _coerce_timestamp(self, ts: object) -> datetime:
         """Coerce a timestamp value (str or datetime) into timezone-aware datetime."""

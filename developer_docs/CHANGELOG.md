@@ -28,6 +28,7 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
     - `mimolo/core/runtime_agent_events.py` (agent summary/heartbeat/log handling)
     - `mimolo/core/runtime_agent_lifecycle.py` (agent start/spawn/stop/restart orchestration)
     - `mimolo/core/runtime_agent_registry.py` (agent state snapshots, template discovery, instance snapshot/cadence helpers)
+    - `mimolo/core/runtime_tick.py` (event-loop tick execution: control-action drain, exit reaping, flush cadence, message routing)
     - `mimolo/core/runtime_widget_support.py` (screen-tracker widget thumbnail/data-uri/render helpers)
     - `mimolo/core/runtime_monitor_settings.py` (monitor settings update/persist helper)
     - `mimolo/core/runtime_shutdown.py` (shutdown/flush/segment lifecycle)
@@ -78,6 +79,11 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
     - `mimolo/control_proto/src/control_operations_state.ts`
       - canonical state holder for Operations managed/unmanaged lifecycle snapshot updates
       - `main.ts` now delegates process-state change/publish logic through the store instead of inline state mutation
+  - extracted Control bootstrap/environment and local file-IO concerns into:
+    - `mimolo/control_proto/src/control_env.ts` (environment flag/path resolution)
+    - `mimolo/control_proto/src/control_ops_log_writer.ts` (queued append-only ops-log writer)
+    - `mimolo/control_proto/src/control_timing_loader.ts` (timing config candidate load/parse)
+  - `main.ts` now delegates these concerns and remains focused on orchestration composition.
   - `mimolo/control_proto/src/main.ts` now delegates those concerns instead of carrying inline implementations.
 - Reduced duplicate loop-interval policy logic in `mimolo/control_proto/src/control_proto_utils.ts` by extracting a shared internal helper (`deriveLoopIntervalMs`) used by status/instance/log poll cadence derivations.
 - Continued Runtime IPC maintainability decomposition:
@@ -91,6 +97,9 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
     - `mimolo/core/runtime_ipc_widget_commands.py`
   - `build_ipc_response(...)` now delegates widget command handling through `maybe_handle_widget_command(...)` to keep command routing file focused.
 - Continued Runtime maintainability decomposition (non-IPC):
+  - extracted tick-loop execution concern from `runtime.py` into:
+    - `mimolo/core/runtime_tick.py`
+  - `Runtime._tick()` now delegates event-loop body to `execute_tick(...)`, keeping `runtime.py` focused on orchestration composition.
   - extracted agent state/template/instance registry concerns from `runtime.py` into:
     - `mimolo/core/runtime_agent_registry.py`
   - `Runtime` now delegates:
@@ -110,6 +119,12 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
     - `_queue_control_action` / `_drain_control_actions` / `_process_control_actions`
     - `_add_agent_instance` / `_duplicate_agent_instance` / `_remove_agent_instance` / `_update_agent_instance`
     - `_next_available_label` / `_persist_runtime_config`
+- Continued tooling maintainability decomposition for pack-agent utility:
+  - extracted core artifact/manifest/hash/archive functions from:
+    - `mimolo/utils/src/pack-agent.ts`
+  - into:
+    - `mimolo/utils/src/pack_agent_core.ts`
+  - `pack-agent.ts` now focuses more on CLI flow/control logic while archive/manifest primitives are isolated for reuse and further modularization.
 - Tightened runtime exception handling policy across core paths by replacing broad catches with explicit exception tuples and preserving plugin-boundary broad handling only where intentionally justified.
 - Updated canonical backlog reality to note that Item 1 lifecycle hardening work now includes maintainability-oriented module boundary cleanup, not only behavior fixes.
 - Refreshed verification snapshot context in active planning docs to stay aligned with latest strict checks and targeted IPC/runtime regression slices.

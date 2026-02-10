@@ -1,5 +1,4 @@
 import electronDefault, * as electronNamespace from "electron";
-import { readFile, writeFile } from "node:fs/promises";
 import type {
   AgentInstanceSnapshot,
   AgentTemplateSnapshot,
@@ -18,6 +17,7 @@ import {
   normalizeControlTimingSettings,
   parseControlSettingsFromToml,
 } from "./control_timing.js";
+import { resolveControlEnvironment } from "./control_env.js";
 import {
   deriveInstanceLoopMs,
   deriveLogLoopMs,
@@ -35,9 +35,11 @@ import { PersistentIpcClient } from "./control_persistent_ipc.js";
 import { OperationsController } from "./control_operations.js";
 import { registerIpcHandlers } from "./control_ipc_handlers.js";
 import { OpsLogTailer } from "./control_ops_log_tailer.js";
+import { OpsLogWriter } from "./control_ops_log_writer.js";
 import { TemplateCache } from "./control_template_cache.js";
 import { BackgroundLoopController } from "./control_background_loops.js";
 import { OperationsStateStore } from "./control_operations_state.js";
+import { loadControlTimingSettingsFromConfigFile } from "./control_timing_loader.js";
 import {
   handleQuitRequest as handleQuitRequestImpl,
   operationsMayBeRunning as operationsMayBeRunningImpl,
@@ -66,23 +68,8 @@ if (!maybeRuntimeProcess) {
   throw new Error("Node.js process global is unavailable");
 }
 const runtimeProcess: RuntimeProcess = maybeRuntimeProcess;
-
-function parseEnabledEnv(raw: string | undefined): boolean {
-  if (!raw) {
-    return false;
-  }
-  const normalized = raw.trim().toLowerCase();
-  return (
-    normalized === "1" ||
-    normalized === "true" ||
-    normalized === "yes" ||
-    normalized === "on"
-  );
-}
-
-const ipcPath = runtimeProcess.env.MIMOLO_IPC_PATH || "";
-const opsLogPath = runtimeProcess.env.MIMOLO_OPS_LOG_PATH || "";
-const controlDevMode = parseEnabledEnv(runtimeProcess.env.MIMOLO_CONTROL_DEV_MODE);
+const { ipcPath, opsLogPath, controlDevMode } =
+  resolveControlEnvironment(runtimeProcess);
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
 const windowPublisher = new WindowPublisher(() => mainWindow);
@@ -96,7 +83,6 @@ const DEFAULT_MONITOR_SETTINGS: MonitorSettingsSnapshot = {
   console_verbosity: "info",
 };
 
-let opsLogWriteQueue: Promise<void> = Promise.resolve();
 let quitInProgress = false;
 
 function setOperationsControlState(
@@ -151,50 +137,8 @@ function applyControlTimingSettings(raw: unknown): void {
   );
 }
 
-async function loadControlTimingSettingsFromConfigFile(): Promise<void> {
-  const configCandidates: string[] = [];
-  const runtimeConfigPath = runtimeProcess.env.MIMOLO_RUNTIME_CONFIG_PATH;
-  if (runtimeConfigPath && runtimeConfigPath.trim().length > 0) {
-    configCandidates.push(runtimeConfigPath.trim());
-  }
-  const sourceConfigPath = runtimeProcess.env.MIMOLO_CONFIG_SOURCE_PATH;
-  if (sourceConfigPath && sourceConfigPath.trim().length > 0) {
-    configCandidates.push(sourceConfigPath.trim());
-  }
-  configCandidates.push("mimolo.toml");
-
-  for (const candidate of configCandidates) {
-    try {
-      const content = await readFile(candidate, "utf8");
-      const parsed = parseControlSettingsFromToml(content);
-      applyControlTimingSettings(parsed);
-      return;
-    } catch {
-      continue;
-    }
-  }
-  applyControlTimingSettings(DEFAULT_CONTROL_TIMING_SETTINGS);
-}
-
-function appendOpsLogChunk(rawChunk: unknown): void {
-  if (!opsLogPath) {
-    return;
-  }
-  const chunk =
-    typeof rawChunk === "string"
-      ? rawChunk
-      : (rawChunk && typeof rawChunk === "object" && "toString" in rawChunk
-        ? String((rawChunk as { toString: () => string }).toString())
-        : "");
-  if (chunk.length === 0) {
-    return;
-  }
-  opsLogWriteQueue = opsLogWriteQueue
-    .then(() => writeFile(opsLogPath, chunk, { flag: "a" }))
-    .catch(() => {
-      // Keep the write chain alive on transient write failures.
-    });
-}
+const opsLogWriter = new OpsLogWriter(opsLogPath);
+const appendOpsLogChunk = opsLogWriter.append.bind(opsLogWriter);
 
 const publishLine = windowPublisher.publishLine.bind(windowPublisher);
 const publishTraffic = windowPublisher.publishTraffic.bind(windowPublisher);
@@ -498,7 +442,11 @@ registerIpcHandlers({
 });
 
 app.whenReady().then(async () => {
-  await loadControlTimingSettingsFromConfigFile();
+  applyControlTimingSettings(DEFAULT_CONTROL_TIMING_SETTINGS);
+  await loadControlTimingSettingsFromConfigFile(
+    runtimeProcess,
+    applyControlTimingSettings,
+  );
   createWindow();
   startBackgroundLoops();
 
