@@ -60,6 +60,9 @@ Verification snapshot:
   - `mimolo/control_proto/src/control_timing.ts`
   - `mimolo/control_proto/src/control_proto_utils.ts`
   - `mimolo/control_proto/src/control_command_wrappers.ts`
+  - `mimolo/control_proto/src/control_persistent_ipc.ts`
+  - `mimolo/control_proto/src/control_operations.ts`
+  - `mimolo/control_proto/src/control_ipc_handlers.ts`
   - `mimolo/control_proto/src/ui_html.ts`
 
 4. Runtime widget IPC command names (stable stubs)
@@ -165,7 +168,7 @@ Priority-index rule:
       - Runtime IPC command routing extracted from `runtime.py` into `runtime_ipc_commands.py`
       - Runtime IPC server plumbing extracted into `runtime_ipc_server.py`
       - Runtime shutdown/flush/segment lifecycle extracted into `runtime_shutdown.py`
-      - Control proto `main.ts` split into focused modules (`types.ts`, `control_timing.ts`, `ui_html.ts`)
+      - Control proto `main.ts` split into focused modules (`types.ts`, `control_timing.ts`, `ui_html.ts`, `control_persistent_ipc.ts`, `control_operations.ts`, `control_ipc_handlers.ts`)
   - remaining:
     - continue decomposition until orchestration files are coordinator-only and easier to audit under Item 1 hardening goals
 

@@ -1,7 +1,5 @@
 import electronDefault, * as electronNamespace from "electron";
-import { spawn } from "node:child_process";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import net from "node:net";
 import path from "node:path";
 import type {
   AgentInstanceSnapshot,
@@ -12,11 +10,9 @@ import type {
   IpcTrafficClass,
   IpcTrafficPayload,
   MonitorSettingsSnapshot,
-  OperationsControlRequest,
-  OperationsProcessState,
   OperationsControlSnapshot,
+  OperationsProcessState,
   OpsStatusPayload,
-  PendingIpcRequest,
   RuntimeProcess,
 } from "./types.js";
 import { buildHtml } from "./ui_html.js";
@@ -41,6 +37,9 @@ import {
   requestWidgetRenderWrapper,
   runAgentCommandWrapper,
 } from "./control_command_wrappers.js";
+import { PersistentIpcClient } from "./control_persistent_ipc.js";
+import { OperationsController } from "./control_operations.js";
+import { registerIpcHandlers } from "./control_ipc_handlers.js";
 
 const electronRuntime = (
   (electronDefault as unknown as Record<string, unknown>) ??
@@ -57,9 +56,7 @@ if (!app || !BrowserWindow || !dialog || !ipcMain) {
   throw new Error("electron_runtime_exports_unavailable");
 }
 
-
 const maybeRuntimeProcess = (globalThis as { process?: RuntimeProcess }).process;
-
 if (!maybeRuntimeProcess) {
   throw new Error("Node.js process global is unavailable");
 }
@@ -101,12 +98,9 @@ const DEFAULT_MONITOR_SETTINGS: MonitorSettingsSnapshot = {
 };
 
 let lastMonitorSettings: MonitorSettingsSnapshot = { ...DEFAULT_MONITOR_SETTINGS };
-
 let lastAgentInstances: Record<string, AgentInstanceSnapshot> = {};
 let opsLogWarningPrinted = false;
 let opsLogWriteQueue: Promise<void> = Promise.resolve();
-let operationsProcess: ReturnType<typeof spawn> | null = null;
-let operationsStopRequested = false;
 let quitInProgress = false;
 let operationsControlState: OperationsControlSnapshot = {
   state: "stopped",
@@ -115,9 +109,6 @@ let operationsControlState: OperationsControlSnapshot = {
   pid: null,
   timestamp: new Date().toISOString(),
 };
-
-const IPC_MAX_PENDING_REQUESTS = 256;
-type IpcSocket = ReturnType<typeof net.createConnection>;
 
 const DEFAULT_CONTROL_TIMING_SETTINGS: ControlTimingSettings = {
   indicator_fade_step_s: 0.2,
@@ -144,27 +135,10 @@ const DEFAULT_CONTROL_TIMING_SETTINGS: ControlTimingSettings = {
   widget_auto_refresh_default_s: 15.0,
 };
 
-let ipcSocket: IpcSocket | null = null;
-let ipcSocketState: "disconnected" | "connecting" | "connected" = "disconnected";
-let ipcSocketBuffer = "";
-let ipcConnectPromise: Promise<void> | null = null;
-let ipcConnectResolve: (() => void) | null = null;
-let ipcConnectReject: ((error: Error) => void) | null = null;
-let ipcInFlightRequest: PendingIpcRequest | null = null;
-let ipcQueueDrainRunning = false;
-let ipcRequestCounter = 0;
-let ipcLastConnectFailureAt = 0;
-let ipcConnectFailureCount = 0;
-let ipcNextConnectAttemptAt = 0;
-const ipcPendingRequestQueue: PendingIpcRequest[] = [];
 let templateCache: { fetchedAtMs: number; templates: Record<string, AgentTemplateSnapshot> } | null = null;
 let templateRefreshInFlight: Promise<Record<string, AgentTemplateSnapshot>> | null = null;
 
 let controlTimingSettings: ControlTimingSettings = { ...DEFAULT_CONTROL_TIMING_SETTINGS };
-let ipcRequestTimeoutMs = Math.max(
-  1,
-  Math.round(DEFAULT_CONTROL_TIMING_SETTINGS.ipc_request_timeout_s * 1000),
-);
 let templateCacheTtlMs = Math.max(
   1,
   Math.round(DEFAULT_CONTROL_TIMING_SETTINGS.template_cache_ttl_s * 1000),
@@ -174,10 +148,6 @@ function applyControlTimingSettings(raw: unknown): void {
   controlTimingSettings = normalizeControlTimingSettings(
     raw,
     DEFAULT_CONTROL_TIMING_SETTINGS,
-  );
-  ipcRequestTimeoutMs = Math.max(
-    1,
-    Math.round(controlTimingSettings.ipc_request_timeout_s * 1000),
   );
   templateCacheTtlMs = Math.max(
     1,
@@ -285,404 +255,6 @@ function appendOpsLogChunk(rawChunk: unknown): void {
     });
 }
 
-function quoteBashArg(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-function buildOperationsStartCommand(): { args: string[]; command: string } {
-  const configPath = runtimeProcess.env.MIMOLO_RUNTIME_CONFIG_PATH || "";
-  const override = runtimeProcess.env.MIMOLO_OPERATIONS_START_CMD || "";
-  const defaultCmd = configPath
-    ? `exec poetry run python -m mimolo.cli ops --config ${quoteBashArg(configPath)}`
-    : "exec poetry run python -m mimolo.cli ops";
-  const shellCommand = override.trim().length > 0 ? override.trim() : defaultCmd;
-  if (runtimeProcess.platform === "win32") {
-    return {
-      command: "pwsh",
-      args: ["-NoProfile", "-Command", shellCommand],
-    };
-  }
-  return {
-    command: "bash",
-    args: ["-lc", shellCommand],
-  };
-}
-
-async function startOperationsProcess(): Promise<{
-  error?: string;
-  ok: boolean;
-  state: OperationsControlSnapshot;
-}> {
-  if (operationsProcess) {
-    setOperationsControlState(
-      "running",
-      "already_running_managed",
-      true,
-      typeof operationsProcess.pid === "number" ? operationsProcess.pid : null,
-    );
-    return {
-      ok: true,
-      state: operationsControlState,
-    };
-  }
-
-  if (lastStatus.state === "connected") {
-    setOperationsControlState("running", "external_unmanaged", false, null);
-    return {
-      ok: false,
-      error: "operations_running_unmanaged",
-      state: operationsControlState,
-    };
-  }
-
-  const cwdRaw = runtimeProcess.env.MIMOLO_REPO_ROOT || "";
-  const spawnCwd = cwdRaw.trim().length > 0
-    ? cwdRaw.trim()
-    : (typeof runtimeProcess.cwd === "function" ? runtimeProcess.cwd() : undefined);
-
-  setOperationsControlState("starting", "launching", true, null);
-  if (opsLogPath) {
-    try {
-      await mkdir(path.dirname(opsLogPath), { recursive: true });
-      await writeFile(opsLogPath, "", { flag: "a" });
-      appendOpsLogChunk("\n[control] starting operations process\n");
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : "ops_log_init_failed";
-      publishLine(`[ops-log] init failed before spawn: ${detail}`);
-    }
-  }
-
-  const launch = buildOperationsStartCommand();
-  try {
-    const child = spawn(launch.command, launch.args, {
-      cwd: spawnCwd,
-      env: runtimeProcess.env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    operationsStopRequested = false;
-    operationsProcess = child;
-    setOperationsControlState(
-      "running",
-      "spawned_by_control",
-      true,
-      typeof child.pid === "number" ? child.pid : null,
-    );
-
-    if (child.stdout) {
-      child.stdout.on("data", (chunk: unknown) => {
-        appendOpsLogChunk(chunk);
-      });
-    }
-    if (child.stderr) {
-      child.stderr.on("data", (chunk: unknown) => {
-        appendOpsLogChunk(chunk);
-      });
-    }
-
-    child.on("error", (err: { message?: string }) => {
-      if (operationsProcess !== child) {
-        return;
-      }
-      operationsProcess = null;
-      operationsStopRequested = false;
-      const detail = err && typeof err.message === "string"
-        ? err.message
-        : "spawn_failed";
-      setOperationsControlState("error", `spawn_error:${detail}`, true, null);
-      publishLine(`[ops] spawn failed: ${detail}`);
-    });
-
-    child.on("exit", (code: number | null, signal: string | null) => {
-      if (operationsProcess !== child) {
-        return;
-      }
-      operationsProcess = null;
-      const stopRequested = operationsStopRequested;
-      operationsStopRequested = false;
-      if (stopRequested) {
-        setOperationsControlState("stopped", "stopped_by_control", false, null);
-        return;
-      }
-      if (code === 0) {
-        setOperationsControlState("stopped", "exited_clean", false, null);
-        return;
-      }
-      const detail = `exited_unexpectedly(code=${String(code)},signal=${String(signal)})`;
-      setOperationsControlState("error", detail, false, null);
-    });
-
-    return {
-      ok: true,
-      state: operationsControlState,
-    };
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : "spawn_failed";
-    setOperationsControlState("error", `spawn_failed:${detail}`, true, null);
-    return {
-      ok: false,
-      error: "spawn_failed",
-      state: operationsControlState,
-    };
-  }
-}
-
-function waitForProcessExit(
-  processRef: ReturnType<typeof spawn>,
-  timeoutMs: number,
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (value: boolean) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      resolve(value);
-    };
-
-    processRef.on("exit", () => {
-      finish(true);
-    });
-
-    setTimeout(() => {
-      finish(false);
-    }, timeoutMs);
-  });
-}
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
-async function waitForIpcDisconnect(timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  const pollMs = Math.max(
-    1,
-    Math.round(controlTimingSettings.stop_wait_disconnect_poll_s * 1000),
-  );
-  while (Date.now() < deadline) {
-    try {
-      const pingResponse = await sendIpcCommand(
-        "ping",
-        undefined,
-        undefined,
-        "background",
-      );
-      if (!pingResponse.ok) {
-        return true;
-      }
-    } catch {
-      return true;
-    }
-    await sleepMs(pollMs);
-  }
-  return false;
-}
-
-async function requestOperationsStopOverIpc(): Promise<{
-  error?: string;
-  ok: boolean;
-}> {
-  try {
-    const stopResponse = await sendIpcCommand(
-      "control_orchestrator",
-      { action: "stop" },
-      undefined,
-      "interactive",
-    );
-    if (!stopResponse.ok) {
-      return {
-        ok: false,
-        error: stopResponse.error || "external_stop_rejected",
-      };
-    }
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : "external_stop_failed";
-    return {
-      ok: false,
-      error: detail,
-    };
-  }
-
-  const disconnectTimeoutMs = Math.max(
-    1,
-    Math.round(controlTimingSettings.stop_wait_disconnect_timeout_s * 1000),
-  );
-  const disconnected = await waitForIpcDisconnect(disconnectTimeoutMs);
-  if (!disconnected) {
-    return {
-      ok: false,
-      error: "external_stop_timeout",
-    };
-  }
-  return {
-    ok: true,
-  };
-}
-
-async function stopOperationsProcess(): Promise<{
-  error?: string;
-  ok: boolean;
-  state: OperationsControlSnapshot;
-}> {
-  if (!operationsProcess) {
-    if (lastStatus.state === "connected") {
-      setOperationsControlState("stopping", "external_stop_requested", false, null);
-      const stopResult = await requestOperationsStopOverIpc();
-      if (!stopResult.ok) {
-        setOperationsControlState("running", "external_unmanaged", false, null);
-        return {
-          ok: false,
-          error: stopResult.error,
-          state: operationsControlState,
-        };
-      }
-
-      setOperationsControlState("stopped", "stopped_via_ipc", false, null);
-      return {
-        ok: true,
-        state: operationsControlState,
-      };
-    }
-    setOperationsControlState("stopped", "not_managed", false, null);
-    return {
-      ok: true,
-      state: operationsControlState,
-    };
-  }
-
-  const child = operationsProcess;
-
-  if (lastStatus.state === "connected") {
-    setOperationsControlState(
-      "stopping",
-      "managed_stop_requested_via_ipc",
-      true,
-      typeof child.pid === "number" ? child.pid : null,
-    );
-    const stopResult = await requestOperationsStopOverIpc();
-    if (stopResult.ok) {
-      await waitForProcessExit(
-        child,
-        Math.max(1, Math.round(controlTimingSettings.stop_wait_managed_exit_s * 1000)),
-      );
-      if (operationsProcess === child) {
-        operationsProcess = null;
-      }
-      operationsStopRequested = false;
-      setOperationsControlState("stopped", "stopped_via_ipc", false, null);
-      return {
-        ok: true,
-        state: operationsControlState,
-      };
-    }
-  }
-
-  operationsStopRequested = true;
-  setOperationsControlState(
-    "stopping",
-    "stop_requested",
-    true,
-    typeof child.pid === "number" ? child.pid : null,
-  );
-
-  try {
-    child.kill("SIGTERM");
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : "kill_failed";
-    setOperationsControlState("error", `stop_failed:${detail}`, true, null);
-    return {
-      ok: false,
-      error: "stop_failed",
-      state: operationsControlState,
-    };
-  }
-
-  const exitedGracefully = await waitForProcessExit(
-    child,
-    Math.max(1, Math.round(controlTimingSettings.stop_wait_graceful_exit_s * 1000)),
-  );
-  if (!exitedGracefully && operationsProcess === child) {
-    try {
-      child.kill("SIGKILL");
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : "kill_force_failed";
-      setOperationsControlState("error", `force_stop_failed:${detail}`, true, null);
-      return {
-        ok: false,
-        error: "force_stop_failed",
-        state: operationsControlState,
-      };
-    }
-    await waitForProcessExit(
-      child,
-      Math.max(1, Math.round(controlTimingSettings.stop_wait_forced_exit_s * 1000)),
-    );
-  }
-
-  if (operationsProcess === child) {
-    operationsProcess = null;
-    operationsStopRequested = false;
-    setOperationsControlState("stopped", "stopped_by_control", false, null);
-  }
-  return {
-    ok: true,
-    state: operationsControlState,
-  };
-}
-
-async function controlOperations(
-  request: OperationsControlRequest,
-): Promise<{
-  error?: string;
-  ok: boolean;
-  state: OperationsControlSnapshot;
-}> {
-  if (request.action === "status") {
-    return {
-      ok: true,
-      state: operationsControlState,
-    };
-  }
-  if (request.action === "start") {
-    return startOperationsProcess();
-  }
-  if (request.action === "stop") {
-    return stopOperationsProcess();
-  }
-  if (request.action === "restart") {
-    const stopResult = await stopOperationsProcess();
-    if (!stopResult.ok && stopResult.error !== "operations_not_managed") {
-      return stopResult;
-    }
-    return startOperationsProcess();
-  }
-  return {
-    ok: false,
-    error: "invalid_ops_action",
-    state: operationsControlState,
-  };
-}
-
-function haltManagedOperationsForShutdown(): void {
-  if (!operationsProcess) {
-    return;
-  }
-  const child = operationsProcess;
-  operationsStopRequested = true;
-  try {
-    child.kill("SIGTERM");
-  } catch {
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // Ignore shutdown-time kill failures.
-    }
-  }
-}
-
 function publishInstances(
   instances: Record<string, AgentInstanceSnapshot>,
 ): void {
@@ -729,24 +301,6 @@ function setStatus(state: OpsStatusPayload["state"], detail: string): void {
   mainWindow.webContents.send("ops:status", lastStatus);
 }
 
-function resetIpcConnectBackoff(): void {
-  ipcConnectFailureCount = 0;
-  ipcLastConnectFailureAt = 0;
-  ipcNextConnectAttemptAt = 0;
-}
-
-function recordIpcConnectFailure(): void {
-  ipcConnectFailureCount += 1;
-  const backoffSeconds =
-    ipcConnectFailureCount >= controlTimingSettings.ipc_connect_backoff_escalate_after
-      ? controlTimingSettings.ipc_connect_backoff_extended_s
-      : controlTimingSettings.ipc_connect_backoff_initial_s;
-  const backoffMs = Math.max(1, Math.round(backoffSeconds * 1000));
-  const now = Date.now();
-  ipcLastConnectFailureAt = now;
-  ipcNextConnectAttemptAt = now + backoffMs;
-}
-
 function publishMonitorSettings(): void {
   if (!mainWindow) {
     return;
@@ -755,6 +309,31 @@ function publishMonitorSettings(): void {
     monitor: lastMonitorSettings,
   });
 }
+
+const persistentIpcClient = new PersistentIpcClient({
+  ipcPath,
+  parseResponse: parseIpcResponse,
+  publishLine,
+  publishTraffic,
+  getTimingSnapshot: () => ({
+    requestTimeoutMs: Math.max(
+      1,
+      Math.round(controlTimingSettings.ipc_request_timeout_s * 1000),
+    ),
+    backoffInitialMs: Math.max(
+      1,
+      Math.round(controlTimingSettings.ipc_connect_backoff_initial_s * 1000),
+    ),
+    backoffExtendedMs: Math.max(
+      1,
+      Math.round(controlTimingSettings.ipc_connect_backoff_extended_s * 1000),
+    ),
+    backoffEscalateAfter: Math.max(
+      1,
+      Math.floor(controlTimingSettings.ipc_connect_backoff_escalate_after),
+    ),
+  }),
+});
 
 async function sendIpcCommand(
   cmd: string,
@@ -765,278 +344,45 @@ async function sendIpcCommand(
   if (!ipcPath) {
     throw new Error("MIMOLO_IPC_PATH not set");
   }
-
-  const providedRequestId =
-    extraPayload && typeof extraPayload.request_id === "string" && extraPayload.request_id.trim().length > 0
-      ? extraPayload.request_id.trim()
-      : "";
-  const requestId = providedRequestId || `ctrl-${Date.now()}-${++ipcRequestCounter}`;
-
-  const requestPayload: Record<string, unknown> = {
+  return persistentIpcClient.sendCommand(
     cmd,
-    ...(extraPayload || {}),
-    request_id: requestId,
-  };
-
-  return new Promise<IpcResponsePayload>((resolve, reject) => {
-    if (ipcPendingRequestQueue.length >= IPC_MAX_PENDING_REQUESTS) {
-      reject(new Error("ipc_queue_overloaded"));
-      return;
-    }
-
-    ipcPendingRequestQueue.push({
-      id: requestId,
-      payload: requestPayload,
-      resolve,
-      reject,
-      timeoutHandle: null,
-      trafficClass,
-      trafficLabel,
-    });
-
-    void drainIpcQueue();
-  });
+    extraPayload,
+    trafficLabel,
+    trafficClass,
+  );
 }
 
-function clearRequestTimeout(request: PendingIpcRequest): void {
-  if (!request.timeoutHandle) {
-    return;
-  }
-  clearTimeout(request.timeoutHandle);
-  request.timeoutHandle = null;
+function resetIpcConnectBackoff(): void {
+  persistentIpcClient.resetBackoff();
 }
 
-function settleInFlightWithError(reason: string): void {
-  if (!ipcInFlightRequest) {
-    return;
-  }
-  const request = ipcInFlightRequest;
-  ipcInFlightRequest = null;
-  clearRequestTimeout(request);
-  request.reject(new Error(reason));
-}
-
-function rejectPendingQueue(reason: string): void {
-  while (ipcPendingRequestQueue.length > 0) {
-    const pending = ipcPendingRequestQueue.shift();
-    if (!pending) {
-      continue;
-    }
-    clearRequestTimeout(pending);
-    pending.reject(new Error(reason));
-  }
-}
-
-function handleIpcSocketDisconnect(reason: string): void {
-  if (ipcSocket) {
-    ipcSocket.removeAllListeners();
-    ipcSocket.destroy();
-    ipcSocket = null;
-  }
-
-  ipcSocketBuffer = "";
-  ipcSocketState = "disconnected";
-  if (ipcConnectReject) {
-    ipcConnectReject(new Error(reason));
-  }
-  ipcConnectPromise = null;
-  ipcConnectResolve = null;
-  ipcConnectReject = null;
-  recordIpcConnectFailure();
-
-  settleInFlightWithError(reason);
-  rejectPendingQueue(reason);
-}
-
-function resolveInFlightResponse(response: IpcResponsePayload): void {
-  if (!ipcInFlightRequest) {
-    publishLine(`[ipc] unsolicited response: ${JSON.stringify(response)}`);
-    return;
-  }
-
-  const request = ipcInFlightRequest;
-  const responseRequestId = response.request_id;
-  if (responseRequestId && responseRequestId !== request.id) {
-    publishLine(
-      `[ipc] request_id mismatch: expected=${request.id} got=${responseRequestId}`,
-    );
-    return;
-  }
-
-  ipcInFlightRequest = null;
-  clearRequestTimeout(request);
-  publishTraffic("rx", request.trafficClass, request.trafficLabel);
-  request.resolve(response);
-  void drainIpcQueue();
-}
-
-function parseIpcSocketBuffer(): void {
-  while (true) {
-    const newlineIndex = ipcSocketBuffer.indexOf("\n");
-    if (newlineIndex < 0) {
-      return;
-    }
-    const rawLine = ipcSocketBuffer.slice(0, newlineIndex).trim();
-    ipcSocketBuffer = ipcSocketBuffer.slice(newlineIndex + 1);
-    if (rawLine.length === 0) {
-      continue;
-    }
-    try {
-      const parsed = parseIpcResponse(rawLine);
-      resolveInFlightResponse(parsed);
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : "invalid_response";
-      settleInFlightWithError(detail);
-      void drainIpcQueue();
-    }
-  }
-}
-
-async function ensureIpcConnection(): Promise<void> {
-  if (!ipcPath) {
-    throw new Error("MIMOLO_IPC_PATH not set");
-  }
-
-  if (ipcSocketState === "connected" && ipcSocket) {
-    return;
-  }
-
-  if (ipcSocketState === "connecting" && ipcConnectPromise) {
-    return ipcConnectPromise;
-  }
-  const now = Date.now();
-  if (now < ipcNextConnectAttemptAt) {
-    throw new Error("ipc_connect_backoff");
-  }
-
-  ipcSocketState = "connecting";
-  ipcConnectPromise = new Promise<void>((resolve, reject) => {
-    ipcConnectResolve = resolve;
-    ipcConnectReject = reject;
-  });
-
-  const socket = net.createConnection({ path: ipcPath });
-  socket.setEncoding("utf8");
-  ipcSocket = socket;
-
-  socket.on("connect", () => {
-    ipcSocketState = "connected";
-    resetIpcConnectBackoff();
-    const resolver = ipcConnectResolve;
-    ipcConnectResolve = null;
-    ipcConnectReject = null;
-    ipcConnectPromise = null;
-    if (resolver) {
-      resolver();
-    }
-  });
-
-  socket.on("data", (chunk: string) => {
-    ipcSocketBuffer += chunk;
-    parseIpcSocketBuffer();
-  });
-
-  socket.on("error", (err: { message: string }) => {
-    const reason = err.message || "ipc_socket_error";
-    handleIpcSocketDisconnect(reason);
-  });
-
-  socket.on("close", () => {
-    handleIpcSocketDisconnect("ipc_socket_closed");
-  });
-
-  return ipcConnectPromise;
-}
-
-async function drainIpcQueue(): Promise<void> {
-  if (ipcQueueDrainRunning) {
-    return;
-  }
-  ipcQueueDrainRunning = true;
-
-  try {
-    while (!ipcInFlightRequest && ipcPendingRequestQueue.length > 0) {
-      try {
-        await ensureIpcConnection();
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : "ipc_connect_failed";
-        if (detail !== "ipc_connect_backoff") {
-          setStatus("disconnected", detail);
-        }
-        rejectPendingQueue(detail);
-        return;
-      }
-
-      const nextRequest = ipcPendingRequestQueue.shift();
-      if (!nextRequest || !ipcSocket) {
-        return;
-      }
-
-      ipcInFlightRequest = nextRequest;
-      publishTraffic("tx", nextRequest.trafficClass, nextRequest.trafficLabel);
-      nextRequest.timeoutHandle = setTimeout(() => {
-        const timeoutRequest = ipcInFlightRequest;
-        if (!timeoutRequest || timeoutRequest.id !== nextRequest.id) {
-          return;
-        }
-        handleIpcSocketDisconnect("timeout");
-        void drainIpcQueue();
-      }, ipcRequestTimeoutMs);
-
-      try {
-        ipcSocket.write(`${JSON.stringify(nextRequest.payload)}\n`);
-      } catch (err) {
-        const detail = err instanceof Error ? err.message : "ipc_write_failed";
-        handleIpcSocketDisconnect(detail);
-        nextRequest.reject(new Error(detail));
-        void drainIpcQueue();
-      }
-
-      return;
-    }
-  } finally {
-    ipcQueueDrainRunning = false;
-  }
-}
-
-function stopPersistentIpc(): void {
-  if (ipcSocket) {
-    ipcSocket.removeAllListeners();
-    ipcSocket.destroy();
-    ipcSocket = null;
-  }
-  ipcSocketBuffer = "";
-  ipcSocketState = "disconnected";
-  if (ipcConnectReject) {
-    ipcConnectReject(new Error("control_shutdown"));
-  }
-  ipcConnectPromise = null;
-  ipcConnectResolve = null;
-  ipcConnectReject = null;
-
-  if (ipcInFlightRequest) {
-    const inflight = ipcInFlightRequest;
-    ipcInFlightRequest = null;
-    clearRequestTimeout(inflight);
-    inflight.reject(new Error("control_shutdown"));
-  }
-
-  while (ipcPendingRequestQueue.length > 0) {
-    const pending = ipcPendingRequestQueue.shift();
-    if (!pending) {
-      continue;
-    }
-    clearRequestTimeout(pending);
-    pending.reject(new Error("control_shutdown"));
-  }
-}
+const operationsController = new OperationsController({
+  runtimeProcess,
+  opsLogPath,
+  sendIpcCommand,
+  appendOpsLogChunk,
+  publishLine,
+  getLastStatusState: () => lastStatus.state,
+  getOperationsControlState: () => operationsControlState,
+  setOperationsControlState,
+  getStopWaitDisconnectPollMs: () =>
+    Math.max(1, Math.round(controlTimingSettings.stop_wait_disconnect_poll_s * 1000)),
+  getStopWaitDisconnectTimeoutMs: () =>
+    Math.max(1, Math.round(controlTimingSettings.stop_wait_disconnect_timeout_s * 1000)),
+  getStopWaitManagedExitMs: () =>
+    Math.max(1, Math.round(controlTimingSettings.stop_wait_managed_exit_s * 1000)),
+  getStopWaitGracefulExitMs: () =>
+    Math.max(1, Math.round(controlTimingSettings.stop_wait_graceful_exit_s * 1000)),
+  getStopWaitForcedExitMs: () =>
+    Math.max(1, Math.round(controlTimingSettings.stop_wait_forced_exit_s * 1000)),
+});
 
 async function refreshIpcStatus(): Promise<void> {
   try {
     const response = await sendIpcCommand("ping", undefined, undefined, "background");
     if (response.ok) {
       setStatus("connected", "ipc_ready");
-      if (!operationsProcess) {
+      if (!operationsController.hasManagedProcess()) {
         if (
           operationsControlState.state !== "stopping" ||
           operationsControlState.detail !== "external_stop_requested"
@@ -1047,7 +393,7 @@ async function refreshIpcStatus(): Promise<void> {
       return;
     }
     setStatus("disconnected", response.error || "ipc_unavailable");
-    if (!operationsProcess) {
+    if (!operationsController.hasManagedProcess()) {
       if (
         operationsControlState.state === "stopping" &&
         operationsControlState.detail === "external_stop_requested"
@@ -1060,7 +406,7 @@ async function refreshIpcStatus(): Promise<void> {
   } catch (err) {
     const detail = err instanceof Error ? err.message : "ipc_unavailable";
     setStatus("disconnected", detail);
-    if (!operationsProcess) {
+    if (!operationsController.hasManagedProcess()) {
       if (
         operationsControlState.state === "stopping" &&
         operationsControlState.detail === "external_stop_requested"
@@ -1350,11 +696,11 @@ function stopBackgroundLoops(): void {
     clearInterval(instanceTimer);
     instanceTimer = null;
   }
-  stopPersistentIpc();
+  persistentIpcClient.stop("control_shutdown");
 }
 
 function operationsMayBeRunning(): boolean {
-  if (operationsProcess) {
+  if (operationsController.hasManagedProcess()) {
     return true;
   }
   if (lastStatus.state === "connected") {
@@ -1400,7 +746,7 @@ async function handleQuitRequest(event: { preventDefault: () => void }): Promise
   }
 
   if (prompt.response === 0) {
-    const stopResult = await controlOperations({ action: "stop" });
+    const stopResult = await operationsController.control({ action: "stop" });
     if (!stopResult.ok) {
       await dialog.showMessageBox(mainWindow ?? undefined, {
         type: "error",
@@ -1441,252 +787,28 @@ function createWindow(): void {
   });
 }
 
-ipcMain.handle("mml:initial-state", () => {
-  return {
-    ipcPath,
-    opsLogPath,
-    status: lastStatus,
-    opsControl: operationsControlState,
-    monitorSettings: lastMonitorSettings,
-    controlSettings: controlTimingSettings,
-    instances: lastAgentInstances,
-  };
-});
-
-ipcMain.handle("mml:reset-reconnect-backoff", () => {
-  resetIpcConnectBackoff();
-  return { ok: true };
-});
-
-ipcMain.handle("mml:ops-control", async (_event, payload: unknown) => {
-  if (!payload || typeof payload !== "object") {
-    return {
-      ok: false,
-      error: "invalid_ops_payload",
-      state: operationsControlState,
-    };
-  }
-  const raw = payload as Record<string, unknown>;
-  const actionRaw = raw.action;
-  if (
-    actionRaw !== "start" &&
-    actionRaw !== "stop" &&
-    actionRaw !== "restart" &&
-    actionRaw !== "status"
-  ) {
-    return {
-      ok: false,
-      error: "invalid_ops_action",
-      state: operationsControlState,
-    };
-  }
-  return controlOperations({
-    action: actionRaw,
-  });
-});
-
-ipcMain.handle("mml:list-agent-templates", async () => {
-  try {
-    const templates = await refreshTemplatesCached(false);
-    return {
-      ok: true,
-      templates,
-    };
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : "template_query_failed";
-    return {
-      ok: false,
-      error: detail,
-      templates: {},
-    };
-  }
-});
-
-ipcMain.handle("mml:get-monitor-settings", async () => {
-  try {
-    await refreshMonitorSettings();
-    return {
-      ok: true,
-      monitor: lastMonitorSettings,
-    };
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : "monitor_query_failed";
-    return {
-      ok: false,
-      error: detail,
-    };
-  }
-});
-
-ipcMain.handle("mml:update-monitor-settings", async (_event, payload: unknown) => {
-  if (!payload || typeof payload !== "object") {
-    return {
-      ok: false,
-      error: "invalid_monitor_payload",
-    };
-  }
-  const raw = payload as Record<string, unknown>;
-  const updatesRaw = raw.updates;
-  if (!updatesRaw || typeof updatesRaw !== "object") {
-    return {
-      ok: false,
-      error: "missing_updates",
-    };
-  }
-  try {
-    return await updateMonitorSettings(updatesRaw as Record<string, unknown>);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : "monitor_update_failed";
-    return {
-      ok: false,
-      error: detail,
-    };
-  }
-});
-
-ipcMain.handle("mml:get-widget-manifest", async (_event, payload: unknown) => {
-  if (!payload || typeof payload !== "object") {
-    return {
-      ok: false,
-      error: "invalid_widget_payload",
-    };
-  }
-  try {
-    return await getWidgetManifest(payload as Record<string, unknown>);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : "widget_manifest_failed";
-    return {
-      ok: false,
-      error: detail,
-    };
-  }
-});
-
-ipcMain.handle("mml:request-widget-render", async (_event, payload: unknown) => {
-  if (!payload || typeof payload !== "object") {
-    return {
-      ok: false,
-      error: "invalid_widget_payload",
-    };
-  }
-  try {
-    return await requestWidgetRender(payload as Record<string, unknown>);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : "widget_render_failed";
-    return {
-      ok: false,
-      error: detail,
-    };
-  }
-});
-
-ipcMain.handle("mml:pick-plugin-archive", async () => {
-  if (!controlDevMode) {
-    return {
-      ok: false,
-      error: "dev_mode_required",
-      detail: "plugin zip install is disabled outside developer mode",
-    };
-  }
-  if (!mainWindow) {
-    return {
-      ok: false,
-      error: "window_unavailable",
-    };
-  }
-  const result = await dialog.showOpenDialog(mainWindow, {
-    title: "Select MiMoLo plugin archive",
-    properties: ["openFile"],
-    filters: [{ name: "Zip archives", extensions: ["zip"] }],
-  });
-  if (result.canceled || result.filePaths.length === 0) {
-    return {
-      ok: true,
-      zip_path: null,
-    };
-  }
-  return {
-    ok: true,
-    zip_path: result.filePaths[0],
-  };
-});
-
-ipcMain.handle("mml:inspect-plugin-archive", (_event, payload: unknown) => {
-  if (!payload || typeof payload !== "object") {
-    return {
-      ok: false,
-      error: "invalid_plugin_payload",
-    };
-  }
-  return inspectPluginArchive(payload as Record<string, unknown>);
-});
-
-ipcMain.handle("mml:install-plugin", (_event, payload: unknown) => {
-  if (!payload || typeof payload !== "object") {
-    return {
-      ok: false,
-      error: "invalid_plugin_payload",
-    };
-  }
-  return installPluginArchive(payload as Record<string, unknown>);
-});
-
-ipcMain.handle("mml:agent-command", (_event, payload: unknown) => {
-  if (!payload || typeof payload !== "object") {
-    return {
-      ok: false,
-      error: "invalid_command_payload",
-    };
-  }
-
-  const raw = payload as Record<string, unknown>;
-  const actionRaw = raw.action;
-  if (
-    actionRaw !== "start_agent" &&
-    actionRaw !== "stop_agent" &&
-    actionRaw !== "restart_agent" &&
-    actionRaw !== "add_agent_instance" &&
-    actionRaw !== "duplicate_agent_instance" &&
-    actionRaw !== "remove_agent_instance" &&
-    actionRaw !== "update_agent_instance"
-  ) {
-    return {
-      ok: false,
-      error: "invalid_action",
-    };
-  }
-
-  const cmd: ControlCommandPayload = {
-    action: actionRaw,
-  };
-
-  const labelRaw = raw.label;
-  if (typeof labelRaw === "string" && labelRaw.trim().length > 0) {
-    cmd.label = labelRaw.trim();
-  }
-  const templateRaw = raw.template_id;
-  if (typeof templateRaw === "string" && templateRaw.trim().length > 0) {
-    cmd.template_id = templateRaw.trim();
-  }
-  const requestedLabelRaw = raw.requested_label;
-  if (
-    typeof requestedLabelRaw === "string" &&
-    requestedLabelRaw.trim().length > 0
-  ) {
-    cmd.requested_label = requestedLabelRaw.trim();
-  }
-  const updatesRaw = raw.updates;
-  if (updatesRaw && typeof updatesRaw === "object") {
-    cmd.updates = updatesRaw as Record<string, unknown>;
-  }
-
-  return runAgentCommand(cmd).catch((err: unknown) => {
-    const detail = err instanceof Error ? err.message : "agent_command_failed";
-    return {
-      ok: false,
-      error: detail,
-    };
-  });
+registerIpcHandlers({
+  ipcMain,
+  dialog,
+  ipcPath,
+  opsLogPath,
+  controlDevMode,
+  getMainWindow: () => mainWindow,
+  getStatus: () => lastStatus,
+  getOpsControlState: () => operationsControlState,
+  getMonitorSettings: () => lastMonitorSettings,
+  getControlSettings: () => controlTimingSettings,
+  getInstances: () => lastAgentInstances,
+  resetReconnectBackoff: resetIpcConnectBackoff,
+  controlOperations: (request) => operationsController.control(request),
+  refreshTemplatesCached,
+  refreshMonitorSettings,
+  updateMonitorSettings,
+  getWidgetManifest,
+  requestWidgetRender,
+  inspectPluginArchive,
+  installPluginArchive,
+  runAgentCommand,
 });
 
 app.whenReady().then(async () => {
@@ -1712,5 +834,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", (event) => {
+  operationsController.haltManagedForShutdown();
   void handleQuitRequest(event);
 });

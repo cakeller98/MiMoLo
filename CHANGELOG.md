@@ -13,6 +13,11 @@ Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md
   - extracted command wrapper helpers into `mimolo/control_proto/src/control_command_wrappers.ts`
   - extracted renderer HTML/template payload from `main.ts` into `mimolo/control_proto/src/ui_html.ts`
   - `mimolo/control_proto/src/main.ts` now acts as orchestration glue across these modules.
+- Continued Control proto structural decomposition by moving additional concerns out of `main.ts`:
+  - extracted persistent Operations socket transport, queueing, timeout, and reconnect backoff into `mimolo/control_proto/src/control_persistent_ipc.ts`
+  - extracted Operations process lifecycle ownership (`start/stop/restart`, managed/unmanaged, graceful-stop/fallback-kill) into `mimolo/control_proto/src/control_operations.ts`
+  - extracted all Electron IPC handler wiring/validation into `mimolo/control_proto/src/control_ipc_handlers.ts`
+  - reduced `mimolo/control_proto/src/main.ts` from ~1700 lines to ~800 lines so it primarily composes state publishing, polling orchestration, and app bootstrap.
 - Refactored Operations runtime maintainability boundaries without changing behavior:
   - extracted IPC command routing from `mimolo/core/runtime.py` into `mimolo/core/runtime_ipc_commands.py`
   - extracted IPC socket server plumbing from `mimolo/core/runtime.py` into `mimolo/core/runtime_ipc_server.py`

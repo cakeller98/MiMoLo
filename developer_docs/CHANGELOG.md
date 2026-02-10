@@ -19,6 +19,11 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
     - `mimolo/control_proto/src/control_proto_utils.ts` (IPC payload parsing + monitor/loop utility logic)
     - `mimolo/control_proto/src/control_command_wrappers.ts` (agent/widget/install IPC wrapper helpers)
     - `mimolo/control_proto/src/ui_html.ts` (renderer HTML template)
+- Continued Control proto decomposition to enforce concern boundaries in live code:
+  - `mimolo/control_proto/src/control_persistent_ipc.ts` now owns persistent socket transport + queue/backoff/timeout behavior.
+  - `mimolo/control_proto/src/control_operations.ts` now owns Operations process lifecycle policy.
+  - `mimolo/control_proto/src/control_ipc_handlers.ts` now owns Electron IPC handler registration and payload validation.
+  - `mimolo/control_proto/src/main.ts` is now reduced to composition/wiring concerns rather than carrying transport/process/API implementation directly.
 - Updated canonical backlog reality to note that Item 1 lifecycle hardening work now includes maintainability-oriented module boundary cleanup, not only behavior fixes.
 - Refreshed verification snapshot context in active planning docs to stay aligned with latest strict checks and targeted IPC/runtime regression slices.
 
