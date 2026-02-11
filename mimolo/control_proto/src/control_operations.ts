@@ -118,7 +118,7 @@ export class OperationsController {
   private readonly deps: OperationsControllerDependencies;
   private operationsProcess: ReturnType<typeof spawn> | null = null;
   private operationsStopRequested = false;
-  private runtimePreparePromise: Promise<{ error?: string; ok: boolean }> | null = null;
+  private runtimePreparePromise: Promise<RuntimePrepareResult> | null = null;
 
   public constructor(deps: OperationsControllerDependencies) {
     this.deps = deps;
@@ -233,7 +233,7 @@ export class OperationsController {
 
   private async ensurePortableRuntimeReady(
     spawnCwd: string | undefined,
-  ): Promise<{ error?: string; ok: boolean; portablePython?: string; runtimeConfigPath?: string }> {
+  ): Promise<RuntimePrepareResult> {
     if (this.runtimePreparePromise) {
       return this.runtimePreparePromise;
     }
@@ -332,100 +332,138 @@ export class OperationsController {
       this.deps.appendOpsLogChunk("\n[control] preparing portable runtime\n");
     }
 
-    this.runtimePreparePromise = new Promise<{ error?: string; ok: boolean }>((resolve) => {
-      const child = spawn(prepareScript, args, {
-        cwd: spawnCwd,
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      let settled = false;
-      let stderrDetail = "";
-      const finish = (result: { error?: string; ok: boolean }) => {
-        if (settled) {
+    this.runtimePreparePromise = (async (): Promise<RuntimePrepareResult> => {
+      let discoveredPortablePython = portablePython;
+      let discoveredRuntimeConfigPath = runtimeConfigPath;
+      const handleBootstrapLine = (line: string) => {
+        const runtimeReadyPrefix = "[bootstrap] runtime ready:";
+        const runtimeConfigPrefix = "[bootstrap] runtime config:";
+        if (line.startsWith(runtimeReadyPrefix)) {
+          const value = line.slice(runtimeReadyPrefix.length).trim();
+          if (value.length > 0) {
+            discoveredPortablePython = value;
+          }
           return;
         }
-        settled = true;
-        resolve(result);
+        if (line.startsWith(runtimeConfigPrefix)) {
+          const value = line.slice(runtimeConfigPrefix.length).trim();
+          if (value.length > 0) {
+            discoveredRuntimeConfigPath = value;
+          }
+        }
       };
 
-      if (child.stdout) {
-        child.stdout.on("data", (chunk: unknown) => {
-          this.deps.appendOpsLogChunk(chunk);
-          const text = typeof chunk === "string" ? chunk : String(chunk);
-          for (const line of text.split(/\r?\n/)) {
-            const trimmed = line.trim();
-            if (trimmed.length > 0) {
-              this.deps.publishBootstrapLine(trimmed);
-            }
-          }
+      const prepareResult = await new Promise<RuntimePrepareResult>((resolve) => {
+        const child = spawn(prepareScript, args, {
+          cwd: spawnCwd,
+          env,
+          stdio: ["ignore", "pipe", "pipe"],
         });
-      }
-      if (child.stderr) {
-        child.stderr.on("data", (chunk: unknown) => {
-          this.deps.appendOpsLogChunk(chunk);
-          const text = typeof chunk === "string" ? chunk : String(chunk);
-          for (const line of text.split(/\r?\n/)) {
-            const trimmed = line.trim();
-            if (trimmed.length > 0) {
-              this.deps.publishBootstrapLine(trimmed);
-            }
+        let settled = false;
+        let stderrDetail = "";
+        const finish = (result: RuntimePrepareResult) => {
+          if (settled) {
+            return;
           }
-          const chunkText = typeof chunk === "string" ? chunk : String(chunk);
-          stderrDetail += chunkText;
-          if (stderrDetail.length > 4000) {
-            stderrDetail = stderrDetail.slice(-4000);
-          }
-        });
-      }
+          settled = true;
+          resolve(result);
+        };
 
-      child.on("error", (err: { message?: string }) => {
-        const detail = err && typeof err.message === "string"
-          ? err.message
-          : "runtime_prepare_spawn_failed";
-        finish({
-          ok: false,
-          error: detail,
-        });
-      });
-
-      child.on("exit", (code: number | null) => {
-        if (code === 0) {
-          finish({ ok: true });
-          return;
+        if (child.stdout) {
+          child.stdout.on("data", (chunk: unknown) => {
+            this.deps.appendOpsLogChunk(chunk);
+            const text = typeof chunk === "string" ? chunk : String(chunk);
+            for (const line of text.split(/\r?\n/)) {
+              const trimmed = line.trim();
+              if (trimmed.length > 0) {
+                this.deps.publishBootstrapLine(trimmed);
+                handleBootstrapLine(trimmed);
+              }
+            }
+          });
         }
-        const tail = stderrDetail.trim();
-        const detail = tail.length > 0
-          ? `runtime_prepare_failed:${tail}`
-          : `runtime_prepare_exit_code_${String(code)}`;
-        finish({
-          ok: false,
-          error: detail,
+        if (child.stderr) {
+          child.stderr.on("data", (chunk: unknown) => {
+            this.deps.appendOpsLogChunk(chunk);
+            const text = typeof chunk === "string" ? chunk : String(chunk);
+            for (const line of text.split(/\r?\n/)) {
+              const trimmed = line.trim();
+              if (trimmed.length > 0) {
+                this.deps.publishBootstrapLine(trimmed);
+                handleBootstrapLine(trimmed);
+              }
+            }
+            const chunkText = typeof chunk === "string" ? chunk : String(chunk);
+            stderrDetail += chunkText;
+            if (stderrDetail.length > 4000) {
+              stderrDetail = stderrDetail.slice(-4000);
+            }
+          });
+        }
+
+        child.on("error", (err: { message?: string }) => {
+          const detail = err && typeof err.message === "string"
+            ? err.message
+            : "runtime_prepare_spawn_failed";
+          finish({
+            ok: false,
+            error: detail,
+          });
+        });
+
+        child.on("exit", (code: number | null) => {
+          if (code === 0) {
+            finish({
+              ok: true,
+              portablePython: discoveredPortablePython,
+              runtimeConfigPath: discoveredRuntimeConfigPath,
+            });
+            return;
+          }
+          const tail = stderrDetail.trim();
+          const detail = tail.length > 0
+            ? `runtime_prepare_failed:${tail}`
+            : `runtime_prepare_exit_code_${String(code)}`;
+          finish({
+            ok: false,
+            error: detail,
+          });
         });
       });
-    });
+      if (!prepareResult.ok) {
+        return prepareResult;
+      }
+
+      const effectivePortablePython = (prepareResult.portablePython || "").trim();
+      if (effectivePortablePython.length === 0 || !(await pathExists(effectivePortablePython))) {
+        return {
+          ok: false,
+          error: "runtime_prepare_missing_python",
+        };
+      }
+
+      const effectiveRuntimeConfig = (prepareResult.runtimeConfigPath || "").trim();
+      if (effectiveRuntimeConfig.length > 0 && !(await pathExists(effectiveRuntimeConfig))) {
+        return {
+          ok: false,
+          error: "runtime_prepare_missing_config",
+        };
+      }
+
+      env.MIMOLO_OPERATIONS_PYTHON = effectivePortablePython;
+      if (effectiveRuntimeConfig.length > 0) {
+        env.MIMOLO_RUNTIME_CONFIG_PATH = effectiveRuntimeConfig;
+      }
+
+      return {
+        ok: true,
+        portablePython: effectivePortablePython,
+        runtimeConfigPath: effectiveRuntimeConfig,
+      };
+    })();
     const prepareResult = await this.runtimePreparePromise;
     this.runtimePreparePromise = null;
-    if (!prepareResult.ok) {
-      return prepareResult;
-    }
-
-    if (!(await pathExists(portablePython))) {
-      return {
-        ok: false,
-        error: "runtime_prepare_missing_python",
-      };
-    }
-    if (runtimeConfigPath.length > 0 && !(await pathExists(runtimeConfigPath))) {
-      return {
-        ok: false,
-        error: "runtime_prepare_missing_config",
-      };
-    }
-    return {
-      ok: true,
-      portablePython,
-      runtimeConfigPath,
-    };
+    return prepareResult;
   }
 
   private async waitForIpcDisconnect(timeoutMs: number): Promise<boolean> {

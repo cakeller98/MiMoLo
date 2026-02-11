@@ -118,6 +118,9 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
         if (bootstrapAcknowledgeBtn) {
           bootstrapAcknowledgeBtn.disabled = false;
         }
+        setTimeout(() => {
+          maybeHideBootstrapOverlay();
+        }, 300);
       }
 
       function setBootstrapFailed(detail) {
@@ -387,14 +390,18 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
         const pidText = state && typeof state.pid === "number" ? " pid=" + String(state.pid) : "";
         opsProcessStateEl.textContent = stateText + " - " + detailText + " (" + managedText + ")" + pidText;
 
+        const bootstrapBlocking = !bootstrapState.done && !bootstrapState.failed;
         if (opsStartBtn) {
-          opsStartBtn.disabled = stateText === "running" || stateText === "starting";
+          opsStartBtn.disabled =
+            bootstrapBlocking || stateText === "running" || stateText === "starting";
         }
         if (opsStopBtn) {
-          opsStopBtn.disabled = stateText === "stopped" || stateText === "stopping";
+          opsStopBtn.disabled =
+            bootstrapBlocking || stateText === "stopped" || stateText === "stopping";
         }
         if (opsRestartBtn) {
-          opsRestartBtn.disabled = stateText === "starting" || stateText === "stopping";
+          opsRestartBtn.disabled =
+            bootstrapBlocking || stateText === "starting" || stateText === "stopping";
         }
       }
 

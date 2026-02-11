@@ -177,7 +177,8 @@ export function buildCardsAndBootstrapSection(): string {
           if (
             !bootstrapAutoStartAttempted &&
             linkState !== "connected" &&
-            opsState === "stopped"
+            opsState !== "running" &&
+            opsState !== "starting"
           ) {
             bootstrapAutoStartAttempted = true;
             append("[ops] auto-start after runtime prepare");
