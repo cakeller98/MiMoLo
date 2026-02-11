@@ -76,6 +76,22 @@ Purpose: compact carry-forward context without duplicating canonical docs.
   - Ops launch paths now support a Poetry-free runtime startup path via explicit `MIMOLO_OPERATIONS_PYTHON`.
   - deploy now provisions `temp_debug/bin/.venv` and hydrates it from the existing Poetry environment (network-independent in constrained environments).
   - bundle app now exports `MIMOLO_OPERATIONS_PYTHON` into bundled runtime defaults so Control can start Operations without requiring `poetry` on runtime PATH.
+  - runtime bootstrap now enforces managed-source Python only:
+    - no fallback to `python3`/`python` command discovery.
+    - source interpreter is explicit via `MIMOLO_BOOTSTRAP_SOURCE_PYTHON` (or Poetry-resolved interpreter).
+    - bootstrap creates/replaces runtime `.venv` when Python major/minor mismatches source interpreter.
+  - runtime bootstrap is now lock-serialized (`<runtime_root>/.bootstrap.lock`) to prevent concurrent hydration races.
+  - bundle runtime location policy is now mml-configurable:
+    - `bundle_runtime_mode = auto|portable|user_data`
+    - `bundle_runtime_path = ./.venv` (portable mode path, relative to app parent when non-absolute)
+  - bootstrap/runtime path alignment hardened:
+    - bootstrap now accepts explicit runtime venv path (`MIMOLO_RUNTIME_VENV_PATH` / `--runtime-venv`),
+    - control runtime-prep passes that value through,
+    - bundle exports the same runtime venv path into process env so bootstrap target and operations python target cannot drift.
+  - bootstrap UX visibility in Control proto is now active:
+    - startup overlay captures real bootstrap stage lines and paths,
+    - progress bar advances from actual bootstrap events (not fake timers),
+    - explicit `OK` acknowledgement is required after runtime-ready before overlay dismissal.
 
 ## Remaining Exception Patterns in pack-agent module (intentional)
 - Core invariant throws (schema/semver/repo-dir contract): keep.

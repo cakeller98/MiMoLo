@@ -162,6 +162,78 @@ export const UI_STYLE_CSS = `
         justify-content: center;
         letter-spacing: 0.03em;
       }
+      .bootstrap-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 2150;
+        background: rgba(7, 10, 14, 0.84);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .bootstrap-card {
+        width: min(680px, calc(100vw - 40px));
+        max-height: calc(100vh - 40px);
+        display: grid;
+        grid-template-rows: auto auto auto auto auto minmax(120px, 1fr) auto;
+        gap: 8px;
+        background: #171d27;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px;
+      }
+      .bootstrap-title {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--text);
+      }
+      .bootstrap-stage {
+        font-size: 11px;
+        color: #b7c4da;
+      }
+      .bootstrap-path {
+        font-size: 10px;
+        color: #8ea0bb;
+        word-break: break-all;
+        min-height: 12px;
+      }
+      .bootstrap-progress-track {
+        width: 100%;
+        height: 8px;
+        border-radius: 999px;
+        background: #101722;
+        border: 1px solid #31415b;
+        overflow: hidden;
+      }
+      .bootstrap-progress-fill {
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(90deg, #2f7dd9 0%, #56d8a9 100%);
+        transition: width 140ms ease;
+      }
+      .bootstrap-progress-label {
+        font-size: 10px;
+        color: var(--muted);
+      }
+      .bootstrap-log {
+        margin: 0;
+        width: 100%;
+        min-height: 120px;
+        max-height: 280px;
+        overflow: auto;
+        white-space: pre-wrap;
+        border: 1px solid #31415b;
+        border-radius: 6px;
+        background: #101722;
+        color: #b8c3d6;
+        font-size: 11px;
+        line-height: 1.35;
+        padding: 8px;
+      }
+      .bootstrap-actions {
+        display: flex;
+        justify-content: flex-end;
+      }
       .toast-host {
         position: fixed;
         right: 12px;

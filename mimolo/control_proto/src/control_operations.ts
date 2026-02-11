@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type {
   IpcResponsePayload,
@@ -56,6 +56,26 @@ function resolvePortableOperationsPython(
   return explicit.length > 0 ? explicit : "";
 }
 
+async function pathExists(pathValue: string): Promise<boolean> {
+  try {
+    await stat(pathValue);
+    return true;
+  } catch {
+    // External I/O check: path may legitimately not exist yet.
+    return false;
+  }
+}
+
+async function runtimeConfigUsesPoetry(pathValue: string): Promise<boolean> {
+  try {
+    const raw = await readFile(pathValue, "utf8");
+    return /executable\s*=\s*"poetry"/.test(raw);
+  } catch {
+    // External I/O check: unreadable config should trigger runtime bootstrap.
+    return true;
+  }
+}
+
 function waitForProcessExit(
   processRef: ReturnType<typeof spawn>,
   timeoutMs: number,
@@ -90,6 +110,7 @@ export class OperationsController {
   private readonly deps: OperationsControllerDependencies;
   private operationsProcess: ReturnType<typeof spawn> | null = null;
   private operationsStopRequested = false;
+  private runtimePreparePromise: Promise<{ error?: string; ok: boolean }> | null = null;
 
   public constructor(deps: OperationsControllerDependencies) {
     this.deps = deps;
@@ -175,6 +196,177 @@ export class OperationsController {
       command: "bash",
       args: ["-lc", shellCommand],
     };
+  }
+
+  private async ensurePortableRuntimeReady(
+    spawnCwd: string | undefined,
+  ): Promise<{ error?: string; ok: boolean }> {
+    if (this.runtimePreparePromise) {
+      return this.runtimePreparePromise;
+    }
+
+    const env = this.deps.runtimeProcess.env;
+    const portablePython = resolvePortableOperationsPython(env);
+    if (portablePython.length === 0) {
+      return { ok: true };
+    }
+
+    const runtimeConfigPath = (env.MIMOLO_RUNTIME_CONFIG_PATH || "").trim();
+    const needsPython = !(await pathExists(portablePython));
+    const needsConfig = runtimeConfigPath.length > 0
+      ? !(await pathExists(runtimeConfigPath))
+      : false;
+    const needsConfigRewrite = runtimeConfigPath.length > 0 && !needsConfig
+      ? await runtimeConfigUsesPoetry(runtimeConfigPath)
+      : false;
+    if (!needsPython && !needsConfig && !needsConfigRewrite) {
+      return { ok: true };
+    }
+
+    const prepareScript = (env.MIMOLO_RUNTIME_PREPARE_SCRIPT || "").trim();
+    if (prepareScript.length === 0) {
+      return {
+        ok: false,
+        error: "runtime_prepare_script_missing",
+      };
+    }
+    if (!(await pathExists(prepareScript))) {
+      return {
+        ok: false,
+        error: "runtime_prepare_script_not_found",
+      };
+    }
+
+    const args: string[] = [];
+    const dataDir = (env.MIMOLO_DATA_DIR || "").trim();
+    const binDir = (env.MIMOLO_BIN_DIR || "").trim();
+    const configSourcePath = (env.MIMOLO_CONFIG_SOURCE_PATH || "").trim();
+    const opsLogPath = (env.MIMOLO_OPS_LOG_PATH || "").trim();
+    const monitorLogDir = (env.MIMOLO_MONITOR_LOG_DIR || "").trim();
+    const monitorJournalDir = (env.MIMOLO_MONITOR_JOURNAL_DIR || "").trim();
+    const monitorCacheDir = (env.MIMOLO_MONITOR_CACHE_DIR || "").trim();
+    const sourceSitePackages = (env.MIMOLO_BOOTSTRAP_SOURCE_SITE_PACKAGES || "").trim();
+    const sourcePython = (env.MIMOLO_BOOTSTRAP_SOURCE_PYTHON || "").trim();
+    const runtimeVenvPath = (env.MIMOLO_RUNTIME_VENV_PATH || "").trim();
+    const repoRoot = (env.MIMOLO_REPO_ROOT || "").trim();
+    if (dataDir.length > 0) {
+      args.push("--data-dir", dataDir);
+    }
+    if (binDir.length > 0) {
+      args.push("--bin-dir", binDir);
+    }
+    if (runtimeConfigPath.length > 0) {
+      args.push("--runtime-config", runtimeConfigPath);
+    }
+    if (configSourcePath.length > 0) {
+      args.push("--config-source", configSourcePath);
+    }
+    if (opsLogPath.length > 0) {
+      args.push("--ops-log-path", opsLogPath);
+    }
+    if (monitorLogDir.length > 0) {
+      args.push("--monitor-log-dir", monitorLogDir);
+    }
+    if (monitorJournalDir.length > 0) {
+      args.push("--monitor-journal-dir", monitorJournalDir);
+    }
+    if (monitorCacheDir.length > 0) {
+      args.push("--monitor-cache-dir", monitorCacheDir);
+    }
+    if (sourceSitePackages.length > 0) {
+      args.push("--source-site-packages", sourceSitePackages);
+    }
+    if (sourcePython.length > 0) {
+      args.push("--source-python", sourcePython);
+    }
+    if (runtimeVenvPath.length > 0) {
+      args.push("--runtime-venv", runtimeVenvPath);
+    }
+    if (repoRoot.length > 0) {
+      args.push("--repo-root", repoRoot);
+    }
+
+    this.deps.publishLine("[ops] preparing portable runtime...");
+    if (this.deps.opsLogPath) {
+      this.deps.appendOpsLogChunk("\n[control] preparing portable runtime\n");
+    }
+
+    this.runtimePreparePromise = new Promise<{ error?: string; ok: boolean }>((resolve) => {
+      const child = spawn(prepareScript, args, {
+        cwd: spawnCwd,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let settled = false;
+      let stderrDetail = "";
+      const finish = (result: { error?: string; ok: boolean }) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve(result);
+      };
+
+      if (child.stdout) {
+        child.stdout.on("data", (chunk: unknown) => {
+          this.deps.appendOpsLogChunk(chunk);
+        });
+      }
+      if (child.stderr) {
+        child.stderr.on("data", (chunk: unknown) => {
+          this.deps.appendOpsLogChunk(chunk);
+          const chunkText = typeof chunk === "string" ? chunk : String(chunk);
+          stderrDetail += chunkText;
+          if (stderrDetail.length > 4000) {
+            stderrDetail = stderrDetail.slice(-4000);
+          }
+        });
+      }
+
+      child.on("error", (err: { message?: string }) => {
+        const detail = err && typeof err.message === "string"
+          ? err.message
+          : "runtime_prepare_spawn_failed";
+        finish({
+          ok: false,
+          error: detail,
+        });
+      });
+
+      child.on("exit", (code: number | null) => {
+        if (code === 0) {
+          finish({ ok: true });
+          return;
+        }
+        const tail = stderrDetail.trim();
+        const detail = tail.length > 0
+          ? `runtime_prepare_failed:${tail}`
+          : `runtime_prepare_exit_code_${String(code)}`;
+        finish({
+          ok: false,
+          error: detail,
+        });
+      });
+    });
+    const prepareResult = await this.runtimePreparePromise;
+    this.runtimePreparePromise = null;
+    if (!prepareResult.ok) {
+      return prepareResult;
+    }
+
+    if (!(await pathExists(portablePython))) {
+      return {
+        ok: false,
+        error: "runtime_prepare_missing_python",
+      };
+    }
+    if (runtimeConfigPath.length > 0 && !(await pathExists(runtimeConfigPath))) {
+      return {
+        ok: false,
+        error: "runtime_prepare_missing_config",
+      };
+    }
+    return { ok: true };
   }
 
   private async waitForIpcDisconnect(timeoutMs: number): Promise<boolean> {
@@ -266,6 +458,17 @@ export class OperationsController {
       : (typeof this.deps.runtimeProcess.cwd === "function"
         ? this.deps.runtimeProcess.cwd()
         : undefined);
+
+    const runtimeReady = await this.ensurePortableRuntimeReady(spawnCwd);
+    if (!runtimeReady.ok) {
+      const detail = runtimeReady.error || "runtime_prepare_failed";
+      this.deps.setOperationsControlState("error", detail, false, null);
+      return {
+        ok: false,
+        error: detail,
+        state: this.deps.getOperationsControlState(),
+      };
+    }
 
     this.deps.setOperationsControlState("starting", "launching", true, null);
     if (this.deps.opsLogPath) {

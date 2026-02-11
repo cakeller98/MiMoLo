@@ -15,8 +15,12 @@ APP_NAME=""
 APP_VERSION=""
 BUNDLE_ID=""
 DEV_MODE_OVERRIDE=""
-SKIP_PREPARE=0
+RUNTIME_MODE_OVERRIDE=""
+RUNTIME_PATH_OVERRIDE=""
+SKIP_PREPARE=1
 NO_BUILD=0
+BOOTSTRAP_SOURCE_SITE_PACKAGES=""
+BOOTSTRAP_SOURCE_PYTHON=""
 
 PORTABLE_ROOT="${PORTABLE_ROOT:-$REPO_ROOT/temp_debug}"
 DATA_DIR="${MIMOLO_DATA_DIR:-$PORTABLE_ROOT/user_home/mimolo}"
@@ -37,6 +41,20 @@ CONFIG_BUNDLE_APP_NAME_CONTROL=""
 CONFIG_BUNDLE_BUNDLE_ID_PROTO=""
 CONFIG_BUNDLE_BUNDLE_ID_CONTROL=""
 CONFIG_BUNDLE_DEV_MODE_DEFAULT=""
+CONFIG_BUNDLE_RUNTIME_MODE=""
+CONFIG_BUNDLE_RUNTIME_PATH=""
+
+RUNTIME_MODE=""
+RUNTIME_PATH=""
+RUNTIME_ROOT=""
+RUNTIME_DATA_DIR=""
+RUNTIME_BIN_DIR=""
+RUNTIME_CONFIG_PATH_EFFECTIVE=""
+RUNTIME_OPS_LOG_PATH=""
+RUNTIME_MONITOR_LOG_DIR=""
+RUNTIME_MONITOR_JOURNAL_DIR=""
+RUNTIME_MONITOR_CACHE_DIR=""
+RUNTIME_OPERATIONS_PYTHON=""
 
 trim() {
   local value="$1"
@@ -71,6 +89,8 @@ load_bundle_defaults() {
   CONFIG_BUNDLE_BUNDLE_ID_PROTO="$(get_toml_value "bundle_bundle_id_proto" "")"
   CONFIG_BUNDLE_BUNDLE_ID_CONTROL="$(get_toml_value "bundle_bundle_id_control" "")"
   CONFIG_BUNDLE_DEV_MODE_DEFAULT="$(get_toml_value "bundle_dev_mode_default" "")"
+  CONFIG_BUNDLE_RUNTIME_MODE="$(get_toml_value "bundle_runtime_mode" "")"
+  CONFIG_BUNDLE_RUNTIME_PATH="$(get_toml_value "bundle_runtime_path" "")"
 }
 
 to_abs_path() {
@@ -96,7 +116,10 @@ Options:
   --version <x.y.z>           Override app version metadata
   --bundle-id <id>            Override CFBundleIdentifier
   --dev-mode <0|1>            Override MIMOLO_CONTROL_DEV_MODE inside bundle
-  --skip-prepare              Skip deploy_portable preflight
+  --runtime-mode <mode>       Runtime policy: auto|portable|user_data
+  --runtime-path <path>       Portable runtime venv path (default: ./.venv)
+  --prepare-runtime           Pre-create runtime sidecar during bundle generation
+  --skip-prepare              Skip deploy_portable preflight (default behavior)
   --no-build                  Skip npm build for selected target
   -h, --help                  Show this help
 
@@ -104,6 +127,8 @@ Examples:
   scripts/bundle_app.sh
   scripts/bundle_app.sh --target proto
   scripts/bundle_app.sh --target control --name MiMoLo.app
+  scripts/bundle_app.sh --runtime-mode portable --runtime-path ./.venv
+  scripts/bundle_app.sh --prepare-runtime
   scripts/bundle_app.sh --dev-mode 1 --name "mimolo-proto (v0.0.1).app"
 EOF
 }
@@ -134,8 +159,20 @@ while [[ $# -gt 0 ]]; do
       DEV_MODE_OVERRIDE="$2"
       shift 2
       ;;
+    --runtime-mode)
+      RUNTIME_MODE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --runtime-path)
+      RUNTIME_PATH_OVERRIDE="$2"
+      shift 2
+      ;;
     --skip-prepare)
       SKIP_PREPARE=1
+      shift
+      ;;
+    --prepare-runtime)
+      SKIP_PREPARE=0
       shift
       ;;
     --no-build)
@@ -174,6 +211,18 @@ if [[ -z "$DEV_MODE_OVERRIDE" ]]; then
   DEV_MODE_OVERRIDE="${CONFIG_BUNDLE_DEV_MODE_DEFAULT:-}"
 fi
 
+if [[ -z "$RUNTIME_MODE_OVERRIDE" ]]; then
+  RUNTIME_MODE="${CONFIG_BUNDLE_RUNTIME_MODE:-auto}"
+else
+  RUNTIME_MODE="$RUNTIME_MODE_OVERRIDE"
+fi
+
+if [[ -z "$RUNTIME_PATH_OVERRIDE" ]]; then
+  RUNTIME_PATH="${CONFIG_BUNDLE_RUNTIME_PATH:-./.venv}"
+else
+  RUNTIME_PATH="$RUNTIME_PATH_OVERRIDE"
+fi
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "[bundle] macOS required (bundle_app.sh is macOS-only)." >&2
   exit 2
@@ -181,6 +230,11 @@ fi
 
 if [[ "$TARGET" != "proto" && "$TARGET" != "control" ]]; then
   echo "[bundle] invalid target: $TARGET (expected proto|control)" >&2
+  exit 2
+fi
+
+if [[ "$RUNTIME_MODE" != "auto" && "$RUNTIME_MODE" != "portable" && "$RUNTIME_MODE" != "user_data" ]]; then
+  echo "[bundle] invalid runtime mode: $RUNTIME_MODE (expected auto|portable|user_data)" >&2
   exit 2
 fi
 
@@ -212,24 +266,16 @@ ensure_npm_deps() {
   (cd "$dir" && npm ci)
 }
 
-if [[ "$SKIP_PREPARE" -eq 0 ]]; then
-  echo "[bundle] running portable prepare preflight..."
-  preflight_cmd=(
-    "$REPO_ROOT/scripts/deploy_portable.sh"
-    --portable-root "$PORTABLE_ROOT"
-    --data-dir "$DATA_DIR"
-    --bin-dir "$BIN_DIR"
-    --runtime-config "$RUNTIME_CONFIG_PATH"
-    --config-source "$CONFIG_SOURCE_PATH"
-    --no-build
-  )
-  if [[ -n "${MIMOLO_RELEASE_AGENTS_PATH:-}" ]]; then
-    preflight_cmd+=(--source-list "$MIMOLO_RELEASE_AGENTS_PATH")
-  fi
-  "${preflight_cmd[@]}"
-fi
-
 ensure_npm_deps "$REPO_ROOT/mimolo-control"
+
+if command -v poetry >/dev/null 2>&1; then
+  BOOTSTRAP_SOURCE_PYTHON="$(
+    poetry run python -c "import sys; print(sys.executable)" 2>/dev/null || true
+  )"
+  BOOTSTRAP_SOURCE_SITE_PACKAGES="$(
+    poetry run python -c "import site; print(next(p for p in site.getsitepackages() if p.endswith('site-packages')))" 2>/dev/null || true
+  )"
+fi
 
 if [[ "$TARGET" == "proto" ]]; then
   TARGET_DIR="$REPO_ROOT/mimolo/control_proto"
@@ -286,6 +332,54 @@ elif [[ -z "${MIMOLO_CONTROL_DEV_MODE:-}" ]]; then
   export MIMOLO_CONTROL_DEV_MODE="0"
 fi
 
+BUNDLE_PATH="$OUT_DIR/$APP_NAME"
+BUNDLE_PARENT_DIR="$(dirname "$BUNDLE_PATH")"
+EFFECTIVE_RUNTIME_MODE="$RUNTIME_MODE"
+if [[ "$EFFECTIVE_RUNTIME_MODE" == "auto" ]]; then
+  if [[ "$BUNDLE_PATH" == /Applications/* ]]; then
+    EFFECTIVE_RUNTIME_MODE="user_data"
+  else
+    EFFECTIVE_RUNTIME_MODE="portable"
+  fi
+fi
+
+if [[ "$EFFECTIVE_RUNTIME_MODE" == "user_data" ]]; then
+  RUNTIME_VENV_DIR="$HOME/Library/Application Support/mimolo/runtime/.venv"
+else
+  if [[ "$RUNTIME_PATH" = /* ]]; then
+    RUNTIME_VENV_DIR="$RUNTIME_PATH"
+  else
+    RUNTIME_VENV_DIR="$BUNDLE_PARENT_DIR/$RUNTIME_PATH"
+  fi
+fi
+
+RUNTIME_ROOT="$(dirname "$RUNTIME_VENV_DIR")"
+RUNTIME_DATA_DIR="$RUNTIME_ROOT/user_home/mimolo"
+RUNTIME_BIN_DIR="$RUNTIME_ROOT/bin"
+RUNTIME_CONFIG_PATH_EFFECTIVE="$RUNTIME_DATA_DIR/operations/mimolo.portable.toml"
+RUNTIME_OPS_LOG_PATH="$RUNTIME_DATA_DIR/runtime/operations.log"
+RUNTIME_MONITOR_LOG_DIR="$RUNTIME_DATA_DIR/operations/logs"
+RUNTIME_MONITOR_JOURNAL_DIR="$RUNTIME_DATA_DIR/operations/journals"
+RUNTIME_MONITOR_CACHE_DIR="$RUNTIME_DATA_DIR/operations/cache"
+RUNTIME_OPERATIONS_PYTHON="$RUNTIME_VENV_DIR/bin/python"
+
+if [[ "$SKIP_PREPARE" -eq 0 ]]; then
+  echo "[bundle] running portable prepare preflight..."
+  preflight_cmd=(
+    "$REPO_ROOT/scripts/deploy_portable.sh"
+    --portable-root "$RUNTIME_ROOT"
+    --data-dir "$RUNTIME_DATA_DIR"
+    --bin-dir "$RUNTIME_BIN_DIR"
+    --runtime-config "$RUNTIME_CONFIG_PATH_EFFECTIVE"
+    --config-source "$CONFIG_SOURCE_PATH"
+    --no-build
+  )
+  if [[ -n "${MIMOLO_RELEASE_AGENTS_PATH:-}" ]]; then
+    preflight_cmd+=(--source-list "$MIMOLO_RELEASE_AGENTS_PATH")
+  fi
+  "${preflight_cmd[@]}"
+fi
+
 ensure_npm_deps "$TARGET_DIR"
 
 if [[ "$NO_BUILD" -eq 0 ]]; then
@@ -305,14 +399,16 @@ if [[ ! -d "$ELECTRON_TEMPLATE" ]]; then
   exit 2
 fi
 
-BUNDLE_PATH="$OUT_DIR/$APP_NAME"
 rm -rf "$BUNDLE_PATH"
 cp -R "$ELECTRON_TEMPLATE" "$BUNDLE_PATH"
 
 APP_RESOURCES="$BUNDLE_PATH/Contents/Resources/app"
 rm -rf "$APP_RESOURCES"
 mkdir -p "$APP_RESOURCES/dist"
+mkdir -p "$APP_RESOURCES/scripts"
 cp -R "$TARGET_DIR/dist/." "$APP_RESOURCES/dist/"
+cp "$REPO_ROOT/scripts/bootstrap_runtime.sh" "$APP_RESOURCES/scripts/bootstrap_runtime.sh"
+chmod +x "$APP_RESOURCES/scripts/bootstrap_runtime.sh" || true
 
 cat > "$APP_RESOURCES/package.json" <<EOF
 {
@@ -324,39 +420,73 @@ cat > "$APP_RESOURCES/package.json" <<EOF
 }
 EOF
 
-JS_DATA_DIR="$(js_quote "$DATA_DIR")"
-JS_BIN_DIR="$(js_quote "$BIN_DIR")"
 JS_REPO_ROOT="$(js_quote "$REPO_ROOT")"
-JS_RUNTIME_CONFIG_PATH="$(js_quote "$RUNTIME_CONFIG_PATH")"
 JS_CONFIG_SOURCE_PATH="$(js_quote "$CONFIG_SOURCE_PATH")"
 JS_IPC_PATH="$(js_quote "$IPC_PATH")"
-JS_OPS_LOG_PATH="$(js_quote "$OPS_LOG_PATH")"
-JS_MONITOR_LOG_DIR="$(js_quote "$MONITOR_LOG_DIR")"
-JS_MONITOR_JOURNAL_DIR="$(js_quote "$MONITOR_JOURNAL_DIR")"
-JS_MONITOR_CACHE_DIR="$(js_quote "$MONITOR_CACHE_DIR")"
 JS_CONTROL_DEV_MODE="$(js_quote "${MIMOLO_CONTROL_DEV_MODE:-0}")"
-JS_OPERATIONS_PYTHON="$(js_quote "$BIN_DIR/.venv/bin/python")"
+JS_RUNTIME_MODE="$(js_quote "$RUNTIME_MODE")"
+JS_RUNTIME_PATH="$(js_quote "$RUNTIME_PATH")"
+JS_BOOTSTRAP_SOURCE_SITE_PACKAGES="$(js_quote "$BOOTSTRAP_SOURCE_SITE_PACKAGES")"
+JS_BOOTSTRAP_SOURCE_PYTHON="$(js_quote "$BOOTSTRAP_SOURCE_PYTHON")"
 
 cat > "$APP_RESOURCES/bundle_main.mjs" <<EOF
+import path from "node:path";
+import os from "node:os";
+
+const runtimeMode = ${JS_RUNTIME_MODE};
+const runtimePath = ${JS_RUNTIME_PATH};
+const bundlePath = path.resolve(process.execPath, "..", "..", "..");
+const bundleParent = path.dirname(bundlePath);
+const userDataRuntimeRoot = path.join(
+  os.homedir(),
+  "Library",
+  "Application Support",
+  "mimolo",
+  "runtime",
+);
+
+function resolveRuntimeVenvDir() {
+  let effectiveMode = runtimeMode;
+  if (effectiveMode === "auto") {
+    effectiveMode = bundlePath.startsWith("/Applications/") ? "user_data" : "portable";
+  }
+  if (effectiveMode === "user_data") {
+    return path.join(userDataRuntimeRoot, ".venv");
+  }
+  return path.isAbsolute(runtimePath)
+    ? runtimePath
+    : path.resolve(bundleParent, runtimePath);
+}
+
+const runtimeVenvDir = resolveRuntimeVenvDir();
+const runtimeRoot = path.dirname(runtimeVenvDir);
+
 const defaults = {
-  MIMOLO_DATA_DIR: ${JS_DATA_DIR},
-  MIMOLO_BIN_DIR: ${JS_BIN_DIR},
+  MIMOLO_DATA_DIR: path.join(runtimeRoot, "user_home", "mimolo"),
+  MIMOLO_BIN_DIR: path.join(runtimeRoot, "bin"),
+  MIMOLO_RUNTIME_VENV_PATH: runtimeVenvDir,
   MIMOLO_REPO_ROOT: ${JS_REPO_ROOT},
-  MIMOLO_RUNTIME_CONFIG_PATH: ${JS_RUNTIME_CONFIG_PATH},
+  MIMOLO_RUNTIME_CONFIG_PATH: path.join(runtimeRoot, "user_home", "mimolo", "operations", "mimolo.portable.toml"),
   MIMOLO_CONFIG_SOURCE_PATH: ${JS_CONFIG_SOURCE_PATH},
   MIMOLO_IPC_PATH: ${JS_IPC_PATH},
-  MIMOLO_OPS_LOG_PATH: ${JS_OPS_LOG_PATH},
-  MIMOLO_MONITOR_LOG_DIR: ${JS_MONITOR_LOG_DIR},
-  MIMOLO_MONITOR_JOURNAL_DIR: ${JS_MONITOR_JOURNAL_DIR},
-  MIMOLO_MONITOR_CACHE_DIR: ${JS_MONITOR_CACHE_DIR},
+  MIMOLO_OPS_LOG_PATH: path.join(runtimeRoot, "user_home", "mimolo", "runtime", "operations.log"),
+  MIMOLO_MONITOR_LOG_DIR: path.join(runtimeRoot, "user_home", "mimolo", "operations", "logs"),
+  MIMOLO_MONITOR_JOURNAL_DIR: path.join(runtimeRoot, "user_home", "mimolo", "operations", "journals"),
+  MIMOLO_MONITOR_CACHE_DIR: path.join(runtimeRoot, "user_home", "mimolo", "operations", "cache"),
   MIMOLO_CONTROL_DEV_MODE: ${JS_CONTROL_DEV_MODE},
-  MIMOLO_OPERATIONS_PYTHON: ${JS_OPERATIONS_PYTHON}
+  MIMOLO_OPERATIONS_PYTHON: path.join(runtimeVenvDir, "bin", "python"),
+  MIMOLO_RUNTIME_PREPARE_SCRIPT: path.join(process.resourcesPath, "app", "scripts", "bootstrap_runtime.sh"),
+  MIMOLO_BOOTSTRAP_SOURCE_SITE_PACKAGES: ${JS_BOOTSTRAP_SOURCE_SITE_PACKAGES},
+  MIMOLO_BOOTSTRAP_SOURCE_PYTHON: ${JS_BOOTSTRAP_SOURCE_PYTHON}
 };
 
+const keepExistingBundleEnv = (process.env.MIMOLO_BUNDLE_RESPECT_ENV || "").trim() === "1";
 for (const [key, value] of Object.entries(defaults)) {
-  if (!process.env[key] || process.env[key].trim().length === 0) {
-    process.env[key] = value;
+  const existing = process.env[key];
+  if (keepExistingBundleEnv && existing && existing.trim().length > 0) {
+    continue;
   }
+  process.env[key] = value;
 }
 
 await import("./dist/main.js");

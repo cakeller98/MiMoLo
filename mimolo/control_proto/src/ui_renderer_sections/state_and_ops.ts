@@ -22,6 +22,13 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
       const dropHint = document.getElementById("dropHint");
       const modalHost = document.getElementById("modalHost");
       const toastHost = document.getElementById("toastHost");
+      const bootstrapOverlayEl = document.getElementById("bootstrapOverlay");
+      const bootstrapStageEl = document.getElementById("bootstrapStage");
+      const bootstrapPathEl = document.getElementById("bootstrapPath");
+      const bootstrapProgressFillEl = document.getElementById("bootstrapProgressFill");
+      const bootstrapProgressLabelEl = document.getElementById("bootstrapProgressLabel");
+      const bootstrapLogEl = document.getElementById("bootstrapLog");
+      const bootstrapAcknowledgeBtn = document.getElementById("bootstrapAcknowledgeBtn");
       const cards = new Map();
       const instancesByLabel = new Map();
       const templatesById = new Map();
@@ -38,17 +45,178 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
 
       const lines = [];
       const maxLines = 1800;
+      const bootstrapLines = [];
+      const maxBootstrapLines = 220;
+      const bootstrapState = {
+        done: false,
+        failed: false,
+        hidden: false,
+        progress: 0,
+      };
 
       function append(line) {
         lines.push(line);
         if (lines.length > maxLines) lines.shift();
         logEl.textContent = lines.join("\\n");
         logEl.scrollTop = logEl.scrollHeight;
+        updateBootstrapFromLine(line);
       }
 
       function setStatus(text) {
         statusEl.textContent = text;
+        if (text.startsWith("connected -") && !bootstrapState.done && !bootstrapState.failed) {
+          setBootstrapProgress(100, "Runtime ready");
+          setBootstrapDone();
+        }
       }
+
+      function renderBootstrapLog() {
+        if (!bootstrapLogEl) {
+          return;
+        }
+        bootstrapLogEl.textContent = bootstrapLines.join("\\n");
+        bootstrapLogEl.scrollTop = bootstrapLogEl.scrollHeight;
+      }
+
+      function appendBootstrapLine(line) {
+        bootstrapLines.push(line);
+        if (bootstrapLines.length > maxBootstrapLines) {
+          bootstrapLines.shift();
+        }
+        renderBootstrapLog();
+      }
+
+      function setBootstrapPath(pathText) {
+        if (!bootstrapPathEl) {
+          return;
+        }
+        bootstrapPathEl.textContent = pathText || "";
+      }
+
+      function setBootstrapProgress(progress, stage) {
+        const clamped = Math.max(0, Math.min(100, Math.round(progress)));
+        bootstrapState.progress = clamped;
+        if (bootstrapStageEl) {
+          bootstrapStageEl.textContent = stage;
+        }
+        if (bootstrapProgressFillEl) {
+          bootstrapProgressFillEl.style.width = String(clamped) + "%";
+        }
+        if (bootstrapProgressLabelEl) {
+          bootstrapProgressLabelEl.textContent = String(clamped) + "%";
+        }
+      }
+
+      function setBootstrapDone() {
+        bootstrapState.done = true;
+        bootstrapState.failed = false;
+        if (bootstrapAcknowledgeBtn) {
+          bootstrapAcknowledgeBtn.disabled = false;
+        }
+      }
+
+      function setBootstrapFailed(detail) {
+        bootstrapState.failed = true;
+        if (bootstrapStageEl) {
+          bootstrapStageEl.textContent = "Runtime bootstrap failed";
+        }
+        appendBootstrapLine(detail);
+        if (bootstrapAcknowledgeBtn) {
+          bootstrapAcknowledgeBtn.disabled = true;
+        }
+      }
+
+      function maybeHideBootstrapOverlay() {
+        if (!bootstrapOverlayEl || bootstrapState.hidden !== false) {
+          return;
+        }
+        bootstrapOverlayEl.hidden = true;
+        bootstrapState.hidden = true;
+      }
+
+      if (bootstrapAcknowledgeBtn) {
+        bootstrapAcknowledgeBtn.addEventListener("click", () => {
+          if (!bootstrapState.done) {
+            return;
+          }
+          maybeHideBootstrapOverlay();
+        });
+      }
+
+      function parseBootstrapPath(line, marker) {
+        const idx = line.indexOf(marker);
+        if (idx < 0) {
+          return "";
+        }
+        return line.slice(idx + marker.length).trim();
+      }
+
+      function updateBootstrapFromLine(line) {
+        const raw = typeof line === "string" ? line.trim() : "";
+        if (!raw) {
+          return;
+        }
+        if (!raw.includes("[bootstrap]") && !raw.includes("[ops]") && !raw.includes("[control]")) {
+          return;
+        }
+        appendBootstrapLine(raw);
+
+        if (raw.includes("[ops] preparing portable runtime")) {
+          setBootstrapProgress(Math.max(bootstrapState.progress, 5), "Preparing runtime");
+          return;
+        }
+        if (raw.includes("[control] preparing portable runtime")) {
+          setBootstrapProgress(Math.max(bootstrapState.progress, 8), "Preparing runtime");
+          return;
+        }
+        if (raw.includes("[bootstrap] creating runtime venv at")) {
+          setBootstrapProgress(Math.max(bootstrapState.progress, 20), "Creating runtime virtual environment");
+          const pathText = parseBootstrapPath(raw, "[bootstrap] creating runtime venv at");
+          setBootstrapPath(pathText);
+          return;
+        }
+        if (raw.includes("[bootstrap] hydrating runtime packages from")) {
+          setBootstrapProgress(Math.max(bootstrapState.progress, 50), "Hydrating runtime packages");
+          const pathText = parseBootstrapPath(raw, "[bootstrap] hydrating runtime packages from");
+          setBootstrapPath(pathText);
+          return;
+        }
+        if (raw.includes("[bootstrap] syncing mimolo package source from")) {
+          setBootstrapProgress(Math.max(bootstrapState.progress, 68), "Syncing MiMoLo package source");
+          const pathText = parseBootstrapPath(raw, "[bootstrap] syncing mimolo package source from");
+          setBootstrapPath(pathText);
+          return;
+        }
+        if (raw.includes("[bootstrap] seeded runtime config:")) {
+          setBootstrapProgress(Math.max(bootstrapState.progress, 85), "Seeding runtime config");
+          const pathText = parseBootstrapPath(raw, "[bootstrap] seeded runtime config:");
+          setBootstrapPath(pathText);
+          return;
+        }
+        if (raw.includes("[bootstrap] runtime ready:")) {
+          setBootstrapProgress(100, "Runtime ready");
+          const pathText = parseBootstrapPath(raw, "[bootstrap] runtime ready:");
+          setBootstrapPath(pathText);
+          setBootstrapDone();
+          return;
+        }
+        if (raw.includes("[bootstrap] runtime config:")) {
+          const pathText = parseBootstrapPath(raw, "[bootstrap] runtime config:");
+          setBootstrapPath(pathText);
+          return;
+        }
+        if (
+          raw.includes("runtime_prepare_failed") ||
+          raw.includes("runtime_prepare_missing_python") ||
+          raw.includes("runtime hydration failed") ||
+          raw.includes("[ops] start failed:")
+        ) {
+          setBootstrapFailed(raw);
+        }
+      }
+
+      setBootstrapProgress(1, "Waiting for runtime bootstrap");
+      appendBootstrapLine("[bootstrap] waiting for runtime bootstrap events");
 
       function setOpsConnectedState(connected) {
         opsConnected = connected === true;

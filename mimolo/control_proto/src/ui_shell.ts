@@ -54,6 +54,21 @@ export function buildUiShellHtml(controlDevMode: boolean): string {
         ? `<div id="dropHint" class="drop-hint" hidden>Drop plugin zip to install (developer mode)</div>`
         : ""
     }
+    <div id="bootstrapOverlay" class="bootstrap-overlay">
+      <div class="bootstrap-card">
+        <div class="bootstrap-title">Preparing Runtime Environment</div>
+        <div id="bootstrapStage" class="bootstrap-stage">Waiting for bootstrap...</div>
+        <div id="bootstrapPath" class="bootstrap-path"></div>
+        <div class="bootstrap-progress-track">
+          <div id="bootstrapProgressFill" class="bootstrap-progress-fill"></div>
+        </div>
+        <div id="bootstrapProgressLabel" class="bootstrap-progress-label">0%</div>
+        <pre id="bootstrapLog" class="bootstrap-log"></pre>
+        <div class="bootstrap-actions">
+          <button id="bootstrapAcknowledgeBtn" class="ops-btn" disabled>OK</button>
+        </div>
+      </div>
+    </div>
     <div id="modalHost"></div>
     <div id="toastHost" class="toast-host"></div>
 `;
