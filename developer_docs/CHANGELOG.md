@@ -2,6 +2,35 @@
 
 All notable documentation changes under `developer_docs/` are tracked in this file.
 
+## 2026-02-11
+
+### Changed
+- Updated canonical active backlog priority in `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`:
+  - added `Item 12` as new highest-priority execution item:
+    - **Agent self-CPU budgeting, policy envelope, and adaptive-readiness baseline**
+  - documented explicit completion criteria for:
+    - base-class cascade strategy (`BaseAgent` one-time change),
+    - per-agent budget precedence and effective-budget capping,
+    - logging semantics (`info` vs `warning`) for overrides/clamping,
+    - global CPU envelope rule and proportional auto-scale policy.
+- Updated `developer_docs/agent_dev/AGENT_PROTOCOL_SPEC.md`:
+  - added heartbeat CPU-budget telemetry keys as additive optional metrics:
+    - `cpu_percent_recent`
+    - `cpu_percent_avg_60s`
+    - `cpu_budget_percent`
+    - `cpu_budget_ok`
+    - `cpu_over_budget_seconds`
+  - updated schema snippet metrics properties accordingly.
+- Updated `developer_docs/agent_dev/AGENT_DEV_GUIDE.md`:
+  - added explicit CPU budget policy section with:
+    - default/override/max precedence behavior,
+    - logging semantics for missing/low/high overrides,
+    - global envelope rule (`sum(plugin budgets) + ops budget <= total budget`),
+    - phased execution model (report-first, adaptive-later).
+- Updated `developer_docs/2026.02.10 CODE-MEGASCAN/context_dump.md`:
+  - reprioritized current work context to Item 12,
+  - recorded approved CPU-budget policy and next execution slice.
+
 ## 2026-02-10
 
 ### Added

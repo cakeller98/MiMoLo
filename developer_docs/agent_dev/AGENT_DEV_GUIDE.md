@@ -103,6 +103,28 @@ Your agent could:
 - Never spin-lock or busy-wait.  
 - If you must exceed limits temporarily (e.g. heavy render analysis), clearly declare `"mode":"intensive"` in your status payload so the collector can throttle or isolate you.  
 
+### 2.5.1 CPU Budget Policy (Current Ground Rule)
+- Default behavior must require no per-agent config.
+- Optional per-agent override is allowed for high-value heavy plugins.
+- Effective per-agent budget is computed by Operations as:
+  - requested budget = `plugin.cpu_budget_percent` if present, else global default plugin budget,
+  - effective budget = `min(requested budget, global max per-plugin budget)`.
+
+Logging policy:
+- No per-agent override present: log **info** (normal/default operation).
+- Override present and `<=` global default: log **info**.
+- Override present and `>` global default: log **warning** (intentional higher-budget request).
+- Override above global max: log **warning** and clamp to global max.
+
+Global envelope rule:
+- The app-level budget must hold:
+  - `sum(effective_plugin_budgets) + ops_budget <= global_total_cpu_budget_percent`
+- If over envelope, plugin budgets are proportionally auto-scaled to fit.
+
+Implementation phases:
+- Phase 1 (current target): self-monitoring + reporting + policy signal only.
+- Phase 2 (later): adaptive polling/cadence control using the same telemetry (no protocol break).
+
 ---
 
 ## 3  Adaptive and Self-Healing Agents

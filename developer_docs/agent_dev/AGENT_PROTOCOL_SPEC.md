@@ -2,7 +2,7 @@
 
 > **Protocol Version:** 0.3  
 > **Status:** Current (since MiMoLo v0.3.0)  
-> **Last Updated:** November 2025  
+> **Last Updated:** 2026-02-11  
 > **Schema:** `mimolo-agent-schema.json`
 
 ---
@@ -70,6 +70,22 @@ All outbound messages share a common envelope.
 | `metrics` | object | `heartbeat`       | Lightweight runtime metrics (CPU, mem, queue, latency). |
 | `health`  | string | `status`          | `"ok"`, `"degraded"`, `"overload"`, or `"failed"`.      |
 | `message` | string | `status`, `error` | Human-readable diagnostic text.                         |
+
+### 3.2.1 CPU Budget Telemetry Keys (Additive, Optional)
+
+For budget-aware Agents, heartbeat `metrics` SHOULD include:
+
+| Key                      | Type    | Description |
+| ------------------------ | ------- | ----------- |
+| `cpu_percent_recent`     | number  | Recent process CPU percentage for this agent instance. |
+| `cpu_percent_avg_60s`    | number  | Rolling average CPU percentage over approximately 60 seconds. |
+| `cpu_budget_percent`     | number  | Effective budget percentage currently applied to this agent. |
+| `cpu_budget_ok`          | boolean | `true` when agent is currently within its effective budget. |
+| `cpu_over_budget_seconds`| number  | Consecutive seconds currently over budget (0 when healthy). |
+
+Notes:
+- These keys are additive and do not break protocol compatibility.
+- Operations may combine these with orchestrator-side telemetry for policy and UX.
 
 ### 3.3 Example Envelopes
 
@@ -222,7 +238,12 @@ When `stop` or `flush` appears in a sequence, agents must ACK those commands in-
         "cpu": {"type": "number", "minimum": 0},
         "mem": {"type": "number", "minimum": 0},
         "queue": {"type": "integer", "minimum": 0},
-        "latency_ms": {"type": "number", "minimum": 0}
+        "latency_ms": {"type": "number", "minimum": 0},
+        "cpu_percent_recent": {"type": "number", "minimum": 0},
+        "cpu_percent_avg_60s": {"type": "number", "minimum": 0},
+        "cpu_budget_percent": {"type": "number", "minimum": 0},
+        "cpu_budget_ok": {"type": "boolean"},
+        "cpu_over_budget_seconds": {"type": "number", "minimum": 0}
       },
       "additionalProperties": true
     },

@@ -143,17 +143,18 @@ Deep scan reference:
 
 ### Priority Index (Reprioritize Here, Keep Backlog Item Numbers Stable)
 
-1. [[#Item 10 — Maintainability-first decomposition and concern-boundary compliance]]
-2. [[#Item 1 — Operations lifecycle ownership + orphan-process elimination]]
-3. [[#Item 2 — Implement true widget render pipeline through Operations]]
-4. [[#Item 3 — Finish agent package install/upgrade lifecycle]]
-5. [[#Item 4 — Complete archive-before-purge workflow]]
-6. [[#Item 5 — Hardening pass for `client_folder_activity` and `screen_tracker`]]
-7. [[#Item 6 — Promote control_proto patterns into commercial Control app]]
-8. [[#Item 7 — Repository-wide path handling normalization audit (Python + TypeScript)]]
-9. [[#Item 8 — Plugin trust boundary and capability-gated isolation model]]
-10. [[#Item 9 — Optional indicator intent-dot for request lifecycle diagnostics (deferred)]]
-11. [[#Item 11 — Fix pack-agent `--verify-existing` deterministic archive verification]]
+1. [[#Item 12 — Agent self-CPU budgeting, policy envelope, and adaptive-readiness baseline]]
+2. [[#Item 10 — Maintainability-first decomposition and concern-boundary compliance]]
+3. [[#Item 1 — Operations lifecycle ownership + orphan-process elimination]]
+4. [[#Item 2 — Implement true widget render pipeline through Operations]]
+5. [[#Item 3 — Finish agent package install/upgrade lifecycle]]
+6. [[#Item 4 — Complete archive-before-purge workflow]]
+7. [[#Item 5 — Hardening pass for `client_folder_activity` and `screen_tracker`]]
+8. [[#Item 6 — Promote control_proto patterns into commercial Control app]]
+9. [[#Item 7 — Repository-wide path handling normalization audit (Python + TypeScript)]]
+10. [[#Item 8 — Plugin trust boundary and capability-gated isolation model]]
+11. [[#Item 9 — Optional indicator intent-dot for request lifecycle diagnostics (deferred)]]
+12. [[#Item 11 — Fix pack-agent `--verify-existing` deterministic archive verification]]
 
 Priority-index rule:
 - Reprioritize by editing this index only.
@@ -356,6 +357,33 @@ Priority-index rule:
       - `pack-agent --source ../agents/agent_example --verify-existing` => PASS (verified skip)
       - `pack-agent --source ../agents/client_folder_activity --verify-existing` => PASS (verified skip)
       - clean temp repo pack+verify cycle => PASS
+
+### Item 12 — Agent self-CPU budgeting, policy envelope, and adaptive-readiness baseline
+- Status: Planned / active high-priority
+- Done when:
+  - all Python agents emit self-CPU and budget health metrics through the base class, with no per-agent patching required.
+  - effective per-agent budget policy is implemented as:
+    - requested budget = `plugin.cpu_budget_percent` when present, otherwise global default,
+    - effective budget = `min(requested budget, global max per-plugin budget)`.
+  - logging behavior is explicit and stable:
+    - no per-agent override present => info only,
+    - per-agent override > global default => warning,
+    - per-agent override <= global default => info,
+    - per-agent override > global max => warning and clamp to global max.
+  - global envelope policy is enforced:
+    - `sum(effective_plugin_budgets) + ops_budget <= global_total_cpu_budget_percent`,
+    - if exceeded, effective plugin budgets are proportionally auto-scaled to fit envelope.
+  - additive heartbeat metrics are present for runtime/control introspection:
+    - `cpu_percent_recent`
+    - `cpu_percent_avg_60s`
+    - `cpu_budget_percent`
+    - `cpu_budget_ok`
+    - `cpu_over_budget_seconds`
+  - implementation is phase-correct:
+    - phase 1: self-reporting + policy signals only (no automatic cadence mutation),
+    - phase 2-ready hooks exist for adaptive throttling without protocol break.
+- Scope note:
+  - this item is now highest priority because observed real runtime load must be measured and governed before further scaling.
 
 ## 4) Canonical Planning Rules
 

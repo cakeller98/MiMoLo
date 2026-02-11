@@ -12,8 +12,9 @@ Purpose: compact carry-forward context without duplicating canonical docs.
 - Full code-health audit bundle: `developer_docs/2026.02.10 CODE-MEGASCAN/`
 
 ## Current Priority
-1. **Item 10 is active priority again**: maintainability-first decomposition and concern-boundary compliance.
-2. Item 1 (ops lifecycle/orphan elimination) remains critical, but is currently secondary to maintainability unless safety/regression forces immediate behavior work.
+1. **Item 12 is now active highest priority**: Agent self-CPU budgeting, policy envelope, and adaptive-readiness baseline.
+2. Item 10 (maintainability-first decomposition) remains active and resumes as next priority after Item 12 phase-1 delivery.
+3. Item 1 (ops lifecycle/orphan elimination) remains critical but is currently below Item 12 + Item 10 unless safety/regression forces immediate behavior work.
 
 ## Rule-Set Sensibilities (non-negotiable)
 - **Code/tests are implementation truth** when docs differ.
@@ -124,11 +125,16 @@ Exception scan behavior:
 Last known snapshot in matrix/changelog: clean, `132 passed`.
 
 ## Next Recommended Action
-Item 11 pack-agent verification blocker is now resolved and re-validated.
-Resume planned order:
-1. Phase 1 MML shell concern decomposition (`mml.sh` -> `scripts/mml/<concern>.sh`, no TS yet),
-2. then Phase 2 MML TypeScript migration (`mml.sh`/`mml.ps1` thin wrappers -> compiled `mml.js` -> concern modules),
-3. then continue remaining maintainability slices in matrix order.
+Item 12 phase-1 implementation is the immediate next action:
+1. BaseAgent one-time CPU self-monitoring and heartbeat budget telemetry.
+2. Operations budget policy wiring (default/override/max + envelope auto-scale).
+3. Control/runtime visibility updates and strict QC rerun.
+
+Policy lock (approved):
+- missing per-agent override => info only (normal), not warning.
+- warning only when override exceeds global default, and when clamped above global max.
+- enforce envelope with proportional auto-scale:
+  - `sum(effective_plugin_budgets) + ops_budget <= global_total_cpu_budget_percent`.
 
 ## Confirmed Execution Order (User-Directed, Updated)
 Work in this exact order, one commit-ready slice at a time (not together):
