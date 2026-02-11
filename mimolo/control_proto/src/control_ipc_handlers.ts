@@ -28,6 +28,7 @@ interface RegisterIpcHandlersDependencies {
   getMonitorSettings: () => MonitorSettingsSnapshot;
   getOpsControlState: () => OperationsControlSnapshot;
   getStatus: () => OpsStatusPayload;
+  dispatchWidgetAction: (payload: Record<string, unknown>) => Promise<IpcResponsePayload>;
   getWidgetManifest: (payload: Record<string, unknown>) => Promise<IpcResponsePayload>;
   inspectPluginArchive: (payload: Record<string, unknown>) => Promise<IpcResponsePayload>;
   installPluginArchive: (payload: Record<string, unknown>) => Promise<IpcResponsePayload>;
@@ -183,6 +184,24 @@ export function registerIpcHandlers(
       return await deps.requestWidgetRender(payload as Record<string, unknown>);
     } catch (err) {
       const detail = err instanceof Error ? err.message : "widget_render_failed";
+      return {
+        ok: false,
+        error: detail,
+      };
+    }
+  });
+
+  deps.ipcMain.handle("mml:dispatch-widget-action", async (_event, payload: unknown) => {
+    if (!payload || typeof payload !== "object") {
+      return {
+        ok: false,
+        error: "invalid_widget_payload",
+      };
+    }
+    try {
+      return await deps.dispatchWidgetAction(payload as Record<string, unknown>);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "widget_action_failed";
       return {
         ok: false,
         error: detail,

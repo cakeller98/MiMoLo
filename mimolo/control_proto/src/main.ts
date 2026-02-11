@@ -25,6 +25,7 @@ import {
   parseIpcResponse,
 } from "./control_proto_utils.js";
 import {
+  dispatchWidgetActionWrapper,
   getWidgetManifestWrapper,
   inspectPluginArchiveWrapper,
   installPluginArchiveWrapper,
@@ -291,6 +292,12 @@ async function requestWidgetRender(
   return requestWidgetRenderWrapper(payload, sendIpcCommand);
 }
 
+async function dispatchWidgetAction(
+  payload: Record<string, unknown>,
+): Promise<IpcResponsePayload> {
+  return dispatchWidgetActionWrapper(payload, sendIpcCommand);
+}
+
 async function inspectPluginArchive(
   payload: Record<string, unknown>,
 ): Promise<IpcResponsePayload> {
@@ -441,6 +448,7 @@ registerIpcHandlers({
   updateMonitorSettings,
   getWidgetManifest,
   requestWidgetRender,
+  dispatchWidgetAction,
   inspectPluginArchive,
   installPluginArchive,
   runAgentCommand,

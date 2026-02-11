@@ -280,10 +280,12 @@ Priority-index rule:
 - Active implementation notes (2026-02-11):
   - observed high CPU was amplified by an unsafe watch target (`MiMoLo` project root) in portable runtime config.
   - corrected local operator setup now uses dedicated test watch folder (`temp_debug/.../watch_this_folder`) and confirms major transient-load reduction.
-  - next hardening slice for this item:
-    - add missing/restored transition tracking in `client_folder_activity`,
-    - route manual update through the exact poll pipeline,
-    - add overlap diagnostics for runtime-generated paths without hard-blocking user configuration.
+  - implemented hardening slice:
+    - `client_folder_activity` now emits transition-based watch-path logs (warning on missing, info on restored) without interval spam.
+    - manual widget update now dispatches `refresh` over widget IPC before render request.
+    - widget `refresh` dispatch now sends an immediate agent `flush` command when the agent process is alive (and remains non-breaking/no-op accepted when not running).
+    - `client_folder_activity` snapshot path now runs the same accumulation pipeline used by scheduled sampling before formatting flush summaries.
+    - overlap diagnostics for runtime-managed directories are emitted once per session (warning, non-blocking).
 
 ### Item 6 — Promote control_proto patterns into commercial Control app
 - Done when:

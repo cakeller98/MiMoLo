@@ -102,6 +102,8 @@ class ClientFolderActivityAgent(BaseAgent):
         self._last_event_ts: datetime | None = None
         self._degraded_paths: set[str] = set()
         self._degraded_emitted = False
+        self._watch_path_available: dict[str, bool] = {}
+        self._watch_overlap_warning_emitted = False
 
         self._watch_backend = "watchfiles" if WATCHFILES_AVAILABLE and self.use_watchfiles else "polling"
         self._watch_thread_started = False
@@ -299,6 +301,116 @@ class ClientFolderActivityAgent(BaseAgent):
         self._degraded_emitted = False
         self._degraded_paths = set()
 
+    def _emit_watch_path_transition_logs(self, now: datetime, degraded_paths: set[str]) -> None:
+        degraded_set = set(degraded_paths)
+        for root in sorted(self.watch_paths, key=lambda path: str(path)):
+            path_text = str(root)
+            available = path_text not in degraded_set
+            previous = self._watch_path_available.get(path_text)
+            self._watch_path_available[path_text] = available
+            if previous is None:
+                if not available:
+                    self._emit_watch_path_log(
+                        now,
+                        level="warning",
+                        message="Watch path unavailable; monitoring paused for this path.",
+                        path_text=path_text,
+                    )
+                continue
+            if previous == available:
+                continue
+            if available:
+                self._emit_watch_path_log(
+                    now,
+                    level="info",
+                    message="Watch path restored; monitoring resumed for this path.",
+                    path_text=path_text,
+                )
+            else:
+                self._emit_watch_path_log(
+                    now,
+                    level="warning",
+                    message="Watch path unavailable; monitoring paused for this path.",
+                    path_text=path_text,
+                )
+
+    def _emit_watch_path_log(
+        self,
+        now: datetime,
+        *,
+        level: str,
+        message: str,
+        path_text: str,
+    ) -> None:
+        self.send_message(
+            {
+                "type": "log",
+                "timestamp": now.isoformat(),
+                "agent_id": self.agent_id,
+                "agent_label": self.agent_label,
+                "protocol_version": self.protocol_version,
+                "agent_version": self.agent_version,
+                "level": level,
+                "message": message,
+                "markup": False,
+                "data": {},
+                "extra": {"watch_path": path_text},
+            }
+        )
+
+    def _runtime_managed_roots(self) -> list[Path]:
+        roots: dict[str, Path] = {}
+        data_dir_raw = os.getenv("MIMOLO_DATA_DIR")
+        if data_dir_raw:
+            data_dir = Path(data_dir_raw).expanduser()
+            roots[str(data_dir / "operations" / "logs")] = data_dir / "operations" / "logs"
+            roots[str(data_dir / "operations" / "journal")] = data_dir / "operations" / "journal"
+            roots[str(data_dir / "runtime")] = data_dir / "runtime"
+        ops_log_path_raw = os.getenv("MIMOLO_OPS_LOG_PATH")
+        if ops_log_path_raw:
+            log_parent = Path(ops_log_path_raw).expanduser().parent
+            roots[str(log_parent)] = log_parent
+        return sorted(roots.values(), key=lambda path: str(path))
+
+    def _paths_overlap(self, left: Path, right: Path) -> bool:
+        return left == right or left.is_relative_to(right) or right.is_relative_to(left)
+
+    def _emit_watch_overlap_warning_once(self, now: datetime) -> None:
+        if self._watch_overlap_warning_emitted:
+            return
+        runtime_roots = self._runtime_managed_roots()
+        overlaps: list[dict[str, str]] = []
+        for watch_root in self.watch_paths:
+            for runtime_root in runtime_roots:
+                if not self._paths_overlap(watch_root, runtime_root):
+                    continue
+                overlaps.append(
+                    {
+                        "watch_path": str(watch_root),
+                        "runtime_path": str(runtime_root),
+                    }
+                )
+        if overlaps:
+            self.send_message(
+                {
+                    "type": "log",
+                    "timestamp": now.isoformat(),
+                    "agent_id": self.agent_id,
+                    "agent_label": self.agent_label,
+                    "protocol_version": self.protocol_version,
+                    "agent_version": self.agent_version,
+                    "level": "warning",
+                    "message": (
+                        "Watch path overlaps MiMoLo runtime-managed directories; "
+                        "self-generated churn is likely."
+                    ),
+                    "markup": False,
+                    "data": {},
+                    "extra": {"overlaps": overlaps},
+                }
+            )
+        self._watch_overlap_warning_emitted = True
+
     def _register_window_event(self, now: datetime, path_text: str, event_kind: str) -> None:
         record = self._window_records.get(path_text)
         if record is None:
@@ -372,6 +484,7 @@ class ClientFolderActivityAgent(BaseAgent):
     def _accumulate(self, now: datetime) -> None:
         if self._segment_start is None:
             self._segment_start = now
+        self._emit_watch_overlap_warning_once(now)
 
         degraded_paths: set[str] = {
             str(root) for root in self.watch_paths if not root.exists() or not root.is_dir()
@@ -418,6 +531,7 @@ class ClientFolderActivityAgent(BaseAgent):
             events, poll_degraded = self._collect_polling_events(now)
             degraded_paths.update(poll_degraded)
 
+        self._emit_watch_path_transition_logs(now, degraded_paths)
         self._emit_health_transition(now, degraded_paths)
 
         if events:
@@ -429,6 +543,8 @@ class ClientFolderActivityAgent(BaseAgent):
         self._prune_window_records(now)
 
     def _take_snapshot(self, now: datetime) -> tuple[datetime, datetime, dict[str, Any]]:
+        # Flush/manual renders should evaluate the same event pipeline as scheduled sampling.
+        self._accumulate(now)
         start = self._segment_start or now
         end = now
 

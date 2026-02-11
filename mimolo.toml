@@ -6,7 +6,7 @@
   cooldown_seconds = 600.0
 
   # Polling tick interval in seconds
-  poll_tick_s = 0.2
+  poll_tick_s = 1.5
 
   # Directory for log files (will be created if doesn't exist)
   log_dir = "./logs"

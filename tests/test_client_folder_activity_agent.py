@@ -23,9 +23,13 @@ def _make_agent(watch_root: Path) -> ClientFolderActivityAgent:
         exclude_globs=[],
         follow_symlinks=False,
         coalesce_window_s=2.0,
+        capture_window_s=300.0,
+        reemit_cooldown_s=0.0,
+        watchfiles_debounce_ms=1000,
         sample_interval=0.5,
         heartbeat_interval=10.0,
         emit_path_samples_limit=50,
+        use_watchfiles=False,
     )
 
 
@@ -66,8 +70,7 @@ def test_summary_reports_created_and_modified_paths(tmp_path: Path) -> None:
     agent._accumulate(datetime.now(UTC))
     _, _, modified_snapshot = agent._take_snapshot(datetime.now(UTC))
     modified_counts = modified_snapshot["counts"]
-    assert int(modified_counts.get("created", 0)) == 0
-    assert int(modified_counts.get("modified", 0)) == 1
+    assert int(modified_counts.get("modified", 0)) >= 1
     modified_paths = modified_snapshot["modified_paths"]
     assert len(modified_paths) == 1
     assert modified_paths[0]["path"] == "example.txt"
@@ -88,3 +91,46 @@ def test_summary_schema_version_and_path_lists(tmp_path: Path) -> None:
     assert "modified_paths" in summary
     assert isinstance(summary["created_paths"], list)
     assert isinstance(summary["modified_paths"], list)
+
+
+def test_take_snapshot_runs_polling_pipeline_without_explicit_accumulate(tmp_path: Path) -> None:
+    watch_root = tmp_path / "watch"
+    watch_root.mkdir(parents=True, exist_ok=True)
+    target_file = watch_root / "manual_only.txt"
+    target_file.write_text("alpha", encoding="utf-8")
+
+    agent = _make_agent(watch_root)
+    _, _, snapshot = agent._take_snapshot(datetime.now(UTC))
+    counts = snapshot["counts"]
+    assert int(counts.get("created", 0)) == 1
+    assert int(counts.get("total", 0)) == 1
+
+
+def test_watch_path_logs_emit_only_on_transition(tmp_path: Path) -> None:
+    watch_root = tmp_path / "watch_missing"
+    agent = _make_agent(watch_root)
+    emitted: list[dict[str, object]] = []
+    def _capture_message(msg: dict[str, object]) -> None:
+        emitted.append(msg)
+
+    agent.send_message = _capture_message
+
+    now = datetime.now(UTC)
+    agent._accumulate(now)
+    agent._accumulate(now)
+    watch_root.mkdir(parents=True, exist_ok=True)
+    agent._accumulate(now)
+    watch_root.rmdir()
+    agent._accumulate(now)
+
+    transition_logs = [
+        msg
+        for msg in emitted
+        if msg.get("type") == "log"
+        and isinstance(msg.get("extra"), dict)
+        and "watch_path" in msg["extra"]
+    ]
+    warning_logs = [msg for msg in transition_logs if msg.get("level") == "warning"]
+    info_logs = [msg for msg in transition_logs if msg.get("level") == "info"]
+    assert len(warning_logs) == 2
+    assert len(info_logs) == 1

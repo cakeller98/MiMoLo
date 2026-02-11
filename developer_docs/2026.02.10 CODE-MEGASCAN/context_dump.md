@@ -111,11 +111,17 @@ Purpose: compact carry-forward context without duplicating canonical docs.
   - bootstrap trigger behavior now matches first-run expectations:
     - runtime prepare is invoked automatically during initial renderer startup (no Start Ops click required),
     - bootstrap script output is streamed over a dedicated IPC event (`ops:bootstrap-line`) so overlay updates are immediate even when disconnected poll loops are slow.
-  - runtime performance instrumentation is now wired end-to-end for diagnostics:
-    - Operations records per-tick wall-time, stage breakdown, per-agent drain/flush/message counters.
-    - Operations exposes telemetry over IPC (`get_runtime_perf`).
-    - Control subscribes and renders a live `Perf` line with CPU/tick/memory/top-agent hotspot summary.
-    - Runtime perf now also samples per-agent OS process CPU/RSS, so parent runtime vs child-agent CPU mismatches are visible directly in UI (`top_agent_cpu`).
+- runtime performance instrumentation is now wired end-to-end for diagnostics:
+  - Operations records per-tick wall-time, stage breakdown, per-agent drain/flush/message counters.
+  - Operations exposes telemetry over IPC (`get_runtime_perf`).
+  - Control subscribes and renders a live `Perf` line with CPU/tick/memory/top-agent hotspot summary.
+  - Runtime perf now also samples per-agent OS process CPU/RSS, so parent runtime vs child-agent CPU mismatches are visible directly in UI (`top_agent_cpu`).
+- folder watcher + widget refresh hardening now includes:
+  - transition-only watch-path missing/restored logs (no interval warning spam),
+  - one-time overlap warning when watch roots include runtime-managed directories,
+  - manual widget update dispatch (`refresh`) before render,
+  - runtime dispatch action translates `refresh` into immediate agent `flush`,
+  - folder watcher snapshots run the same accumulation pipeline used by scheduled polling.
 
 ## Remaining Exception Patterns in pack-agent module (intentional)
 - Core invariant throws (schema/semver/repo-dir contract): keep.

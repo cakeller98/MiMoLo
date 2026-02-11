@@ -5,6 +5,13 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 ## 2026-02-11
 
 ### Changed
+- Updated `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md` Item 5 notes:
+  - recorded implementation of transition-based watch-path warnings/recovery logs,
+  - recorded manual widget refresh dispatch behavior (`dispatch_widget_action` -> immediate flush),
+  - recorded folder-watcher snapshot parity with scheduled poll pipeline,
+  - recorded one-time overlap diagnostics for runtime-managed directories (non-blocking).
+- Updated `developer_docs/2026.02.10 CODE-MEGASCAN/context_dump.md`:
+  - added current hardening snapshot for folder watcher + widget refresh pipeline behavior.
 - Updated canonical active backlog priority in `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`:
   - added `Item 12` as new highest-priority execution item:
     - **Agent self-CPU budgeting, policy envelope, and adaptive-readiness baseline**

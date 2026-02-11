@@ -99,6 +99,41 @@ export async function requestWidgetRenderWrapper(
   );
 }
 
+export async function dispatchWidgetActionWrapper(
+  payload: Record<string, unknown>,
+  sendIpcCommand: SendIpcCommandFn,
+): Promise<IpcResponsePayload> {
+  const pluginId = coerceNonEmptyString(payload.plugin_id);
+  const instanceId = coerceNonEmptyString(payload.instance_id);
+  if (!pluginId || !instanceId) {
+    return {
+      ok: false,
+      error: !pluginId ? "missing_plugin_id" : "missing_instance_id",
+    };
+  }
+
+  const action = coerceNonEmptyString(payload.action) || "refresh";
+  const isManual = coerceBoolean(payload.manual);
+  const trafficClass: IpcTrafficClass = isManual ? "interactive" : "background";
+  const actionPayloadRaw = payload.payload;
+  const actionPayload =
+    actionPayloadRaw && typeof actionPayloadRaw === "object"
+      ? (actionPayloadRaw as Record<string, unknown>)
+      : {};
+
+  return sendIpcCommand(
+    "dispatch_widget_action",
+    {
+      plugin_id: pluginId,
+      instance_id: instanceId,
+      action,
+      payload: actionPayload,
+    },
+    instanceId,
+    trafficClass,
+  );
+}
+
 export async function inspectPluginArchiveWrapper(
   payload: Record<string, unknown>,
   sendIpcCommand: SendIpcCommandFn,

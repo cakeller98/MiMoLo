@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+
+from mimolo.core.protocol import CommandType, OrchestratorCommand
 
 if TYPE_CHECKING:
     from mimolo.core.runtime import Runtime
@@ -62,6 +65,9 @@ def maybe_handle_widget_command(
             "timestamp": now,
             "error": f"plugin_instance_mismatch:{plugin_id}:{instance_id}",
         }
+
+    if cmd == "dispatch_widget_action":
+        return _handle_widget_dispatch_action(runtime, request, now, plugin_id, instance_id)
 
     if template_id == "screen_tracker":
         return _handle_screen_tracker_widget_command(runtime, cmd, request, now, plugin_id, instance_id)
@@ -123,22 +129,89 @@ def _handle_screen_tracker_widget_command(
             "data": screen_response_data,
         }
 
+    return _build_not_implemented_widget_response(cmd, request, now, plugin_id, instance_id)
+
+
+def _handle_widget_dispatch_action(
+    runtime: Runtime,
+    request: dict[str, Any],
+    now: str,
+    plugin_id: str,
+    instance_id: str,
+) -> dict[str, Any]:
     action_raw = request.get("action")
-    dispatch_action: str | None = (
+    action = (
         str(action_raw).strip()
         if action_raw is not None and str(action_raw).strip()
-        else None
+        else "refresh"
     )
+    if action != "refresh":
+        return {
+            "ok": True,
+            "cmd": "dispatch_widget_action",
+            "timestamp": now,
+            "data": {
+                "accepted": False,
+                "status": "unsupported_action",
+                "plugin_id": plugin_id,
+                "instance_id": instance_id,
+                "action": action,
+                "supported_actions": ["refresh"],
+                "spec": WIDGET_SPEC_PATH,
+            },
+        }
+
+    handle = runtime.agent_manager.agents.get(instance_id)
+    if handle is None:
+        return {
+            "ok": True,
+            "cmd": "dispatch_widget_action",
+            "timestamp": now,
+            "data": {
+                "accepted": True,
+                "status": "ok",
+                "detail": "agent_not_running_noop",
+                "plugin_id": plugin_id,
+                "instance_id": instance_id,
+                "action": action,
+                "supported_actions": ["refresh"],
+                "spec": WIDGET_SPEC_PATH,
+            },
+        }
+
+    flush_cmd = OrchestratorCommand(cmd=CommandType.FLUSH)
+    try:
+        sent = handle.send_command(flush_cmd)
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        return {
+            "ok": False,
+            "cmd": "dispatch_widget_action",
+            "timestamp": now,
+            "error": "dispatch_failed",
+            "data": {
+                "accepted": False,
+                "status": "dispatch_failed",
+                "detail": str(exc),
+                "plugin_id": plugin_id,
+                "instance_id": instance_id,
+                "action": action,
+                "supported_actions": ["refresh"],
+                "spec": WIDGET_SPEC_PATH,
+            },
+        }
+
+    if sent:
+        runtime.agent_last_flush[instance_id] = datetime.now(UTC)
     return {
         "ok": True,
-        "cmd": cmd,
+        "cmd": "dispatch_widget_action",
         "timestamp": now,
         "data": {
-            "accepted": dispatch_action == "refresh",
-            "status": "ok" if dispatch_action == "refresh" else "unsupported_action",
+            "accepted": sent,
+            "status": "ok" if sent else "dispatch_rejected",
             "plugin_id": plugin_id,
             "instance_id": instance_id,
-            "action": dispatch_action,
+            "action": action,
             "supported_actions": ["refresh"],
             "spec": WIDGET_SPEC_PATH,
         },

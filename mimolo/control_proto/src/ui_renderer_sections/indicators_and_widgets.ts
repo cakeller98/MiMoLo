@@ -266,6 +266,29 @@ export function buildIndicatorsAndWidgetsSection(
             }
           }
 
+          let dispatchWarning = "";
+          if (manualRequest) {
+            const dispatchResponse = await ipcRenderer.invoke("mml:dispatch-widget-action", {
+              ...identity,
+              action: "refresh",
+              manual: true,
+            });
+            if (dispatchResponse && dispatchResponse.ok === false) {
+              dispatchWarning = dispatchResponse.error
+                ? String(dispatchResponse.error)
+                : "manual_refresh_dispatch_failed";
+            } else {
+              const dispatchData = dispatchResponse && dispatchResponse.data
+                ? dispatchResponse.data
+                : null;
+              if (dispatchData && dispatchData.accepted === false) {
+                dispatchWarning = dispatchData.status
+                  ? String(dispatchData.status)
+                  : "manual_refresh_not_accepted";
+              }
+            }
+          }
+
           const renderResponse = await ipcRenderer.invoke("mml:request-widget-render", {
             ...identity,
             request_id: requestId,
@@ -281,12 +304,15 @@ export function buildIndicatorsAndWidgetsSection(
           const warningText = render && Array.isArray(render.warnings) && render.warnings.length > 0
             ? render.warnings.join(", ")
             : (renderResponse && renderResponse.error ? String(renderResponse.error) : "no_status");
-          renderStatusEl.textContent = "render: " + warningText;
+          const statusText = dispatchWarning
+            ? warningText + ", dispatch=" + dispatchWarning
+            : warningText;
+          renderStatusEl.textContent = "render: " + statusText;
 
           if (render && typeof render.html === "string" && render.html.trim().length > 0) {
             renderWidgetHtml(canvasEl, render.html);
           } else {
-            canvasEl.textContent = "widget canvas waiting: " + warningText;
+            canvasEl.textContent = "widget canvas waiting: " + statusText;
             canvasEl.classList.add("widget-muted");
           }
         } catch (err) {
