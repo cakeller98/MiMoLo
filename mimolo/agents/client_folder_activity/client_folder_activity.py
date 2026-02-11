@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """Client folder activity agent.
 
-Polls configured folders and emits lightweight summary metadata on flush.
+Monitors configured folders and emits lightweight summary metadata on flush.
 """
 
 from __future__ import annotations
 
 import fnmatch
+import importlib.util
 import os
+import threading
 from collections import Counter
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +25,12 @@ AGENT_ID = "client_folder_activity-001"
 AGENT_VERSION = "0.2.0"
 PROTOCOL_VERSION = "0.3"
 MIN_APP_VERSION = "0.3.0"
+WATCHFILES_AVAILABLE = importlib.util.find_spec("watchfiles") is not None
+if WATCHFILES_AVAILABLE:
+    from watchfiles import watch as watchfiles_watch  # type: ignore[import-not-found]
+else:
+    watchfiles_watch = None
+
 WATCH_PATH_OPTION = typer.Option(
     None,
     "--watch-path",
@@ -30,8 +39,20 @@ WATCH_PATH_OPTION = typer.Option(
 )
 
 
+@dataclass
+class _WindowPathRecord:
+    abs_path: str
+    created: bool
+    modified: bool
+    deleted: bool
+    first_seen: datetime
+    last_seen: datetime
+    last_reported: datetime | None
+    pending_report: bool
+
+
 class ClientFolderActivityAgent(BaseAgent):
-    """Folder polling agent that emits bounded activity summaries."""
+    """Folder monitoring agent that emits bounded activity summaries."""
 
     def __init__(
         self,
@@ -44,9 +65,13 @@ class ClientFolderActivityAgent(BaseAgent):
         exclude_globs: list[str],
         follow_symlinks: bool,
         coalesce_window_s: float,
+        capture_window_s: float,
+        reemit_cooldown_s: float,
+        watchfiles_debounce_ms: int,
         sample_interval: float,
         heartbeat_interval: float,
         emit_path_samples_limit: int,
+        use_watchfiles: bool,
     ) -> None:
         super().__init__(
             agent_id=agent_id,
@@ -63,21 +88,27 @@ class ClientFolderActivityAgent(BaseAgent):
         self.include_globs = include_globs
         self.exclude_globs = exclude_globs
         self.follow_symlinks = follow_symlinks
-        self.coalesce_window_s = coalesce_window_s
+        self.coalesce_window_s = max(0.0, coalesce_window_s)
+        self.capture_window_s = max(1.0, capture_window_s)
+        self.reemit_cooldown_s = max(0.0, reemit_cooldown_s)
+        self.watchfiles_debounce_ms = max(0, watchfiles_debounce_ms)
         self.emit_path_samples_limit = max(1, emit_path_samples_limit)
+        self.use_watchfiles = bool(use_watchfiles)
 
         self._segment_start: datetime | None = None
         self._last_snapshot: dict[str, tuple[int, int]] = {}
-        self._counts: Counter[str] = Counter()
-        self._top_extensions: Counter[str] = Counter()
-        self._path_samples: list[str] = []
-        self._created_paths: list[dict[str, Any]] = []
-        self._modified_paths: list[dict[str, Any]] = []
-        self._dropped_events = 0
+        self._window_records: dict[str, _WindowPathRecord] = {}
         self._events_seen_total = 0
         self._last_event_ts: datetime | None = None
         self._degraded_paths: set[str] = set()
         self._degraded_emitted = False
+
+        self._watch_backend = "watchfiles" if WATCHFILES_AVAILABLE and self.use_watchfiles else "polling"
+        self._watch_thread_started = False
+        self._watch_stop_event = threading.Event()
+        self._watch_event_buffer: list[tuple[datetime, str, str]] = []
+        self._watch_event_lock = threading.Lock()
+        self._watch_backend_status_emitted = False
 
     def _path_included(self, root: Path, file_path: Path) -> bool:
         try:
@@ -97,6 +128,15 @@ class ClientFolderActivityAgent(BaseAgent):
             for pattern in self.exclude_globs
         )
         return not excluded
+
+    def _resolve_watch_root(self, file_path: Path) -> Path | None:
+        for root in self.watch_paths:
+            try:
+                file_path.relative_to(root)
+                return root
+            except ValueError:
+                continue
+        return None
 
     def _scan_filesystem(self) -> tuple[dict[str, tuple[int, int]], set[str]]:
         snapshot: dict[str, tuple[int, int]] = {}
@@ -127,6 +167,72 @@ class ClientFolderActivityAgent(BaseAgent):
 
         return snapshot, degraded_paths
 
+    def _map_watchfiles_change(self, raw_change: object) -> str:
+        change_name_raw = getattr(raw_change, "name", raw_change)
+        change_name = str(change_name_raw).lower()
+        if "add" in change_name or change_name == "1":
+            return "created"
+        if "delete" in change_name or "remove" in change_name or change_name == "3":
+            return "deleted"
+        return "modified"
+
+    def _watch_loop(self, roots: list[str]) -> None:
+        if watchfiles_watch is None:
+            return
+        watch_step_ms = max(50, int(round(self.sample_interval * 1000.0)))
+        rust_timeout_ms = max(250, watch_step_ms)
+        for changes in watchfiles_watch(
+            *roots,
+            recursive=True,
+            debounce=self.watchfiles_debounce_ms,
+            step=watch_step_ms,
+            stop_event=self._watch_stop_event,
+            rust_timeout=rust_timeout_ms,
+            yield_on_timeout=True,
+        ):
+            if self._watch_stop_event.is_set():
+                break
+            if not changes:
+                continue
+            now = datetime.now(UTC)
+            buffered: list[tuple[datetime, str, str]] = []
+            for raw_change, raw_path in changes:
+                path_obj = Path(str(raw_path))
+                root = self._resolve_watch_root(path_obj)
+                if root is None:
+                    continue
+                if not self._path_included(root, path_obj):
+                    continue
+                event_kind = self._map_watchfiles_change(raw_change)
+                buffered.append((now, str(path_obj), event_kind))
+            if buffered:
+                with self._watch_event_lock:
+                    self._watch_event_buffer.extend(buffered)
+
+    def _ensure_watch_thread(self) -> None:
+        if self._watch_backend != "watchfiles":
+            return
+        if self._watch_thread_started:
+            return
+        roots: list[str] = []
+        for root in self.watch_paths:
+            if root.exists() and root.is_dir():
+                roots.append(str(root))
+        if not roots:
+            return
+        self._watch_stop_event.clear()
+        watch_thread = threading.Thread(target=self._watch_loop, args=(roots,), daemon=True)
+        watch_thread.start()
+        self._watch_thread_started = True
+
+    def _drain_watch_events(self) -> list[tuple[datetime, str, str]]:
+        with self._watch_event_lock:
+            if not self._watch_event_buffer:
+                return []
+            drained = list(self._watch_event_buffer)
+            self._watch_event_buffer.clear()
+        return drained
+
     def _to_sample_path(self, path_text: str) -> str:
         file_path = Path(path_text)
         for root in self.watch_paths:
@@ -137,7 +243,7 @@ class ClientFolderActivityAgent(BaseAgent):
         return file_path.as_posix()
 
     def _event_record_for_path(self, path_text: str) -> dict[str, Any]:
-        """Build one lightweight created/modified path record."""
+        """Build one lightweight created/modified/deleted path record."""
         source_path = Path(path_text)
         record: dict[str, Any] = {
             "path": self._to_sample_path(path_text),
@@ -148,16 +254,10 @@ class ClientFolderActivityAgent(BaseAgent):
             record["mtime_ns"] = stat_result.st_mtime_ns
             record["size"] = stat_result.st_size
         except OSError:
-            # OSError: path may disappear between scan and summary record creation.
+            # OSError: path may disappear between event and record creation.
             record["mtime_ns"] = None
             record["size"] = None
         return record
-
-    def _record_sample_path(self, path_text: str) -> None:
-        if len(self._path_samples) < self.emit_path_samples_limit:
-            self._path_samples.append(self._to_sample_path(path_text))
-        else:
-            self._dropped_events += 1
 
     def _emit_health_transition(self, now: datetime, degraded_paths: set[str]) -> None:
         if degraded_paths:
@@ -199,12 +299,45 @@ class ClientFolderActivityAgent(BaseAgent):
         self._degraded_emitted = False
         self._degraded_paths = set()
 
-    def _accumulate(self, now: datetime) -> None:
-        if self._segment_start is None:
-            self._segment_start = now
+    def _register_window_event(self, now: datetime, path_text: str, event_kind: str) -> None:
+        record = self._window_records.get(path_text)
+        if record is None:
+            record = _WindowPathRecord(
+                abs_path=path_text,
+                created=False,
+                modified=False,
+                deleted=False,
+                first_seen=now,
+                last_seen=now,
+                last_reported=None,
+                pending_report=True,
+            )
+            self._window_records[path_text] = record
 
+        record.last_seen = now
+        if event_kind == "created":
+            record.created = True
+            record.deleted = False
+        elif event_kind == "deleted":
+            record.deleted = True
+        else:
+            record.modified = True
+
+        if event_kind == "deleted":
+            record.pending_report = True
+            return
+
+        if record.last_reported is None:
+            record.pending_report = True
+            return
+
+        since_report_s = (now - record.last_reported).total_seconds()
+        if since_report_s >= self.reemit_cooldown_s:
+            record.pending_report = True
+
+    def _collect_polling_events(self, now: datetime) -> tuple[list[tuple[datetime, str, str]], set[str]]:
+        events: list[tuple[datetime, str, str]] = []
         current_snapshot, degraded_paths = self._scan_filesystem()
-        self._emit_health_transition(now, degraded_paths)
 
         current_keys = set(current_snapshot.keys())
         previous_keys = set(self._last_snapshot.keys())
@@ -217,52 +350,155 @@ class ClientFolderActivityAgent(BaseAgent):
             if current_snapshot[path] != self._last_snapshot[path]
         }
 
-        event_total = len(created) + len(modified) + len(deleted)
-        if event_total > 0:
-            self._last_event_ts = now
-            self._events_seen_total += event_total
-            self._counts["created"] += len(created)
-            self._counts["modified"] += len(modified)
-            self._counts["deleted"] += len(deleted)
-            self._counts["renamed"] += 0
-            self._counts["total"] += event_total
-
-            for path in sorted(created):
-                if len(self._created_paths) < self.emit_path_samples_limit:
-                    self._created_paths.append(self._event_record_for_path(path))
-                else:
-                    self._dropped_events += 1
-            for path in sorted(modified):
-                if len(self._modified_paths) < self.emit_path_samples_limit:
-                    self._modified_paths.append(self._event_record_for_path(path))
-                else:
-                    self._dropped_events += 1
-
-            for path in sorted(created | modified | deleted):
-                ext = Path(path).suffix.lower() or "[no_ext]"
-                self._top_extensions[ext] += 1
-                self._record_sample_path(path)
+        for path_text in sorted(created):
+            events.append((now, path_text, "created"))
+        for path_text in sorted(modified):
+            events.append((now, path_text, "modified"))
+        for path_text in sorted(deleted):
+            events.append((now, path_text, "deleted"))
 
         self._last_snapshot = current_snapshot
+        return events, degraded_paths
+
+    def _prune_window_records(self, now: datetime) -> None:
+        stale_paths: list[str] = []
+        for path_text, record in self._window_records.items():
+            age_s = (now - record.last_seen).total_seconds()
+            if age_s > self.capture_window_s and not record.pending_report:
+                stale_paths.append(path_text)
+        for path_text in stale_paths:
+            self._window_records.pop(path_text, None)
+
+    def _accumulate(self, now: datetime) -> None:
+        if self._segment_start is None:
+            self._segment_start = now
+
+        degraded_paths: set[str] = {
+            str(root) for root in self.watch_paths if not root.exists() or not root.is_dir()
+        }
+
+        if self._watch_backend == "watchfiles":
+            self._ensure_watch_thread()
+            if not self._watch_backend_status_emitted:
+                self.send_message(
+                    {
+                        "type": "log",
+                        "timestamp": now.isoformat(),
+                        "agent_id": self.agent_id,
+                        "agent_label": self.agent_label,
+                        "protocol_version": self.protocol_version,
+                        "agent_version": self.agent_version,
+                        "level": "info",
+                        "message": "Folder watcher backend: watchfiles",
+                        "markup": False,
+                        "data": {},
+                        "extra": {"backend": "watchfiles"},
+                    }
+                )
+                self._watch_backend_status_emitted = True
+            events = self._drain_watch_events()
+        else:
+            if not self._watch_backend_status_emitted:
+                self.send_message(
+                    {
+                        "type": "log",
+                        "timestamp": now.isoformat(),
+                        "agent_id": self.agent_id,
+                        "agent_label": self.agent_label,
+                        "protocol_version": self.protocol_version,
+                        "agent_version": self.agent_version,
+                        "level": "info",
+                        "message": "Folder watcher backend: polling_fallback",
+                        "markup": False,
+                        "data": {},
+                        "extra": {"backend": "polling_fallback"},
+                    }
+                )
+                self._watch_backend_status_emitted = True
+            events, poll_degraded = self._collect_polling_events(now)
+            degraded_paths.update(poll_degraded)
+
+        self._emit_health_transition(now, degraded_paths)
+
+        if events:
+            self._last_event_ts = now
+        self._events_seen_total += len(events)
+        for event_time, path_text, event_kind in events:
+            self._register_window_event(event_time, path_text, event_kind)
+
+        self._prune_window_records(now)
 
     def _take_snapshot(self, now: datetime) -> tuple[datetime, datetime, dict[str, Any]]:
         start = self._segment_start or now
         end = now
+
+        created_paths: list[dict[str, Any]] = []
+        modified_paths: list[dict[str, Any]] = []
+        deleted_paths: list[dict[str, Any]] = []
+        path_samples: list[str] = []
+        top_extensions: Counter[str] = Counter()
+        dropped_events = 0
+        counts: Counter[str] = Counter()
+
+        reportable_paths = sorted(
+            path_text
+            for path_text, record in self._window_records.items()
+            if record.pending_report
+        )
+
+        for path_text in reportable_paths:
+            record = self._window_records[path_text]
+            counts["total"] += 1
+
+            if record.created:
+                counts["created"] += 1
+                if len(created_paths) < self.emit_path_samples_limit:
+                    created_paths.append(self._event_record_for_path(path_text))
+                else:
+                    dropped_events += 1
+            if record.modified:
+                counts["modified"] += 1
+                if len(modified_paths) < self.emit_path_samples_limit:
+                    modified_paths.append(self._event_record_for_path(path_text))
+                else:
+                    dropped_events += 1
+            if record.deleted:
+                counts["deleted"] += 1
+                if len(deleted_paths) < self.emit_path_samples_limit:
+                    deleted_paths.append(self._event_record_for_path(path_text))
+                else:
+                    dropped_events += 1
+
+            if len(path_samples) < self.emit_path_samples_limit:
+                path_samples.append(self._to_sample_path(path_text))
+            else:
+                dropped_events += 1
+
+            ext = Path(path_text).suffix.lower() or "[no_ext]"
+            top_extensions[ext] += 1
+
+            record.pending_report = False
+            record.last_reported = now
+
         snapshot: dict[str, Any] = {
-            "counts": dict(self._counts),
-            "top_extensions": dict(self._top_extensions),
-            "path_samples": list(self._path_samples),
-            "created_paths": list(self._created_paths),
-            "modified_paths": list(self._modified_paths),
-            "dropped_events": self._dropped_events,
+            "counts": {
+                "created": int(counts.get("created", 0)),
+                "modified": int(counts.get("modified", 0)),
+                "deleted": int(counts.get("deleted", 0)),
+                "renamed": 0,
+                "total": int(counts.get("total", 0)),
+            },
+            "top_extensions": dict(top_extensions),
+            "path_samples": path_samples,
+            "created_paths": created_paths,
+            "modified_paths": modified_paths,
+            "deleted_paths": deleted_paths,
+            "dropped_events": dropped_events,
             "degraded_paths": sorted(self._degraded_paths),
+            "capture_window_s": self.capture_window_s,
+            "reemit_cooldown_s": self.reemit_cooldown_s,
+            "backend": self._watch_backend,
         }
-        self._counts.clear()
-        self._top_extensions.clear()
-        self._path_samples.clear()
-        self._created_paths.clear()
-        self._modified_paths.clear()
-        self._dropped_events = 0
         self._segment_start = now
         return start, end, snapshot
 
@@ -291,18 +527,28 @@ class ClientFolderActivityAgent(BaseAgent):
             },
             "created_paths": list(snapshot.get("created_paths", [])),
             "modified_paths": list(snapshot.get("modified_paths", [])),
+            "deleted_paths": list(snapshot.get("deleted_paths", [])),
             "top_extensions": [{"ext": ext, "count": int(count)} for ext, count in items[:10]],
             "path_samples": list(snapshot.get("path_samples", [])),
             "dropped_events": int(snapshot.get("dropped_events", 0)),
+            "capture_window_s": float(snapshot.get("capture_window_s", self.capture_window_s)),
+            "reemit_cooldown_s": float(
+                snapshot.get("reemit_cooldown_s", self.reemit_cooldown_s)
+            ),
+            "backend": str(snapshot.get("backend", self._watch_backend)),
         }
 
     def _accumulated_count(self) -> int:
-        return int(self._counts.get("total", 0))
+        pending = 0
+        for record in self._window_records.values():
+            if record.pending_report:
+                pending += 1
+        return pending
 
     def _heartbeat_metrics(self) -> dict[str, Any]:
         metrics = super()._heartbeat_metrics()
         metrics["events_seen_total"] = self._events_seen_total
-        metrics["events_buffered"] = int(self._counts.get("total", 0))
+        metrics["events_buffered"] = self._accumulated_count()
         if self._last_event_ts is None:
             metrics["last_event_age_s"] = None
         else:
@@ -311,6 +557,9 @@ class ClientFolderActivityAgent(BaseAgent):
             )
         metrics["watch_path_count"] = len(self.watch_paths)
         metrics["degraded_path_count"] = len(self._degraded_paths)
+        metrics["backend"] = self._watch_backend
+        metrics["capture_window_s"] = self.capture_window_s
+        metrics["reemit_cooldown_s"] = self.reemit_cooldown_s
         return metrics
 
 
@@ -337,8 +586,20 @@ def main(
         2.0,
         help="Burst coalescing window in seconds.",
     ),
+    capture_window_s: float = typer.Option(
+        300.0,
+        help="Rolling event capture window in seconds.",
+    ),
+    reemit_cooldown_s: float = typer.Option(
+        60.0,
+        help="Minimum seconds before the same file path is re-emitted.",
+    ),
+    watchfiles_debounce_ms: int = typer.Option(
+        1000,
+        help="watchfiles debounce window in milliseconds.",
+    ),
     poll_interval_s: float = typer.Option(
-        2.0,
+        15.0,
         help="Polling interval in seconds.",
     ),
     heartbeat_interval_s: float = typer.Option(
@@ -348,6 +609,11 @@ def main(
     emit_path_samples_limit: int = typer.Option(
         50,
         help="Maximum path samples emitted in each summary.",
+    ),
+    use_watchfiles: bool = typer.Option(
+        True,
+        "--use-watchfiles/--no-use-watchfiles",
+        help="Use watchfiles event backend when available.",
     ),
 ) -> None:
     """Run the client folder activity agent."""
@@ -365,6 +631,7 @@ def main(
             resolved_watch_paths.append(str(resolved))
     if not resolved_watch_paths:
         raise typer.BadParameter("at least one non-empty --watch-path is required")
+
     resolved_include_globs = [part.strip() for part in include_globs.split(",") if part.strip()]
     if not resolved_include_globs:
         resolved_include_globs = ["**/*"]
@@ -381,10 +648,14 @@ def main(
         include_globs=resolved_include_globs,
         exclude_globs=resolved_exclude_globs,
         follow_symlinks=follow_symlinks,
-        coalesce_window_s=coalesce_window_s,
+        coalesce_window_s=max(0.0, coalesce_window_s),
+        capture_window_s=max(1.0, capture_window_s),
+        reemit_cooldown_s=max(0.0, reemit_cooldown_s),
+        watchfiles_debounce_ms=max(0, watchfiles_debounce_ms),
         sample_interval=max(0.25, poll_interval_s),
         heartbeat_interval=max(1.0, heartbeat_interval_s),
         emit_path_samples_limit=emit_path_samples_limit,
+        use_watchfiles=use_watchfiles,
     )
     agent.run()
 

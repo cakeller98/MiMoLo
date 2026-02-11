@@ -64,6 +64,19 @@ function resolvePortableOperationsPython(
   return explicit.length > 0 ? explicit : "";
 }
 
+function resolvePortablePythonFromRuntimeVenv(
+  runtimeVenvPath: string,
+  platform: RuntimeProcess["platform"],
+): string {
+  if (runtimeVenvPath.length === 0) {
+    return "";
+  }
+  if (platform === "win32") {
+    return `${runtimeVenvPath}\\Scripts\\python.exe`;
+  }
+  return `${runtimeVenvPath}/bin/python`;
+}
+
 async function pathExists(pathValue: string): Promise<boolean> {
   try {
     await stat(pathValue);
@@ -72,6 +85,22 @@ async function pathExists(pathValue: string): Promise<boolean> {
     // External I/O check: path may legitimately not exist yet.
     return false;
   }
+}
+
+async function waitForPathExists(
+  pathValue: string,
+  timeoutMs: number,
+  pollMs: number,
+): Promise<boolean> {
+  const deadline = Date.now() + Math.max(1, timeoutMs);
+  const stepMs = Math.max(1, pollMs);
+  while (Date.now() <= deadline) {
+    if (await pathExists(pathValue)) {
+      return true;
+    }
+    await sleepMs(stepMs);
+  }
+  return false;
 }
 
 async function runtimeConfigUsesPoetry(pathValue: string): Promise<boolean> {
@@ -434,30 +463,61 @@ export class OperationsController {
         return prepareResult;
       }
 
-      const effectivePortablePython = (prepareResult.portablePython || "").trim();
-      if (effectivePortablePython.length === 0 || !(await pathExists(effectivePortablePython))) {
+      const runtimeVenvPathEffective = (env.MIMOLO_RUNTIME_VENV_PATH || "").trim();
+      const candidatePortablePythons: string[] = [];
+      const reportedPortablePython = (prepareResult.portablePython || "").trim();
+      if (reportedPortablePython.length > 0) {
+        candidatePortablePythons.push(reportedPortablePython);
+      }
+      const derivedPortablePython = resolvePortablePythonFromRuntimeVenv(
+        runtimeVenvPathEffective,
+        this.deps.runtimeProcess.platform,
+      );
+      if (
+        derivedPortablePython.length > 0 &&
+        !candidatePortablePythons.includes(derivedPortablePython)
+      ) {
+        candidatePortablePythons.push(derivedPortablePython);
+      }
+
+      let resolvedPortablePython = "";
+      for (const candidatePath of candidatePortablePythons) {
+        const exists = await waitForPathExists(candidatePath, 3000, 100);
+        if (exists) {
+          resolvedPortablePython = candidatePath;
+          break;
+        }
+      }
+      if (resolvedPortablePython.length === 0) {
+        const detail =
+          candidatePortablePythons.length > 0
+            ? candidatePortablePythons.join(" | ")
+            : "[none]";
         return {
           ok: false,
-          error: "runtime_prepare_missing_python",
+          error: `runtime_prepare_missing_python:${detail}`,
         };
       }
 
       const effectiveRuntimeConfig = (prepareResult.runtimeConfigPath || "").trim();
-      if (effectiveRuntimeConfig.length > 0 && !(await pathExists(effectiveRuntimeConfig))) {
+      if (
+        effectiveRuntimeConfig.length > 0 &&
+        !(await waitForPathExists(effectiveRuntimeConfig, 1500, 100))
+      ) {
         return {
           ok: false,
-          error: "runtime_prepare_missing_config",
+          error: `runtime_prepare_missing_config:${effectiveRuntimeConfig}`,
         };
       }
 
-      env.MIMOLO_OPERATIONS_PYTHON = effectivePortablePython;
+      env.MIMOLO_OPERATIONS_PYTHON = resolvedPortablePython;
       if (effectiveRuntimeConfig.length > 0) {
         env.MIMOLO_RUNTIME_CONFIG_PATH = effectiveRuntimeConfig;
       }
 
       return {
         ok: true,
-        portablePython: effectivePortablePython,
+        portablePython: resolvedPortablePython,
         runtimeConfigPath: effectiveRuntimeConfig,
       };
     })();

@@ -57,11 +57,11 @@
   widget_auto_tick_s = 0.25
   widget_auto_refresh_default_s = 15.0
 
-# Agent Configuration
-journal_dir = "./journals"
-cache_dir = "./cache"
-main_system_max_cpu_per_plugin = 0.1
-agent_heartbeat_timeout_s = 30.0
+  # Agent Configuration
+  journal_dir = "./journals"
+  cache_dir = "./cache"
+  main_system_max_cpu_per_plugin = 0.1
+  agent_heartbeat_timeout_s = 30.0
 [plugins.agent_template]
   enabled = true
   plugin_type = "agent"
@@ -90,25 +90,25 @@ agent_heartbeat_timeout_s = 30.0
   launch_in_separate_terminal = false
 
 [plugins.Floodgate]
-enabled = true
-plugin_type = "agent"
-executable = "poetry"
-args = ["run", "python", "screen_tracker/screen_tracker.py"]
-heartbeat_interval_s = 15.0
-agent_flush_interval_s = 60.0
-launch_in_separate_terminal = false
+  enabled = true
+  plugin_type = "agent"
+  executable = "poetry"
+  args = ["run", "python", "screen_tracker/screen_tracker.py"]
+  heartbeat_interval_s = 15.0
+  agent_flush_interval_s = 60.0
+  launch_in_separate_terminal = false
 
 [plugins.FolderWatcher]
-enabled = true
-plugin_type = "agent"
-executable = "poetry"
-args = [
-  "run",
-  "python",
-  "client_folder_activity/client_folder_activity.py",
-  "--watch-path",
-  "/Users/christopherkeller/Desktop/PROJECTS/CODE_2025/MiMoLo",
-]
-heartbeat_interval_s = 15.0
-agent_flush_interval_s = 60.0
-launch_in_separate_terminal = false
+  enabled = true
+  plugin_type = "agent"
+  executable = "poetry"
+  args = [
+    "run",
+    "python",
+    "client_folder_activity/client_folder_activity.py",
+    "--watch-path",
+    "/Users/christopherkeller/Desktop/PROJECTS/CODE_2025/MiMoLo/monitor_this_folder",
+  ]
+  heartbeat_interval_s = 15.0
+  agent_flush_interval_s = 60.0
+  launch_in_separate_terminal = false

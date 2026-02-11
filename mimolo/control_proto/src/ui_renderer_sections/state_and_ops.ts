@@ -144,7 +144,11 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
 
       if (bootstrapAcknowledgeBtn) {
         bootstrapAcknowledgeBtn.addEventListener("click", () => {
-          if (!bootstrapState.done && !bootstrapState.failed) {
+          if (
+            !bootstrapState.done &&
+            !bootstrapState.failed &&
+            bootstrapState.progress < 100
+          ) {
             return;
           }
           maybeHideBootstrapOverlay();
@@ -219,6 +223,9 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
           raw.includes("runtime hydration failed") ||
           raw.includes("[ops] start failed:")
         ) {
+          if (bootstrapState.done) {
+            return;
+          }
           setBootstrapFailed(raw);
         }
       }

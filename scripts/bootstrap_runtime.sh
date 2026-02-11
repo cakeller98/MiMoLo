@@ -240,7 +240,7 @@ ensure_venv() {
   fi
 
   echo "[bootstrap] creating runtime venv at $venv_dir using $source_python"
-  "$source_python" -m venv "$venv_dir"
+  "$source_python" -m venv --copies "$venv_dir"
 
   if [[ ! -x "$venv_python" ]]; then
     echo "[bootstrap] portable runtime python missing after venv creation: $venv_python" >&2
@@ -309,15 +309,26 @@ hydrate_runtime_packages() {
 
   echo "[bootstrap] hydrating runtime packages from $source_site"
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a "$source_site"/ "$target_site"/
+    rsync -a --exclude 'mimolo' "$source_site"/ "$target_site"/
   else
-    cp -R "$source_site"/. "$target_site"/
+    for entry in "$source_site"/* "$source_site"/.*; do
+      local base
+      base="$(basename "$entry")"
+      if [[ "$base" == "." || "$base" == ".." || "$base" == "mimolo" ]]; then
+        continue
+      fi
+      cp -R "$entry" "$target_site"/
+    done
   fi
 
   if [[ -n "$REPO_ROOT" && -d "$REPO_ROOT/mimolo" ]]; then
     echo "[bootstrap] syncing mimolo package source from $REPO_ROOT/mimolo"
-    rm -rf "$target_site/mimolo"
-    cp -R "$REPO_ROOT/mimolo" "$target_site/mimolo"
+    if command -v rsync >/dev/null 2>&1; then
+      rsync -a --delete "$REPO_ROOT/mimolo"/ "$target_site/mimolo"/
+    else
+      rm -rf "$target_site/mimolo"
+      cp -R "$REPO_ROOT/mimolo" "$target_site/mimolo"
+    fi
   fi
 
   if ! runtime_imports_ready "$venv_python"; then
