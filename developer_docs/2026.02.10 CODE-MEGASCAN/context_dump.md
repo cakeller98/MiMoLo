@@ -31,6 +31,25 @@ Purpose: compact carry-forward context without duplicating canonical docs.
 - Portable config drift gotcha is now explicitly tracked:
   - `mimolo.portable.toml` can retain stale watch paths after source config changes; this must be visible and handled deliberately.
 
+## Architecture Lock: Evidence + Rendering Planes (2026-02-11)
+- Agents are autonomous and plugin-aware; Operations and Control are not plugin-aware renderers.
+- Agent -> Operations JSON-lines remains the only runtime transport channel; protocol is extended by schema/message type, not transport replacement.
+- `SUMMARY` packets are evidence/telemetry payloads that land in Operations logs as raw canonical records.
+- `activity_signal` semantics must be carried in agent data packets so activity inference is data-driven and auditable.
+- Operations is the canonical ledger/vault:
+  - stores raw JSONL records as-is (ground truth),
+  - stores indices/pointers/hashes for agent-produced artifacts/bundles,
+  - does not hard-code plugin rendering logic.
+- Active/not-active timeline is a post-processing projection over raw records:
+  - rounding/granularity decisions are report-time policy, not ingestion-time mutation.
+- `WIDGET_FRAME` is the rendering plane:
+  - agent produces `html_fragment_v1` (plus metadata like `state_token`, `ttl_ms`),
+  - Operations transports/caches frame data,
+  - Control sanitizes and renders generically.
+- Daily evidence bundle producer is the agent (not Operations), with vault naming convention:
+  - `<yyyymmdd>_<plugin>_<instance>.zip`
+  - Operations stores for safekeeping with hash/index metadata.
+
 ## Rule-Set Sensibilities (non-negotiable)
 - **Code/tests are implementation truth** when docs differ.
 - Maintainability first:

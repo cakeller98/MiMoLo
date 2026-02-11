@@ -5,6 +5,16 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 ## 2026-02-11
 
 ### Changed
+- Updated `developer_docs/2026.02.10 CODE-MEGASCAN/context_dump.md` with an architecture lock for:
+  - agent-owned widget frames (`WIDGET_FRAME`) over existing JSON-lines transport,
+  - Operations as canonical evidence vault (raw JSONL records + artifact index metadata),
+  - post-processing-only activity timeline derivation (no ingest-time rounding),
+  - agent-produced daily evidence bundles (`<yyyymmdd>_<plugin>_<instance>.zip`).
+- Updated `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`:
+  - added explicit architecture decision lock section for evidence vs rendering planes,
+  - added backlog `Item 13`:
+    - **Agent-owned widget frame contract + operations evidence-vault model**
+  - reprioritized active index to place `Item 13` immediately after `Item 12`.
 - Updated `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md` Item 5 notes:
   - recorded implementation of transition-based watch-path warnings/recovery logs,
   - recorded manual widget refresh dispatch behavior (`dispatch_widget_action` -> immediate flush),

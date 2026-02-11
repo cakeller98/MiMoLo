@@ -12,6 +12,13 @@ Verification snapshot:
 Deep scan reference:
 - `developer_docs/2026.02.10 CODE-MEGASCAN/` (repo-wide py/ts/sh + ps1-parity audit artifacts)
 
+Architecture decision lock (2026-02-11):
+- Operations stores canonical raw JSONL evidence and activity signals; no ingestion-time timeline rounding.
+- Active/non-active timeline is derived in post-processing from raw records.
+- Agents are responsible for plugin-aware rendering output; Operations/Control remain generic.
+- Widget rendering contract direction is `WIDGET_FRAME` (agent-produced frame payload, Operations transport/cache, Control sanitize/render).
+- Daily archive bundles are agent-produced and Operations-vaulted with integrity metadata.
+
 ## 1) Implemented (Current Ground Truth)
 
 1. Operations runtime and Agent JLP lifecycle
@@ -144,17 +151,18 @@ Deep scan reference:
 ### Priority Index (Reprioritize Here, Keep Backlog Item Numbers Stable)
 
 1. [[#Item 12 — Agent self-CPU budgeting, policy envelope, and adaptive-readiness baseline]]
-2. [[#Item 10 — Maintainability-first decomposition and concern-boundary compliance]]
-3. [[#Item 1 — Operations lifecycle ownership + orphan-process elimination]]
-4. [[#Item 2 — Implement true widget render pipeline through Operations]]
-5. [[#Item 3 — Finish agent package install/upgrade lifecycle]]
-6. [[#Item 4 — Complete archive-before-purge workflow]]
-7. [[#Item 5 — Hardening pass for `client_folder_activity` and `screen_tracker`]]
-8. [[#Item 6 — Promote control_proto patterns into commercial Control app]]
-9. [[#Item 7 — Repository-wide path handling normalization audit (Python + TypeScript)]]
-10. [[#Item 8 — Plugin trust boundary and capability-gated isolation model]]
-11. [[#Item 9 — Optional indicator intent-dot for request lifecycle diagnostics (deferred)]]
-12. [[#Item 11 — Fix pack-agent `--verify-existing` deterministic archive verification]]
+2. [[#Item 13 — Agent-owned widget frame contract + operations evidence-vault model]]
+3. [[#Item 10 — Maintainability-first decomposition and concern-boundary compliance]]
+4. [[#Item 1 — Operations lifecycle ownership + orphan-process elimination]]
+5. [[#Item 2 — Implement true widget render pipeline through Operations]]
+6. [[#Item 3 — Finish agent package install/upgrade lifecycle]]
+7. [[#Item 4 — Complete archive-before-purge workflow]]
+8. [[#Item 5 — Hardening pass for `client_folder_activity` and `screen_tracker`]]
+9. [[#Item 6 — Promote control_proto patterns into commercial Control app]]
+10. [[#Item 7 — Repository-wide path handling normalization audit (Python + TypeScript)]]
+11. [[#Item 8 — Plugin trust boundary and capability-gated isolation model]]
+12. [[#Item 9 — Optional indicator intent-dot for request lifecycle diagnostics (deferred)]]
+13. [[#Item 11 — Fix pack-agent `--verify-existing` deterministic archive verification]]
 
 Priority-index rule:
 - Reprioritize by editing this index only.
@@ -318,6 +326,15 @@ Priority-index rule:
   - modules expose one primary concern with clear boundaries and minimal cross-cutting leakage.
   - duplicate logic is consolidated into shared helpers/modules where behavior is genuinely common.
   - exception usage remains boundary/cleanup/contract-only; no catch-and-continue for deterministic expected states.
+
+### Item 13 — Agent-owned widget frame contract + operations evidence-vault model
+- Done when:
+  - protocol defines `WIDGET_FRAME` payloads emitted by agents over existing JSON-lines channel.
+  - Operations stores raw evidence (`SUMMARY` + activity signals) as canonical JSONL records, with no timeline rounding at ingest.
+  - Operations caches/transports widget frames without plugin-specific render logic.
+  - Control renders only sanitized generic fragments (`html_fragment_v1`) and does not embed plugin-specific formatting logic.
+  - Daily evidence archive path is agent-produced (`<yyyymmdd>_<plugin>_<instance>.zip`) and vaulted/indexed by Operations with integrity metadata.
+  - post-processing pipeline derives active/non-active timeline from raw records and policy settings, leaving source logs immutable.
   - each maintainability slice includes strict QC verification and synchronized docs/changelog updates.
 - Scope note:
   - this item is now the top execution priority and supersedes behavior-feature sequencing when there is a tradeoff.
