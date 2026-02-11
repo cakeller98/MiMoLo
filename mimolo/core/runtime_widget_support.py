@@ -306,6 +306,7 @@ def build_client_folder_widget_render(
         }
 
     rows = _collect_folder_rows(summary)
+
     counts = summary.get("counts", {})
     created_count = 0
     modified_count = 0

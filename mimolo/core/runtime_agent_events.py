@@ -11,7 +11,6 @@ from mimolo.core.event import Event
 if TYPE_CHECKING:
     from mimolo.core.runtime import Runtime
 
-
 def coerce_timestamp(runtime: Runtime, ts: object) -> datetime:
     """Coerce a timestamp value (str or datetime) into timezone-aware datetime."""
     if isinstance(ts, datetime):
