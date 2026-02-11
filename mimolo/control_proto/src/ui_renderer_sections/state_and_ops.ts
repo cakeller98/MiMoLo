@@ -68,6 +68,9 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
         if (text.startsWith("connected -") && !bootstrapState.done && !bootstrapState.failed) {
           setBootstrapProgress(100, "Runtime ready");
           setBootstrapDone();
+          setTimeout(() => {
+            maybeHideBootstrapOverlay();
+          }, 350);
         }
       }
 

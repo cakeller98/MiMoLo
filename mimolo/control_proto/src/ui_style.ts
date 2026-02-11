@@ -171,6 +171,9 @@ export const UI_STYLE_CSS = `
         align-items: center;
         justify-content: center;
       }
+      .bootstrap-overlay[hidden] {
+        display: none !important;
+      }
       .bootstrap-card {
         width: min(680px, calc(100vw - 40px));
         max-height: calc(100vh - 40px);
