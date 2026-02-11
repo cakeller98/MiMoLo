@@ -270,6 +270,20 @@ Priority-index rule:
 - Done when:
   - behavior matches spec contracts for bounded payloads/artifact references.
   - plugin-level tests cover key edge and failure paths.
+- Decision lock (2026-02-11):
+  - missing watch paths are warning-level events, but only once per path per session on transition-to-missing.
+  - restored watch paths are logged once per transition-to-restored.
+  - no repeated warning spam on every interval for the same missing path.
+  - manual `update` in Control must execute the same logic path used by scheduled poll ticks.
+  - users are not blocked from watching any path, including large roots; however runtime/log/journal/cache overlap must be surfaced as explicit diagnostic risk.
+  - transient startup/restart scan bursts are accepted in current phase; sustained idle overhead remains the optimization target.
+- Active implementation notes (2026-02-11):
+  - observed high CPU was amplified by an unsafe watch target (`MiMoLo` project root) in portable runtime config.
+  - corrected local operator setup now uses dedicated test watch folder (`temp_debug/.../watch_this_folder`) and confirms major transient-load reduction.
+  - next hardening slice for this item:
+    - add missing/restored transition tracking in `client_folder_activity`,
+    - route manual update through the exact poll pipeline,
+    - add overlap diagnostics for runtime-generated paths without hard-blocking user configuration.
 
 ### Item 6 — Promote control_proto patterns into commercial Control app
 - Done when:

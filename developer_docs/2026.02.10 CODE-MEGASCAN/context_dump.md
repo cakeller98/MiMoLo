@@ -1,5 +1,5 @@
 # Context Dump (Working Session Snapshot)
-Date: 2026-02-10 as of 10:45am PT
+Date: 2026-02-11 as of current working session
 Purpose: compact carry-forward context without duplicating canonical docs.
 
 ## Canonical Sources (read first)
@@ -15,6 +15,21 @@ Purpose: compact carry-forward context without duplicating canonical docs.
 1. **Item 12 is now active highest priority**: Agent self-CPU budgeting, policy envelope, and adaptive-readiness baseline.
 2. Item 10 (maintainability-first decomposition) remains active and resumes as next priority after Item 12 phase-1 delivery.
 3. Item 1 (ops lifecycle/orphan elimination) remains critical but is currently below Item 12 + Item 10 unless safety/regression forces immediate behavior work.
+
+## Session Decision Lock (2026-02-11)
+- Folder watcher warning semantics are locked:
+  - missing watch path => warn once per path per session on first missing transition,
+  - restored path => log once on restore transition,
+  - no interval-spam warnings for repeatedly missing paths.
+- Manual widget `update` behavior is locked:
+  - it must execute the same pipeline as the scheduled poll tick path (no separate/manual-only logic).
+- Startup/restart scan burst is currently acceptable:
+  - short transient CPU spikes during initial listing are tolerated for now.
+- Watch-root policy is locked:
+  - users are not restricted from watching broad roots,
+  - but Control/agent diagnostics must clearly warn when runtime/log/journal/cache paths overlap a watched root because that can create self-amplifying churn.
+- Portable config drift gotcha is now explicitly tracked:
+  - `mimolo.portable.toml` can retain stale watch paths after source config changes; this must be visible and handled deliberately.
 
 ## Rule-Set Sensibilities (non-negotiable)
 - **Code/tests are implementation truth** when docs differ.
