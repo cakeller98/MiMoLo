@@ -18,6 +18,12 @@ export interface MonitorSettingsSnapshot {
 
 export interface RuntimePerfSnapshot {
   agents?: {
+    top_by_cpu_percent?: Array<{
+      cpu_percent?: number | null;
+      label?: string;
+      pid?: number;
+      rss_bytes?: number | null;
+    }>;
     top_by_drain_avg_ms?: Array<{
       drain_avg_ms?: number;
       label?: string;

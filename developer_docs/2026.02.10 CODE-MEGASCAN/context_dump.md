@@ -99,6 +99,7 @@ Purpose: compact carry-forward context without duplicating canonical docs.
     - Operations records per-tick wall-time, stage breakdown, per-agent drain/flush/message counters.
     - Operations exposes telemetry over IPC (`get_runtime_perf`).
     - Control subscribes and renders a live `Perf` line with CPU/tick/memory/top-agent hotspot summary.
+    - Runtime perf now also samples per-agent OS process CPU/RSS, so parent runtime vs child-agent CPU mismatches are visible directly in UI (`top_agent_cpu`).
 
 ## Remaining Exception Patterns in pack-agent module (intentional)
 - Core invariant throws (schema/semver/repo-dir contract): keep.

@@ -307,9 +307,15 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
         const processRaw = raw.process && typeof raw.process === "object" ? raw.process : {};
         const tickRaw = raw.tick && typeof raw.tick === "object" ? raw.tick : {};
         const agentsRaw = raw.agents && typeof raw.agents === "object" ? raw.agents : {};
+        const topByCpuRaw = Array.isArray(agentsRaw.top_by_cpu_percent)
+          ? agentsRaw.top_by_cpu_percent
+          : [];
         const topRaw = Array.isArray(agentsRaw.top_by_drain_avg_ms)
           ? agentsRaw.top_by_drain_avg_ms
           : [];
+        const topCpu = topByCpuRaw.length > 0 && topByCpuRaw[0] && typeof topByCpuRaw[0] === "object"
+          ? topByCpuRaw[0]
+          : null;
         const top = topRaw.length > 0 && topRaw[0] && typeof topRaw[0] === "object"
           ? topRaw[0]
           : null;
@@ -319,6 +325,8 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
         const tickAvg = formatPerfNumber(tickRaw.avg_ms, 2);
         const tickP95 = formatPerfNumber(tickRaw.p95_ms, 2);
         const rss = formatBytes(processRaw.rss_bytes);
+        const topCpuLabel = topCpu && typeof topCpu.label === "string" ? topCpu.label : "n/a";
+        const topCpuPercent = topCpu ? formatPerfNumber(topCpu.cpu_percent, 1) : "?";
         const topLabel = top && typeof top.label === "string" ? top.label : "n/a";
         const topDrain = top ? formatPerfNumber(top.drain_avg_ms, 2) : "?";
 
@@ -328,6 +336,7 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
           ", tick_avg=" + tickAvg + "ms" +
           ", tick_p95=" + tickP95 + "ms" +
           ", rss=" + rss +
+          ", top_agent_cpu=" + topCpuLabel + "(" + topCpuPercent + "%)" +
           ", top_agent=" + topLabel + "(" + topDrain + "ms)";
       }
 

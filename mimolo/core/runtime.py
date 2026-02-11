@@ -70,7 +70,7 @@ from mimolo.core.runtime_monitor_settings import update_monitor_settings
 from mimolo.core.runtime_perf import (
     new_runtime_perf_state,
     record_tick_sample,
-    snapshot_runtime_perf,
+    snapshot_runtime_perf_with_agents,
 )
 from mimolo.core.runtime_shutdown import close_segment, flush_all_agents, shutdown_runtime
 from mimolo.core.runtime_tick import execute_tick
@@ -311,7 +311,12 @@ class Runtime:
 
     def _snapshot_runtime_perf(self) -> dict[str, Any]:
         """Return runtime performance snapshot for diagnostics."""
-        return snapshot_runtime_perf(self._perf_state)
+        agent_pids: dict[str, int] = {}
+        for label, handle in self.agent_manager.agents.items():
+            pid = handle.process.pid
+            if isinstance(pid, int) and pid > 0 and handle.is_alive():
+                agent_pids[label] = pid
+        return snapshot_runtime_perf_with_agents(self._perf_state, agent_pids)
 
     def _resolve_screen_tracker_thumbnail(
         self, instance_id: str

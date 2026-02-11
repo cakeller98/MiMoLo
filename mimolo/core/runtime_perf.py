@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import platform
+import subprocess
 import threading
 import time
 from collections import deque
@@ -284,3 +285,95 @@ def snapshot_runtime_perf(state: RuntimePerfState) -> dict[str, Any]:
             "top_by_drain_avg_ms": top_agents,
         },
     }
+
+
+def _sample_process_resource(pid: int) -> dict[str, Any]:
+    """Read process CPU percent and RSS from ps."""
+    if pid <= 0:
+        return {
+            "pid": pid,
+            "cpu_percent": None,
+            "rss_bytes": None,
+        }
+    try:
+        completed = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "%cpu=,rss="],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=0.5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # Subprocess execution can fail due to platform/tooling constraints.
+        return {
+            "pid": pid,
+            "cpu_percent": None,
+            "rss_bytes": None,
+        }
+
+    if completed.returncode != 0:
+        return {
+            "pid": pid,
+            "cpu_percent": None,
+            "rss_bytes": None,
+        }
+
+    line = completed.stdout.strip()
+    if not line:
+        return {
+            "pid": pid,
+            "cpu_percent": None,
+            "rss_bytes": None,
+        }
+
+    parts = line.split()
+    if len(parts) < 2:
+        return {
+            "pid": pid,
+            "cpu_percent": None,
+            "rss_bytes": None,
+        }
+
+    try:
+        cpu_percent = float(parts[0])
+        rss_kib = float(parts[1])
+    except ValueError:
+        # ps output parse failure should not break telemetry flow.
+        return {
+            "pid": pid,
+            "cpu_percent": None,
+            "rss_bytes": None,
+        }
+
+    return {
+        "pid": pid,
+        "cpu_percent": cpu_percent,
+        "rss_bytes": max(0, int(rss_kib * 1024)),
+    }
+
+
+def snapshot_runtime_perf_with_agents(
+    state: RuntimePerfState,
+    agent_pids: dict[str, int],
+) -> dict[str, Any]:
+    """Build snapshot and enrich with per-agent process CPU/RSS."""
+    payload = snapshot_runtime_perf(state)
+    agent_rows: list[dict[str, Any]] = []
+    for label, pid in agent_pids.items():
+        row = _sample_process_resource(pid)
+        row["label"] = label
+        agent_rows.append(row)
+
+    top_by_cpu = sorted(
+        agent_rows,
+        key=lambda item: cast(float, item.get("cpu_percent", 0.0) or 0.0),
+        reverse=True,
+    )[:5]
+
+    agents_payload = payload.get("agents")
+    if not isinstance(agents_payload, dict):
+        agents_payload = {}
+        payload["agents"] = agents_payload
+    agents_payload["process_samples"] = agent_rows
+    agents_payload["top_by_cpu_percent"] = top_by_cpu
+    return payload
