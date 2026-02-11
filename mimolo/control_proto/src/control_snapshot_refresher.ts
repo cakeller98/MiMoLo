@@ -34,6 +34,7 @@ type SnapshotRefresherDeps = {
   publishInstances: (instances: Record<string, AgentInstanceSnapshot>) => void;
   publishLine: (line: string) => void;
   publishMonitorSettings: (monitor: MonitorSettingsSnapshot) => void;
+  publishRuntimePerf: (runtimePerf: Record<string, unknown>) => void;
   publishStatus: (status: OpsStatusPayload) => void;
   restartBackgroundTimers: () => void;
   sendIpcCommand: SendIpcCommandFn;
@@ -97,6 +98,7 @@ export class ControlSnapshotRefresher {
             );
           }
         }
+        void this.refreshRuntimePerf();
         return;
       }
       this.setStatus("disconnected", response.error || "ipc_unavailable");
@@ -172,6 +174,30 @@ export class ControlSnapshotRefresher {
       this.deps.restartBackgroundTimers();
     } catch {
       // Ignore transient failures; status and loop timers continue with last known settings.
+    }
+  }
+
+  async refreshRuntimePerf(): Promise<void> {
+    if (this.lastStatus.state !== "connected") {
+      return;
+    }
+    try {
+      const response = await this.deps.sendIpcCommand(
+        "get_runtime_perf",
+        undefined,
+        undefined,
+        "background",
+      );
+      if (!response.ok) {
+        return;
+      }
+      const runtimePerf = response.data?.runtime_perf;
+      if (!runtimePerf || typeof runtimePerf !== "object") {
+        return;
+      }
+      this.deps.publishRuntimePerf(runtimePerf as Record<string, unknown>);
+    } catch {
+      // Ignore transient polling failures; status loop reports IPC health.
     }
   }
 

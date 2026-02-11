@@ -95,6 +95,10 @@ Purpose: compact carry-forward context without duplicating canonical docs.
   - bootstrap trigger behavior now matches first-run expectations:
     - runtime prepare is invoked automatically during initial renderer startup (no Start Ops click required),
     - bootstrap script output is streamed over a dedicated IPC event (`ops:bootstrap-line`) so overlay updates are immediate even when disconnected poll loops are slow.
+  - runtime performance instrumentation is now wired end-to-end for diagnostics:
+    - Operations records per-tick wall-time, stage breakdown, per-agent drain/flush/message counters.
+    - Operations exposes telemetry over IPC (`get_runtime_perf`).
+    - Control subscribes and renders a live `Perf` line with CPU/tick/memory/top-agent hotspot summary.
 
 ## Remaining Exception Patterns in pack-agent module (intentional)
 - Core invariant throws (schema/semver/repo-dir contract): keep.

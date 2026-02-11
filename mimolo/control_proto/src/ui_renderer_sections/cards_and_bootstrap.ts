@@ -352,6 +352,11 @@ export function buildCardsAndBootstrapSection(): string {
           renderMonitorSettings(monitor);
         });
 
+        ipcRenderer.on("ops:runtime-perf", (_event, payload) => {
+          const runtimePerf = payload && payload.runtimePerf ? payload.runtimePerf : null;
+          renderRuntimePerf(runtimePerf);
+        });
+
         ipcRenderer.on("ops:traffic", (_event, payload) => {
           if (!payload) {
             return;

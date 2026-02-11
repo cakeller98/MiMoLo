@@ -5,6 +5,7 @@ import type {
   MonitorSettingsSnapshot,
   OperationsControlSnapshot,
   OpsStatusPayload,
+  RuntimePerfSnapshot,
 } from "./types.js";
 
 type GetMainWindow = () => BrowserWindow | null;
@@ -71,6 +72,14 @@ export class WindowPublisher {
       return;
     }
     window.webContents.send("ops:monitor-settings", { monitor });
+  }
+
+  publishRuntimePerf(runtimePerf: RuntimePerfSnapshot): void {
+    const window = this.getMainWindow();
+    if (!window) {
+      return;
+    }
+    window.webContents.send("ops:runtime-perf", { runtimePerf });
   }
 
   publishOperationsControlState(state: OperationsControlSnapshot): void {

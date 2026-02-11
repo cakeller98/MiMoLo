@@ -9,6 +9,7 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
       const ipcPathEl = document.getElementById("ipcPath");
       const opsLogPathEl = document.getElementById("opsLogPath");
       const monitorSettingsEl = document.getElementById("monitorSettings");
+      const runtimePerfEl = document.getElementById("runtimePerf");
       const opsStartBtn = document.getElementById("opsStartBtn");
       const opsStopBtn = document.getElementById("opsStopBtn");
       const opsRestartBtn = document.getElementById("opsRestartBtn");
@@ -277,6 +278,57 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
           "poll_tick_s=" + String(monitorSettingsState.poll_tick_s) +
           ", cooldown_seconds=" + String(monitorSettingsState.cooldown_seconds) +
           ", console_verbosity=" + String(monitorSettingsState.console_verbosity);
+      }
+
+      function formatPerfNumber(value, digits) {
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          return "?";
+        }
+        return value.toFixed(digits);
+      }
+
+      function formatBytes(value) {
+        if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+          return "?";
+        }
+        const mb = value / (1024 * 1024);
+        return mb.toFixed(1) + "MB";
+      }
+
+      function renderRuntimePerf(raw) {
+        if (!runtimePerfEl) {
+          return;
+        }
+        if (!raw || typeof raw !== "object") {
+          runtimePerfEl.textContent = "waiting_for_data";
+          return;
+        }
+
+        const processRaw = raw.process && typeof raw.process === "object" ? raw.process : {};
+        const tickRaw = raw.tick && typeof raw.tick === "object" ? raw.tick : {};
+        const agentsRaw = raw.agents && typeof raw.agents === "object" ? raw.agents : {};
+        const topRaw = Array.isArray(agentsRaw.top_by_drain_avg_ms)
+          ? agentsRaw.top_by_drain_avg_ms
+          : [];
+        const top = topRaw.length > 0 && topRaw[0] && typeof topRaw[0] === "object"
+          ? topRaw[0]
+          : null;
+
+        const cpuRecent = formatPerfNumber(processRaw.cpu_percent_recent, 1);
+        const cpuLifetime = formatPerfNumber(processRaw.cpu_percent_lifetime, 1);
+        const tickAvg = formatPerfNumber(tickRaw.avg_ms, 2);
+        const tickP95 = formatPerfNumber(tickRaw.p95_ms, 2);
+        const rss = formatBytes(processRaw.rss_bytes);
+        const topLabel = top && typeof top.label === "string" ? top.label : "n/a";
+        const topDrain = top ? formatPerfNumber(top.drain_avg_ms, 2) : "?";
+
+        runtimePerfEl.textContent =
+          "cpu_recent=" + cpuRecent + "%" +
+          ", cpu_lifetime=" + cpuLifetime + "%" +
+          ", tick_avg=" + tickAvg + "ms" +
+          ", tick_p95=" + tickP95 + "ms" +
+          ", rss=" + rss +
+          ", top_agent=" + topLabel + "(" + topDrain + "ms)";
       }
 
       function setBgLightState(lightEl, state) {

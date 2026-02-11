@@ -156,6 +156,16 @@ def build_ipc_response(runtime: Runtime, request: dict[str, Any]) -> dict[str, A
             },
         }
 
+    if cmd == "get_runtime_perf":
+        return {
+            "ok": True,
+            "cmd": "get_runtime_perf",
+            "timestamp": now,
+            "data": {
+                "runtime_perf": runtime._snapshot_runtime_perf(),
+            },
+        }
+
     agent_control_response = maybe_handle_agent_control_command(runtime, cmd, request, now)
     if agent_control_response is not None:
         return agent_control_response

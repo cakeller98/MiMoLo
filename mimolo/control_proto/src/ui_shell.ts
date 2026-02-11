@@ -20,6 +20,7 @@ export function buildUiShellHtml(controlDevMode: boolean): string {
         <div class="row">IPC: <span id="ipcPath"></span></div>
         <div class="row">Ops log: <span id="opsLogPath"></span></div>
         <div class="row">Monitor: <span id="monitorSettings">poll_tick_s=?, cooldown_seconds=?</span></div>
+        <div class="row">Perf: <span id="runtimePerf">waiting_for_data</span></div>
         <div class="row">Status: <span id="status">starting</span></div>
         ${
           controlDevMode

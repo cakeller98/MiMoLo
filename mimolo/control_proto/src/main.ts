@@ -147,6 +147,7 @@ const publishInstances = windowPublisher.publishInstances.bind(windowPublisher);
 const publishStatus = windowPublisher.publishStatus.bind(windowPublisher);
 const publishMonitorSettings =
   windowPublisher.publishMonitorSettings.bind(windowPublisher);
+const publishRuntimePerf = windowPublisher.publishRuntimePerf.bind(windowPublisher);
 
 const opsLogTailer = new OpsLogTailer(opsLogPath, publishLine);
 
@@ -230,6 +231,7 @@ snapshotRefresher = new ControlSnapshotRefresher({
   publishInstances,
   publishLine,
   publishMonitorSettings,
+  publishRuntimePerf,
   publishStatus,
   restartBackgroundTimers,
   sendIpcCommand,

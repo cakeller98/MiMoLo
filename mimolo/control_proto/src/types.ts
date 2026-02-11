@@ -16,6 +16,25 @@ export interface MonitorSettingsSnapshot {
   poll_tick_s: number;
 }
 
+export interface RuntimePerfSnapshot {
+  agents?: {
+    top_by_drain_avg_ms?: Array<{
+      drain_avg_ms?: number;
+      label?: string;
+      messages_total?: number;
+    }>;
+  };
+  process?: {
+    cpu_percent_lifetime?: number;
+    cpu_percent_recent?: number;
+    rss_bytes?: number | null;
+  };
+  tick?: {
+    avg_ms?: number;
+    p95_ms?: number;
+  };
+}
+
 export interface ControlTimingSettings {
   indicator_fade_step_s: number;
   instance_poll_connected_s: number;

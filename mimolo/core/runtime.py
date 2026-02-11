@@ -67,6 +67,11 @@ from mimolo.core.runtime_ipc_server import (
     serve_ipc_connection,
 )
 from mimolo.core.runtime_monitor_settings import update_monitor_settings
+from mimolo.core.runtime_perf import (
+    new_runtime_perf_state,
+    record_tick_sample,
+    snapshot_runtime_perf,
+)
 from mimolo.core.runtime_shutdown import close_segment, flush_all_agents, shutdown_runtime
 from mimolo.core.runtime_tick import execute_tick
 from mimolo.core.runtime_widget_support import (
@@ -137,6 +142,7 @@ class Runtime:
         self._ipc_thread: threading.Thread | None = None
         self._ipc_server_socket: socket.socket | None = None
         self._plugin_store = PluginStore()
+        self._perf_state = new_runtime_perf_state()
 
     def _start_agents(self) -> None:
         """Spawn Agent plugins from config."""
@@ -293,6 +299,19 @@ class Runtime:
             "shutting_down": self._shutting_down,
             "ipc_enabled": bool(self._ipc_socket_path),
         }
+
+    def _record_tick_sample(
+        self,
+        total_ms: float,
+        stage_ms: dict[str, float],
+        agent_samples: list[dict[str, Any]],
+    ) -> None:
+        """Record one runtime tick performance sample."""
+        record_tick_sample(self._perf_state, total_ms, stage_ms, agent_samples)
+
+    def _snapshot_runtime_perf(self) -> dict[str, Any]:
+        """Return runtime performance snapshot for diagnostics."""
+        return snapshot_runtime_perf(self._perf_state)
 
     def _resolve_screen_tracker_thumbnail(
         self, instance_id: str
