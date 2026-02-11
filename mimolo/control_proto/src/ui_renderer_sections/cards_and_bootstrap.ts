@@ -168,6 +168,21 @@ export function buildCardsAndBootstrapSection(): string {
           renderOpsProcessState(state.opsControl || {});
           renderMonitorSettings(state.monitorSettings || null);
           renderInstances(state.instances || {});
+          const opsState = state && state.opsControl && typeof state.opsControl.state === "string"
+            ? state.opsControl.state
+            : "";
+          const linkState = state && state.status && typeof state.status.state === "string"
+            ? state.status.state
+            : "";
+          if (
+            !bootstrapAutoStartAttempted &&
+            linkState !== "connected" &&
+            opsState === "stopped"
+          ) {
+            bootstrapAutoStartAttempted = true;
+            append("[ops] auto-start after runtime prepare");
+            await runOpsControl("start");
+          }
         } catch (err) {
           const detail = err instanceof Error ? err.message : "initial_state_failed";
           setStatus("disconnected - " + detail);

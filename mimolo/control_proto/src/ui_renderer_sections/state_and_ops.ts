@@ -53,6 +53,7 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
         hidden: false,
         progress: 0,
       };
+      let bootstrapAutoStartAttempted = false;
 
       function append(line) {
         lines.push(line);
@@ -122,7 +123,7 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
         }
         appendBootstrapLine(detail);
         if (bootstrapAcknowledgeBtn) {
-          bootstrapAcknowledgeBtn.disabled = true;
+          bootstrapAcknowledgeBtn.disabled = false;
         }
       }
 
@@ -136,7 +137,7 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
 
       if (bootstrapAcknowledgeBtn) {
         bootstrapAcknowledgeBtn.addEventListener("click", () => {
-          if (!bootstrapState.done) {
+          if (!bootstrapState.done && !bootstrapState.failed) {
             return;
           }
           maybeHideBootstrapOverlay();
