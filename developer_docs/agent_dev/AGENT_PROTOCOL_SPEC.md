@@ -1,7 +1,7 @@
 # MiMoLo Agent Protocol Specification (formerly Agent)
 
-> **Protocol Version:** 0.3  
-> **Status:** Current (since MiMoLo v0.3.0)  
+> **Protocol Version:** 0.3 (with locked additive extension plan)  
+> **Status:** Current (since MiMoLo v0.3.0) + Next-minor design lock  
 > **Last Updated:** 2026-02-11  
 > **Schema:** `mimolo-agent-schema.json`
 
@@ -130,6 +130,22 @@ Notes:
 }
 ```
 
+### 3.4 Locked Additive Extension (Next Minor)
+
+The following additive message type is design-locked and intended for the next
+protocol-minor rollout without replacing Agent JLP transport:
+
+- `widget_frame`: ephemeral widget rendering payload for Control canvas updates.
+
+`widget_frame` is a rendering-plane payload:
+- produced by agent,
+- transported/cached by Operations,
+- sanitized/rendered by Control.
+
+It is not canonical evidence storage.
+
+Canonical evidence remains raw JSONL records (`summary`, `heartbeat`, `status`, `error`, etc.).
+
 ---
 
 ## 4. Handshake (Initialization)
@@ -183,7 +199,7 @@ Commands from the collector are simple one-object JSON messages.
 
 | Field  | Type              | Description                                                    |
 | ------ | ----------------- | -------------------------------------------------------------- |
-| `cmd`  | string            | Command verb (`flush`, `stop`, `shutdown`, `status`, `sequence`, `ack`, `reject`). |
+| `cmd`  | string            | Command verb (`flush`, `stop`, `shutdown`, `status`, `sequence`, `ack`, `reject`, `widget_render`, `widget_action`). |
 | `args` | object (optional) | Additional command parameters.                                 |
 | `id`   | string (optional) | For correlation if acknowledgments are used.                   |
 
@@ -195,15 +211,22 @@ Commands from the collector are simple one-object JSON messages.
 {"cmd":"shutdown"}
 {"cmd":"status"}
 {"cmd":"sequence","sequence":["stop","flush","shutdown"]}
+{"cmd":"widget_render","id":"req_001","args":{"mode":"html_fragment_v1"}}
+{"cmd":"widget_action","id":"act_001","args":{"action":"refresh","payload":{}}}
 ```
 
 Agents must respond to `flush` by emitting a `summary` message, and must exit gracefully on `shutdown`.
 Agents must honor `sequence` commands by executing the listed commands in-order.
 When `stop` or `flush` appears in a sequence, agents must ACK those commands in-order.
+`widget_action` with `action = "refresh"` must execute the same tick/flush pipeline as scheduled operation and emit evidence-plane data immediately.
 
 ---
 
 ## 6. Validation Schema (`mimolo-agent-schema.json`)
+
+Note:
+- The schema block below reflects current v0.3 validation.
+- `widget_frame` will be added as an additive enum/message class in the next protocol-minor schema update.
 
 ```json
 {
@@ -287,7 +310,7 @@ Example version timeline:
 | Version | Change                                  | Backward Compatibility |
 | ------- | --------------------------------------- | ---------------------- |
 | `0.3`   | Initial asynchronous Agent schema | —                      |
-| `0.4`   | Adds `trace_id` optional field          | backward-compatible    |
+| `0.4`   | Adds `trace_id` and `widget_frame` payload class | backward-compatible    |
 | `1.0`   | Structural change to message envelope   | breaking change        |
 
 ---
@@ -298,6 +321,7 @@ Example version timeline:
 | --------------------- | ----------------------------------------------------- | ----------------------------- |
 | Startup               | Send `handshake`                                      | Validate and `ack`            |
 | Normal                | Emit `summary` and `heartbeat` messages as configured | Log and segment data          |
+| Widget update         | Emit `widget_frame` on render request or refresh action | Cache/route frame for Control |
 | Warning / Degradation | Send `status` or `error` messages                     | Record + optional alert       |
 | Shutdown              | Clean exit on `{"cmd":"shutdown"}`                    | Flush logs and remove process |
 

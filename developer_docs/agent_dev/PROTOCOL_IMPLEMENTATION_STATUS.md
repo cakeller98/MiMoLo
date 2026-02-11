@@ -1,6 +1,6 @@
 # Protocol Implementation Status
 
-Date: 2026-02-08
+Date: 2026-02-11
 Rule: code is ground truth when docs and code differ.
 
 ## 1. Agent <-> Operations (Agent JLP)
@@ -74,7 +74,12 @@ Correlation behavior:
 - `mimolo-agent-schema.json` is referenced in docs but is not present in repository.
 
 4. Widget render bridge:
-- IPC widget command names and response shapes exist, but Operations does not yet complete the full agent-render bridge.
+- IPC widget command names and response shapes exist, but full `widget_frame` agent bridge is not complete yet.
+- Design lock for implementation:
+  - agents emit `widget_frame`,
+  - Operations transports/caches with preflight bounds checks,
+  - Control performs final HTML sanitization before render.
+  - `dispatch_widget_action(refresh)` triggers immediate normal tick/flush work and evidence write.
 
 5. Trust policy enforcement:
 - Signed/allowlisted release policy is documented, but end-to-end enforcement coverage (install-time and launch-time) is still in progress.
@@ -89,4 +94,7 @@ Planned:
 - Standard artifact index schema.
 - Archive manifest + restore protocol.
 - Explicit user-driven archive/purge control flow in Control.
-- Full widget render/action bridge (`request_widget_render` over IPC and render/action roundtrip with agent instances), including sanitization/allowlist policy.
+- Full widget render/action bridge (`request_widget_render` over IPC and render/action roundtrip with agent instances), including:
+  - `widget_frame` message support,
+  - operations-side transport/cache bounds enforcement,
+  - control-side sanitizer/allowlist policy.

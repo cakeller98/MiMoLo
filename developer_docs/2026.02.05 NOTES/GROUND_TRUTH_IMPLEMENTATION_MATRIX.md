@@ -123,7 +123,7 @@ Architecture decision lock (2026-02-11):
 1. End-to-end widget render bridge
 - Status: Planned / partial
 - Gap:
-  - runtime IPC names exist, but Operations does not yet request render payloads from agent instances and sanitize/render approved output end-to-end.
+  - runtime IPC names exist, but Operations does not yet complete the full agent `widget_frame` route/cache path and Control-side sanitize/render loop end-to-end.
 
 2. Install/upgrade lifecycle from packaged zips
 - Status: Planned / partial

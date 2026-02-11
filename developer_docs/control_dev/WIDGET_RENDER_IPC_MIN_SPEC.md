@@ -1,42 +1,48 @@
 # Control <-> Operations Widget Render IPC (Minimal Spec)
 
-Date: 2026-02-08
-Status: Planned contract (not fully implemented yet)
+Date: 2026-02-11
+Status: Planned contract (design locked, implementation in progress)
 Security posture: trust-first, security-first
 
 ## 1. Scope
 
-This spec defines how Control requests agent-owned widget content without requiring
-Operations or Control to understand plugin-specific data schemas.
+This spec defines the widget rendering request/response path where:
+- agents own plugin-specific presentation,
+- operations transports and caches frames,
+- control sanitizes and renders generic fragments.
 
 Path:
 - Control IPC request -> Operations
 - Operations routes request to target Agent via Agent JLP command
-- Agent returns render payload
-- Operations validates/sanitizes -> returns to Control widget
+- Agent returns `widget_frame` payload
+- Operations validates transport bounds/token refs and returns payload
+- Control sanitizes HTML fragment and renders in widget canvas
 
 ## 2. Non-Goals
 
 1. No arbitrary JS execution in widgets.
-2. No direct filesystem paths from agent to browser.
-3. No unsanitized raw HTML insertion into Control DOM.
+2. No direct `file://` paths from agent payloads to browser.
+3. No plugin-specific HTML logic embedded in Operations or Control.
 
 ## 3. Terminology
 
 - Agent JLP: Operations <-> Agent newline-delimited JSON protocol.
 - Control IPC: Control <-> Operations local socket protocol.
 - Widget Canvas: fixed container in Control UI where plugin content is rendered.
-- Render Fragment: constrained HTML snippet returned by agent for display.
+- Render Fragment: constrained `html_fragment_v1` returned by agent for display.
+- Widget Frame: agent-produced render payload (`type = "widget_frame"`).
+- Evidence Plane: canonical JSONL records (`summary`, `heartbeat`, `status`, `error`, etc.).
+- Rendering Plane: ephemeral widget frame payloads.
 
-## 4. Core Principles
+## 4. Core Principles (Locked)
 
 1. Agent decides plugin-specific representation.
-2. Operations enforces safety and bounds.
-3. Control renders only validated fragment output.
-4. CSS classes are from an allowlist owned by Operations/Control.
-5. Images are served via Operations-issued artifact tokens, not raw paths.
+2. Operations is transport/cache/index authority, not plugin-aware renderer.
+3. Control is the authoritative HTML sanitizer before DOM insertion.
+4. CSS class allowlist is owned by Control sanitizer policy.
+5. Artifact references are tokenized through Operations (never raw filesystem paths).
 
-## 5. Control IPC Commands (Planned)
+## 5. Control IPC Commands
 
 ## 5.1 `get_widget_manifest`
 
@@ -85,10 +91,10 @@ Success `data`:
 - `request_id`
 - `render`:
   - `mode`: `"html_fragment_v1"`
-  - `html`: sanitized fragment
+  - `html`: agent-provided fragment (unsanitized at transport layer)
   - `ttl_ms`: integer
   - `state_token`: opaque string for incremental refresh
-  - `warnings`: optional list of sanitization or truncation notes
+  - `warnings`: optional transport/preflight notes
 
 Error codes:
 - `widget_not_supported`
@@ -107,14 +113,20 @@ Request:
   "cmd":"dispatch_widget_action",
   "plugin_id":"client_folder_activity",
   "instance_id":"inst_acme",
-  "action":"set_filter",
-  "payload":{"query":"*.prt"}
+  "action":"refresh",
+  "payload":{}
 }
 ```
 
 Success `data`:
 - `accepted`: bool
 - `state_token`: optional updated token
+
+Action semantics lock:
+- `action = "refresh"` must:
+  - execute the same plugin pipeline used by scheduled tick/flush,
+  - force immediate evidence emission (JSONL entry) regardless of tick timing,
+  - make updated frame data available for `request_widget_render`.
 
 ## 6. Agent JLP Commands and Responses (Planned Extension)
 
@@ -131,11 +143,11 @@ Operations -> Agent command:
 }
 ```
 
-Agent -> Operations response (planned new message type):
+Agent -> Operations response (new message type):
 ```json
 {
-  "type":"widget",
-  "timestamp":"2026-02-08T12:00:00Z",
+  "type":"widget_frame",
+  "timestamp":"2026-02-11T12:00:00Z",
   "agent_id":"screen_tracker-001",
   "agent_label":"screen_tracker_main",
   "protocol_version":"0.3",
@@ -155,26 +167,16 @@ Operations -> Agent action dispatch:
 {
   "cmd":"widget_action",
   "id":"act_001",
-  "args":{"action":"set_filter","payload":{"query":"*.prt"}}
-}
-```
-
-Agent -> Operations action ack:
-```json
-{
-  "type":"ack",
-  "timestamp":"2026-02-08T12:00:01Z",
-  "agent_id":"client_folder_activity-001",
-  "agent_label":"client_acme",
-  "protocol_version":"0.3",
-  "agent_version":"1.0.0",
-  "ack_command":"widget_action",
-  "message":"action_applied",
-  "data":{"action":"set_filter"}
+  "args":{"action":"refresh","payload":{}}
 }
 ```
 
 ## 7. HTML Fragment Safety Rules (`html_fragment_v1`)
+
+Trust boundary:
+- Agent HTML is untrusted input.
+- Operations may apply preflight checks (mode/size/token sanity).
+- Control sanitizer is final authority before DOM insertion.
 
 Allowed tags:
 - `div`, `section`, `article`, `header`, `footer`
@@ -190,20 +192,16 @@ Disallowed:
 - inline CSS (`style` attribute)
 
 Allowed attributes (subset):
-- `class` (allowlisted class names only)
+- `class`
 - `title`
 - `aria-*`
-- `alt` (for image)
+- `alt`
 - `src` (image only, must use `mimolo://artifact/<token>`)
 - `href` (optional, allowlist policy if enabled)
 
-Class names:
-- Only class names registered in Operations/Control stylesheet allowlist.
-- Unknown classes are stripped.
-
 Payload bounds:
-- maximum fragment bytes enforced by Operations (for example `64KB`).
-- maximum image token count and table row count may be enforced.
+- max fragment size enforced by Operations (for example `64KB`)
+- max token/image count and row bounds enforced by Operations preflight
 
 ## 8. Artifact Token Rules
 
@@ -211,12 +209,21 @@ Payload bounds:
 2. Operations maps artifact refs -> short-lived `mimolo://artifact/<token>` URLs.
 3. Tokens are scoped to plugin instance and expire quickly.
 4. Control resolves token through Operations bridge only.
+5. Archived-but-not-rehydrated artifacts must return a warning (`archived_data_rehydrate_required`).
 
-## 9. Widget Canvas Behavior
+## 9. Data Plane Separation (Locked)
 
-1. Control owns outer canvas size and scrolling behavior.
-2. Fragment is scaled to fit canvas; overflow handled by canvas scroll region.
-3. Long file lists are allowed through table/list markup within scrollable canvas.
+1. Evidence plane:
+- canonical raw JSONL records are ground truth.
+- evidence packets include plugin/instance identity and reconstructable payload references.
+
+2. Rendering plane:
+- `widget_frame` payloads are ephemeral cache data for UI rendering.
+- not canonical evidence.
+
+3. Activity timeline derivation:
+- computed in post-processing from canonical raw records.
+- no ingest-time timeline rounding/mutation.
 
 ## 10. Audit and Observability
 
@@ -226,6 +233,7 @@ Operations should emit lightweight events:
 - `widget_render_rejected`
 - `widget_action_dispatched`
 - `widget_action_failed`
+- `widget_action_refresh_forced_flush`
 
 Include:
 - `plugin_id`, `instance_id`, `request_id`, `bytes`, `duration_ms`, `reason`
@@ -234,10 +242,11 @@ Include:
 
 Implemented today:
 - IPC transport and command envelope.
-- Agent JLP command transport and ACK/summary/log/error patterns.
+- Agent JLP transport and ACK/summary/log/error patterns.
 
 Planned:
-- `widget_render` and `widget_action` command handling in runtime.
-- `widget` response message support in protocol parser/runtime routing.
-- HTML sanitizer + class allowlist enforcement in Operations.
+- `widget_render` and `widget_action` handling in runtime command router.
+- `widget_frame` message support in protocol parser/runtime routing.
+- Operations preflight checks for render payload bounds/token shape.
+- Control sanitizer + class/attribute allowlist enforcement.
 - secure artifact token resolver in Control/Operations bridge.

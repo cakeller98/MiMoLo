@@ -2,7 +2,7 @@
 
 > **Document Version:** 0.3  
 > **Target Framework:** MiMoLo v0.3+  
-> **Last Updated:** 2026-02-08  
+> **Last Updated:** 2026-02-11  
 > **Status:** Living document
 
 ---
@@ -87,6 +87,26 @@ Agent     → {"type": "heartbeat", "timestamp": "..."}
 Agents must emit at least one `heartbeat` every `heartbeat_interval` seconds.
 Agents must also handle `sequence` commands (stop → flush → shutdown), and send ACKs
 for `stop` and `flush` while emitting a summary on flush.
+
+### 2.7 Rendering Plane Contract (Locked)
+
+Agent rendering contract:
+- Agent emits widget rendering payloads as `widget_frame` messages.
+- Operations transports/caches frames but does not perform plugin-specific rendering.
+- Control sanitizes and renders generic `html_fragment_v1`.
+
+Refresh contract:
+- `dispatch_widget_action(action="refresh")` must execute the same work path as scheduled tick/flush.
+- Refresh must trigger an immediate evidence-plane write (JSONL record) and make fresh frame content available.
+
+Data plane separation:
+- Evidence plane (`summary`, `heartbeat`, `status`, `error`) is canonical and immutable in Operations JSONL logs.
+- Rendering plane (`widget_frame`) is ephemeral UI payload and not canonical evidence.
+
+Artifact reference rules:
+- Never emit raw filesystem paths (`file://`) in UI payloads.
+- Emit tokenized/reconstructable references tied to plugin + instance identity.
+- If requested data is archived and not rehydrated, emit a warning-compatible state and allow rehydration flow.
 
 ### 2.4 Freedom of Implementation
 Beyond those basics, you’re free to be creative.  

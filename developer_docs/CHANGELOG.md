@@ -5,6 +5,12 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 ## 2026-02-11
 
 ### Changed
+- Aligned widget-rendering contract docs to the locked boundary model (agent-owned `widget_frame`, Operations transport/cache, Control final sanitizer):
+  - `developer_docs/control_dev/WIDGET_RENDER_IPC_MIN_SPEC.md`
+  - `developer_docs/agent_dev/AGENT_PROTOCOL_SPEC.md`
+  - `developer_docs/agent_dev/AGENT_DEV_GUIDE.md`
+  - `developer_docs/agent_dev/PROTOCOL_IMPLEMENTATION_STATUS.md`
+  - updated wording in `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md` to remove stale Operations-side sanitization phrasing.
 - Updated `developer_docs/2026.02.10 CODE-MEGASCAN/context_dump.md` with an architecture lock for:
   - agent-owned widget frames (`WIDGET_FRAME`) over existing JSON-lines transport,
   - Operations as canonical evidence vault (raw JSONL records + artifact index metadata),
