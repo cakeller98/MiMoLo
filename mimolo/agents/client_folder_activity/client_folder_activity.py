@@ -654,6 +654,26 @@ class ClientFolderActivityAgent(BaseAgent):
             "backend": str(snapshot.get("backend", self._watch_backend)),
         }
 
+    def _activity_signal(
+        self, snapshot: dict[str, Any], start: datetime, end: datetime
+    ) -> dict[str, Any]:
+        counts_raw = snapshot.get("counts", {})
+        if not isinstance(counts_raw, dict):
+            total_changes = 0
+        else:
+            total_changes = int(counts_raw.get("total", 0))
+        if total_changes > 0:
+            reason = f"{total_changes} tracked file paths changed"
+            keep_alive: bool | None = True
+        else:
+            reason = "no tracked file changes in window"
+            keep_alive = False
+        return {
+            "mode": "active",
+            "keep_alive": keep_alive,
+            "reason": reason,
+        }
+
     def _accumulated_count(self) -> int:
         pending = 0
         for record in self._window_records.values():

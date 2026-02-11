@@ -35,7 +35,12 @@ Purpose: compact carry-forward context without duplicating canonical docs.
 - Agents are autonomous and plugin-aware; Operations and Control are not plugin-aware renderers.
 - Agent -> Operations JSON-lines remains the only runtime transport channel; protocol is extended by schema/message type, not transport replacement.
 - `SUMMARY` packets are evidence/telemetry payloads that land in Operations logs as raw canonical records.
-- `activity_signal` semantics must be carried in agent data packets so activity inference is data-driven and auditable.
+- `activity_signal` semantics must be carried in `summary.data` packets so activity inference is data-driven and auditable.
+- `activity_signal` contract lock:
+  - `mode`: `active|passive`
+  - `keep_alive`: `true|false|null`
+  - `reason`: optional text
+  - `summary` is the only activity-signal carrier (not heartbeat).
 - Operations is the canonical ledger/vault:
   - stores raw JSONL records as-is (ground truth),
   - stores indices/pointers/hashes for agent-produced artifacts/bundles,

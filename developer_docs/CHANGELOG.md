@@ -5,6 +5,14 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 ## 2026-02-11
 
 ### Changed
+- Locked and documented summary-only activity signal contract across code/docs:
+  - `summary.data.activity_signal` is now the canonical work-signal envelope (`mode`, `keep_alive`, optional `reason`).
+  - `heartbeat` remains liveness/health only and is not used as activity-signal carrier.
+  - updated docs:
+    - `developer_docs/agent_dev/AGENT_PROTOCOL_SPEC.md`
+    - `developer_docs/agent_dev/AGENT_DEV_GUIDE.md`
+    - `developer_docs/2026.02.10 CODE-MEGASCAN/context_dump.md`
+    - `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
 - Aligned widget-rendering contract docs to the locked boundary model (agent-owned `widget_frame`, Operations transport/cache, Control final sanitizer):
   - `developer_docs/control_dev/WIDGET_RENDER_IPC_MIN_SPEC.md`
   - `developer_docs/agent_dev/AGENT_PROTOCOL_SPEC.md`

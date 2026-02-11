@@ -14,6 +14,7 @@ Deep scan reference:
 
 Architecture decision lock (2026-02-11):
 - Operations stores canonical raw JSONL evidence and activity signals; no ingestion-time timeline rounding.
+- Activity signals are carried in `summary.data.activity_signal` (summary-only evidence carrier).
 - Active/non-active timeline is derived in post-processing from raw records.
 - Agents are responsible for plugin-aware rendering output; Operations/Control remain generic.
 - Widget rendering contract direction is `WIDGET_FRAME` (agent-produced frame payload, Operations transport/cache, Control sanitize/render).

@@ -40,12 +40,12 @@ def handle_agent_summary(runtime: Runtime, label: str, msg: object) -> None:
             data = cast(dict[str, Any], raw_data)
 
         event_type: str = "summary"
+        summary_event = data.get("summary_event")
         evt = data.get("event")
-        typ = data.get("type")
-        if evt:
+        if summary_event:
+            event_type = str(summary_event)
+        elif evt:
             event_type = str(evt)
-        elif typ:
-            event_type = str(typ)
 
         event = Event(timestamp=timestamp, label=agent_label, event=event_type, data=data)
         runtime.agent_last_summary[label] = data

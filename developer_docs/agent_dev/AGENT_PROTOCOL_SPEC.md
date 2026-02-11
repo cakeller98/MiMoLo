@@ -98,7 +98,14 @@ Notes:
   "agent_label": "folderwatch",
   "protocol_version": "0.3",
   "agent_version": "1.2.1",
-  "data": {"folders": ["/tmp", "/home/user/projects"]}
+  "data": {
+    "folders": ["/tmp", "/home/user/projects"],
+    "activity_signal": {
+      "mode": "active",
+      "keep_alive": true,
+      "reason": "8 tracked file paths changed"
+    }
+  }
 }
 ```
 
@@ -115,6 +122,24 @@ Notes:
   "metrics": {"cpu": 0.03, "mem": 42.1, "latency_ms": 9.2}
 }
 ```
+
+### 3.3.1 Activity Signal Contract (Summary Payload)
+
+`summary.data.activity_signal` is the canonical work-signal envelope for
+post-processing timeline derivation.
+
+Fields:
+- `mode`: `"active"` or `"passive"`
+- `keep_alive`: `true`, `false`, or `null`
+- `reason`: optional text
+
+Rules:
+- The activity signal is carried in `summary` payloads only.
+- `mode = "active"` means this agent participates in work-state inference.
+- `mode = "passive"` means this agent is telemetry-only for work-state inference.
+- `keep_alive = true` means a work signal occurred within the current summary window.
+- `keep_alive = false` means no work signal occurred in the current summary window.
+- `keep_alive = null` is valid for passive agents.
 
 **Error**
 ```json

@@ -108,6 +108,23 @@ Artifact reference rules:
 - Emit tokenized/reconstructable references tied to plugin + instance identity.
 - If requested data is archived and not rehydrated, emit a warning-compatible state and allow rehydration flow.
 
+### 2.8 Activity Signal Contract (Locked)
+
+Activity signals are part of the evidence plane and must be emitted in `summary.data`.
+
+Required shape:
+- `activity_signal.mode`: `"active"` or `"passive"`
+- `activity_signal.keep_alive`: `true`, `false`, or `null`
+- `activity_signal.reason`: optional text
+
+Rules:
+- Summary is the only carrier for activity signals.
+- `active` agents participate in post-processed work-state inference.
+- `passive` agents do not drive work-state transitions.
+- `keep_alive=true` means work was observed in the summary window.
+- `keep_alive=false` means no work was observed in the summary window.
+- `keep_alive=null` is valid for passive agents.
+
 ### 2.4 Freedom of Implementation
 Beyond those basics, you’re free to be creative.  
 Your agent could:

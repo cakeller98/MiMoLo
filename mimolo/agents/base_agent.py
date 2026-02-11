@@ -70,6 +70,20 @@ class BaseAgent(ABC):
         """Return metrics for heartbeat payload (override if needed)."""
         return {"queue": self.flush_queue.qsize(), "accumulated_count": self._accumulated_count()}
 
+    def _activity_signal(
+        self, snapshot: Any, start: datetime, end: datetime
+    ) -> dict[str, Any]:
+        """Return summary activity signal for work-state post processing.
+
+        Default behavior is passive monitoring: this agent does not emit
+        keep-alive work signals unless overridden.
+        """
+        return {
+            "mode": "passive",
+            "keep_alive": None,
+            "reason": None,
+        }
+
     def send_message(self, msg: dict[str, Any]) -> None:
         """Write a JSON message to stdout."""
         print(json.dumps(msg), flush=True)
@@ -226,6 +240,8 @@ class BaseAgent(ABC):
 
     def _emit_summary(self, start: datetime, end: datetime, snapshot: Any) -> None:
         summary = self._format_summary(snapshot, start, end)
+        if "activity_signal" not in summary:
+            summary["activity_signal"] = self._activity_signal(snapshot, start, end)
         self.send_message({
             "type": "summary",
             "timestamp": end.isoformat(),
