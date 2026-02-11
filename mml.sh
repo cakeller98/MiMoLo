@@ -8,6 +8,7 @@
 #   ./mml.sh operations [monitor args...]
 #   ./mml.sh all-proto [monitor args...]
 #   ./mml.sh all-control [monitor args...]
+#   ./mml.sh pack_agents [pack-agent args...]
 #   ./mml.sh bundle-app [bundle args...]
 
 set -euo pipefail

@@ -25,6 +25,9 @@ execute_command() {
       fi
       run_prepare "$@"
       ;;
+    pack_agents|pack-agents)
+      run_pack_agents "$@"
+      ;;
     cleanup)
       cleanup_artifacts
       ;;

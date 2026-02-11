@@ -23,6 +23,7 @@ Commands:
   --rebuild-dist Alias for --no-cache
   --dev       Global flag: enable developer-mode plugin zip install in Control/proto
   prepare     Build/sync portable bin artifacts and seed default agents
+  pack_agents Pack/update agent archives from default source list (forwards pack-agent flags)
   cleanup     Remove temp_debug, all dist folders, and all __pycache__ folders
   bundle-app  Build macOS .app bundle for proto/control via scripts/bundle_app.sh
   ps          List running MiMoLo-related processes (dev diagnostics)
@@ -49,6 +50,8 @@ Examples:
   ./mml.sh bundle-app
   ./mml.sh --dev bundle-app --target proto
   ./mml.sh prepare
+  ./mml.sh pack_agents --patch
+  ./mml.sh pack_agents --verify-existing
   ./mml.sh cleanup
   ./mml.sh env
   ./mml.sh operations --once
@@ -110,6 +113,7 @@ print_env() {
   echo "Launch commands:"
   echo "  ./mml.sh"
   echo "  ./mml.sh prepare"
+  echo "  ./mml.sh pack_agents [pack-agent flags]"
   echo "  ./mml.sh cleanup"
   echo "  ./mml.sh --no-cache [command]"
   echo "  ./mml.sh --rebuild-dist [command]"

@@ -108,3 +108,41 @@ ensure_prepared() {
   echo "[dev-stack] Portable bin not prepared; running deploy once..."
   run_prepare
 }
+
+run_pack_agents() {
+  ensure_portable_layout
+
+  if ! command -v node >/dev/null 2>&1; then
+    echo "[dev-stack] missing node runtime; cannot run pack-agent" >&2
+    return 2
+  fi
+
+  local utils_dir="$SCRIPT_DIR/mimolo/utils"
+  local pack_dist="$utils_dir/dist/pack-agent.js"
+  if [[ ! -f "$pack_dist" ]]; then
+    echo "[dev-stack] building mimolo/utils pack tool..."
+    (cd "$utils_dir" && npm run build)
+  fi
+
+  local source_list="${MIMOLO_RELEASE_AGENTS_PATH:-$SCRIPT_DIR/mimolo/agents/sources.json}"
+  if [[ ! -f "$source_list" ]]; then
+    echo "[dev-stack] source list missing: $source_list" >&2
+    return 2
+  fi
+
+  for arg in "$@"; do
+    case "$arg" in
+      --source|--source=*|--source-list|--source-list=*|--create-source-list)
+        echo "[dev-stack] pack_agents always uses --source-list \"$source_list\"." >&2
+        echo "[dev-stack] remove source-selection flags and pass only pack options (e.g. --patch, --minor, --verify-existing)." >&2
+        return 2
+        ;;
+    esac
+  done
+
+  echo "[dev-stack] pack_agents source list: $source_list"
+  (
+    cd "$utils_dir" &&
+      node dist/pack-agent.js --source-list "$source_list" "$@"
+  )
+}
