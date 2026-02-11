@@ -169,7 +169,9 @@ protocol-minor rollout without replacing Agent JLP transport:
 
 It is not canonical evidence storage.
 
-Canonical evidence remains raw JSONL records (`summary`, `heartbeat`, `status`, `error`, etc.).
+Canonical evidence remains raw JSONL `summary` records only.
+Operational telemetry (`heartbeat`, `status`, `error`, `ack`, `log`) is stored in
+diagnostics logs and is not part of the canonical work-evidence ledger.
 
 ---
 

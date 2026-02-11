@@ -100,7 +100,8 @@ Refresh contract:
 - Refresh must trigger an immediate evidence-plane write (JSONL record) and make fresh frame content available.
 
 Data plane separation:
-- Evidence plane (`summary`, `heartbeat`, `status`, `error`) is canonical and immutable in Operations JSONL logs.
+- Evidence plane (`summary`) is canonical and immutable in Operations JSONL logs.
+- Diagnostics plane (`heartbeat`, `status`, `error`, `ack`, `log`) is persisted separately with retention and is not part of canonical work evidence.
 - Rendering plane (`widget_frame`) is ephemeral UI payload and not canonical evidence.
 
 Artifact reference rules:

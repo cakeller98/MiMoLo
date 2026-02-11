@@ -105,3 +105,30 @@ def test_client_folder_activity_signal_emits_keep_alive_on_changes(tmp_path: Pat
     no_change_summary_signal = emitted[-1]["data"]["activity_signal"]
     assert no_change_summary_signal["mode"] == "active"
     assert no_change_summary_signal["keep_alive"] is False
+
+
+def test_base_agent_emits_shutdown_ack_before_exit_log() -> None:
+    agent = _PassiveAgent(
+        agent_id="test-002",
+        agent_label="test-passive-shutdown",
+        sample_interval=1.0,
+        heartbeat_interval=5.0,
+        protocol_version="0.3",
+        agent_version="0.1.0",
+        min_app_version="0.3.0",
+    )
+    emitted: list[dict[str, Any]] = []
+    object.__setattr__(agent, "send_message", emitted.append)
+
+    now = datetime.now(UTC)
+    agent._handle_single_command("shutdown", now)
+
+    assert len(emitted) >= 2
+    ack_packet = emitted[0]
+    shutdown_log = emitted[1]
+    assert ack_packet["type"] == "ack"
+    assert ack_packet["ack_command"] == "shutdown"
+    assert shutdown_log["type"] == "log"
+    assert "Shutting down" in shutdown_log["message"]
+    assert agent.running is False
+    assert agent.shutdown_event.is_set() is True

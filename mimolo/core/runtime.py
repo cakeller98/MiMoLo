@@ -15,7 +15,7 @@ import os
 import socket
 import threading
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -23,12 +23,16 @@ from rich.console import Console
 
 from mimolo.core.config import Config, PluginConfig
 from mimolo.core.cooldown import CooldownTimer
+from mimolo.core.errors import SinkError
 from mimolo.core.plugin_store import PluginStore
 from mimolo.core.runtime_agent_events import (
     coerce_timestamp,
+    handle_agent_ack,
+    handle_agent_error,
     handle_agent_log,
     handle_agent_summary,
     handle_heartbeat,
+    handle_status,
 )
 from mimolo.core.runtime_agent_lifecycle import (
     restart_agent_for_label,
@@ -82,7 +86,7 @@ from mimolo.core.runtime_widget_support import (
     resolve_screen_tracker_thumbnail,
     screen_tracker_thumbnail_data_uri,
 )
-from mimolo.core.sink import ConsoleSink, create_sink
+from mimolo.core.sink import ConsoleSink, JSONLSink, create_sink
 
 AgentLifecycleState = Literal["running", "shutting-down", "inactive", "error"]
 
@@ -115,6 +119,14 @@ class Runtime:
         log_format = cast(Literal["jsonl", "yaml", "md"], config.monitor.log_format)
         self.file_sink = create_sink(log_format, log_dir)
         self.console_sink = ConsoleSink(config.monitor.console_verbosity)
+        self.diagnostics_sink: JSONLSink | None = None
+        if config.monitor.diagnostics_enabled:
+            diagnostics_log_dir = Path(config.monitor.diagnostics_log_dir)
+            self.diagnostics_sink = JSONLSink(
+                diagnostics_log_dir,
+                name_prefix="mimolo-diagnostics",
+            )
+            self._prune_diagnostics_logs()
 
         # Runtime state
         self._running = False
@@ -321,6 +333,53 @@ class Runtime:
                 agent_pids[label] = pid
         return snapshot_runtime_perf_with_agents(self._perf_state, agent_pids)
 
+    def _prune_diagnostics_logs(self) -> None:
+        """Delete diagnostics files older than configured retention window."""
+        if self.diagnostics_sink is None:
+            return
+        retention_days = int(self.config.monitor.diagnostics_retention_days)
+        now_date = datetime.now(UTC).date()
+        for path in self.diagnostics_sink.log_dir.glob("*.mimolo-diagnostics.jsonl"):
+            date_token = path.name.split(".", 1)[0]
+            try:
+                file_date = datetime.strptime(date_token, "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            age_days = (now_date - file_date).days
+            if age_days <= retention_days:
+                continue
+            try:
+                path.unlink()
+            except OSError as exc:
+                # OSError: diagnostics cleanup should not fail runtime startup.
+                self._debug(
+                    f"[yellow]Failed to prune diagnostics log {path}: {exc}[/yellow]"
+                )
+
+    def _write_diagnostic_event(
+        self,
+        label: str,
+        event: str,
+        timestamp: datetime,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        """Write a diagnostics event record when diagnostics logging is enabled."""
+        if self.diagnostics_sink is None:
+            return
+        from mimolo.core.event import Event
+
+        diagnostics_event = Event(
+            timestamp=timestamp,
+            label=label,
+            event=event,
+            data=data or {},
+        )
+        try:
+            self.diagnostics_sink.write_event(diagnostics_event)
+        except SinkError as exc:
+            # SinkError: diagnostics write failures should not break orchestrator flow.
+            self._debug(f"[yellow]Diagnostics sink write failed: {exc}[/yellow]")
+
     def _resolve_screen_tracker_thumbnail(
         self, instance_id: str
     ) -> tuple[Path | None, str | None]:
@@ -467,6 +526,18 @@ class Runtime:
         Heartbeats are NOT written to file - they're for health monitoring only.
         """
         handle_heartbeat(self, label, msg)
+
+    def _handle_agent_error(self, label: str, msg: object) -> None:
+        """Handle a structured error payload from an Agent."""
+        handle_agent_error(self, label, msg)
+
+    def _handle_agent_ack(self, label: str, msg: object) -> None:
+        """Handle an ACK payload from an Agent."""
+        handle_agent_ack(self, label, msg)
+
+    def _handle_status(self, label: str, msg: object) -> None:
+        """Handle a status payload from an Agent."""
+        handle_status(self, label, msg)
 
     def _handle_agent_log(self, label: str, msg: object) -> None:
         """Handle a structured log message from a Agent.

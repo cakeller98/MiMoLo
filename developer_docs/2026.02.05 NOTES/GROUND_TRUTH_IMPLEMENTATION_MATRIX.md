@@ -151,19 +151,21 @@ Architecture decision lock (2026-02-11):
 
 ### Priority Index (Reprioritize Here, Keep Backlog Item Numbers Stable)
 
-1. [[#Item 12 — Agent self-CPU budgeting, policy envelope, and adaptive-readiness baseline]]
-2. [[#Item 13 — Agent-owned widget frame contract + operations evidence-vault model]]
-3. [[#Item 10 — Maintainability-first decomposition and concern-boundary compliance]]
-4. [[#Item 1 — Operations lifecycle ownership + orphan-process elimination]]
-5. [[#Item 2 — Implement true widget render pipeline through Operations]]
-6. [[#Item 3 — Finish agent package install/upgrade lifecycle]]
-7. [[#Item 4 — Complete archive-before-purge workflow]]
-8. [[#Item 5 — Hardening pass for `client_folder_activity` and `screen_tracker`]]
-9. [[#Item 6 — Promote control_proto patterns into commercial Control app]]
-10. [[#Item 7 — Repository-wide path handling normalization audit (Python + TypeScript)]]
-11. [[#Item 8 — Plugin trust boundary and capability-gated isolation model]]
-12. [[#Item 9 — Optional indicator intent-dot for request lifecycle diagnostics (deferred)]]
-13. [[#Item 11 — Fix pack-agent `--verify-existing` deterministic archive verification]]
+1. [[#Item 13 — Agent-owned widget frame contract + operations evidence-vault model]]
+2. [[#Item 14 — Control JSONL evidence viewer with derived segment filtering]]
+3. [[#Item 15 — Stable dummy evidence datasets and generator tooling]]
+4. [[#Item 12 — Agent self-CPU budgeting, policy envelope, and adaptive-readiness baseline]]
+5. [[#Item 10 — Maintainability-first decomposition and concern-boundary compliance]]
+6. [[#Item 1 — Operations lifecycle ownership + orphan-process elimination]]
+7. [[#Item 2 — Implement true widget render pipeline through Operations]]
+8. [[#Item 3 — Finish agent package install/upgrade lifecycle]]
+9. [[#Item 4 — Complete archive-before-purge workflow]]
+10. [[#Item 5 — Hardening pass for `client_folder_activity` and `screen_tracker`]]
+11. [[#Item 6 — Promote control_proto patterns into commercial Control app]]
+12. [[#Item 7 — Repository-wide path handling normalization audit (Python + TypeScript)]]
+13. [[#Item 8 — Plugin trust boundary and capability-gated isolation model]]
+14. [[#Item 9 — Optional indicator intent-dot for request lifecycle diagnostics (deferred)]]
+15. [[#Item 11 — Fix pack-agent `--verify-existing` deterministic archive verification]]
 
 Priority-index rule:
 - Reprioritize by editing this index only.
@@ -362,6 +364,48 @@ Priority-index rule:
     - `scripts/bundle_app.sh` runtime sidecar policy is now configurable via `mml.toml`:
       - `bundle_runtime_mode = auto|portable|user_data`
       - `bundle_runtime_path = ./.venv` (portable mode path relative to app parent unless absolute)
+- Progress update (2026-02-11):
+  - implemented:
+    - Operations evidence ledger now stores canonical `summary` records only.
+    - diagnostics stream is split to dedicated daily files (`*.mimolo-diagnostics.jsonl`) with retention policy.
+    - agent runtime now records telemetry message classes (`heartbeat`, `status`, `error`, `ack`, `log`) to diagnostics without polluting canonical work evidence.
+    - shutdown sequence now requires `ACK(stop)`, `ACK(flush)`, final `summary`, and `ACK(shutdown)` before clean completion.
+    - base agent now emits explicit `ACK(shutdown)` before exit log.
+  - validation rerun:
+    - `poetry run ruff check ...` => PASS
+    - `poetry run mypy ...` => PASS
+    - `poetry run pytest -q tests/test_agent_activity_signal_contract.py tests/test_client_folder_activity_agent.py tests/test_runtime_widget_ipc_stubs.py` => PASS
+    - `poetry run python scripts/qc_exception_scan.py --scope modified` => PASS (informational findings only)
+
+### Item 14 — Control JSONL evidence viewer with derived segment filtering
+- Status: Planned / active high-priority
+- Done when:
+  - Control can load canonical Operations JSONL records for a selected date/time window.
+  - Viewer renders raw evidence entries without mutating source records.
+  - Segment/timeline display is explicitly marked derived and computed from evidence records plus policy settings.
+  - Derived filter can isolate likely work-active windows using `summary.data.activity_signal`.
+  - Viewer preserves agent boundaries (no plugin-specific logic in Control/Operations; plugin-aware details come from payload fields).
+  - Missing/archived payload references are shown as warning states without corrupting evidence view.
+- Scope guardrails:
+  - no ingest-time rounding or segment writes back into canonical logs.
+  - no hidden schema transforms beyond explicit parse validation.
+
+### Item 15 — Stable dummy evidence datasets and generator tooling
+- Status: Planned / active high-priority
+- Done when:
+  - Reproducible fixture datasets exist in-repo and survive rebuild flows.
+  - Fixture set covers:
+    - passive agents,
+    - active keep-alive agents,
+    - mixed active/passive overlap,
+    - missing/archived artifact reference warnings,
+    - idle timeout transitions.
+  - Dataset layout and provenance are documented for developers.
+  - Optional generator script can recreate fixtures deterministically from a seed.
+- Default paths:
+  - `tests/fixtures/ops_logbook/*.jsonl`
+  - `developer_docs/reference_data/ops_logbook_samples/README.md`
+  - `scripts/generate_dummy_ops_log.py`
 
 ### Item 11 — Fix pack-agent `--verify-existing` deterministic archive verification
 - Status: Implemented (2026-02-10)

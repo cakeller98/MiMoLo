@@ -5,6 +5,23 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 ## 2026-02-11
 
 ### Changed
+- Locked evidence-vs-diagnostics ledger semantics in docs:
+  - canonical work evidence = `summary` records only.
+  - diagnostics stream (`heartbeat`, `status`, `error`, `ack`, `log`) is retained separately and excluded from canonical work-evidence ledger.
+  - shutdown clean-exit contract explicitly requires `ACK(stop)`, `ACK(flush)`, final `summary`, and `ACK(shutdown)`.
+- Updated:
+  - `developer_docs/agent_dev/AGENT_PROTOCOL_SPEC.md`
+  - `developer_docs/agent_dev/AGENT_DEV_GUIDE.md`
+  - `developer_docs/2026.02.10 CODE-MEGASCAN/context_dump.md`
+  - `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
+- Reprioritized canonical execution order in `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`:
+  - `Item 13` (`widget_frame` contract completion) moved to highest priority.
+  - added `Item 14`:
+    - **Control JSONL evidence viewer with derived segment filtering**
+  - added `Item 15`:
+    - **Stable dummy evidence datasets and generator tooling**
+- Updated `developer_docs/2026.02.10 CODE-MEGASCAN/context_dump.md` to mirror the new execution order:
+  - Item 13 -> Item 14 -> Item 15 -> Item 12.
 - Locked and documented summary-only activity signal contract across code/docs:
   - `summary.data.activity_signal` is now the canonical work-signal envelope (`mode`, `keep_alive`, optional `reason`).
   - `heartbeat` remains liveness/health only and is not used as activity-signal carrier.

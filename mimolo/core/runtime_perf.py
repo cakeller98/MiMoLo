@@ -75,6 +75,8 @@ class AgentPerfStats:
             "summary": 0,
             "log": 0,
             "error": 0,
+            "ack": 0,
+            "status": 0,
         }
     )
 
@@ -96,7 +98,7 @@ class AgentPerfStats:
             self.flush_sent_total += 1
         self.handler_errors_total += int(message_counts.get("handler_errors", 0))
         self.unknown_messages_total += int(message_counts.get("unknown", 0))
-        for key in ("heartbeat", "summary", "log", "error"):
+        for key in ("heartbeat", "summary", "log", "error", "ack", "status"):
             self.by_type[key] += int(message_counts.get(key, 0))
 
     @property
@@ -132,6 +134,8 @@ class RuntimePerfState:
             "summary": 0,
             "log": 0,
             "error": 0,
+            "ack": 0,
+            "status": 0,
             "unknown": 0,
         }
     )
@@ -190,7 +194,7 @@ def record_tick_sample(
         )
 
         state.messages_total += int(message_counts.get("total", 0))
-        for key in ("heartbeat", "summary", "log", "error", "unknown"):
+        for key in ("heartbeat", "summary", "log", "error", "ack", "status", "unknown"):
             state.messages_by_type[key] += int(message_counts.get(key, 0))
 
 

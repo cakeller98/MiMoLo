@@ -6,8 +6,6 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from mimolo.core.errors import SinkError
-from mimolo.core.event import Event
 from mimolo.core.protocol import CommandType, OrchestratorCommand
 
 if TYPE_CHECKING:
@@ -77,23 +75,17 @@ def _reap_unexpected_agent_exits(runtime: Runtime, now: datetime) -> None:
         runtime.console.print(
             f"[red]Agent {label} exited unexpectedly (code={exit_code})[/red]"
         )
-        try:
-            exit_event = Event(
-                timestamp=now,
-                label="orchestrator",
-                event="agent_exit",
-                data={
-                    "agent": label,
-                    "exit_code": exit_code,
-                    "last_heartbeat": last_heartbeat,
-                    "note": "Agent process exited without shutdown sequence",
-                },
-            )
-            runtime.file_sink.write_event(exit_event)
-        except (SinkError, RuntimeError, ValueError, TypeError) as e:
-            runtime._debug(
-                f"[yellow]Failed to write agent_exit event for {label}: {e}[/yellow]"
-            )
+        runtime._write_diagnostic_event(
+            label="orchestrator",
+            event="agent_exit",
+            timestamp=now,
+            data={
+                "agent": label,
+                "exit_code": exit_code,
+                "last_heartbeat": last_heartbeat,
+                "note": "Agent process exited without shutdown sequence",
+            },
+        )
         detail = f"exit_code:{exit_code}" if exit_code is not None else "exit_code:unknown"
         runtime._set_agent_state(label, "error", detail)
         del runtime.agent_manager.agents[label]
@@ -140,6 +132,8 @@ def _drain_agent_messages(
         "summary": 0,
         "log": 0,
         "error": 0,
+        "ack": 0,
+        "status": 0,
         "unknown": 0,
         "handler_errors": 0,
     }
@@ -163,7 +157,13 @@ def _drain_agent_messages(
                 runtime._handle_agent_log(label, msg)
             elif t == "error" or t.endswith("error"):
                 counts["error"] += 1
-                _report_agent_error(runtime, label, msg)
+                runtime._handle_agent_error(label, msg)
+            elif t == "ack" or t.endswith("ack"):
+                counts["ack"] += 1
+                runtime._handle_agent_ack(label, msg)
+            elif t == "status" or t.endswith("status"):
+                counts["status"] += 1
+                runtime._handle_status(label, msg)
             else:
                 counts["unknown"] += 1
         except (AttributeError, RuntimeError, TypeError, ValueError) as e:
@@ -172,14 +172,3 @@ def _drain_agent_messages(
                 f"[red]Error handling agent message from {label}: {e}[/red]"
             )
     return counts
-
-
-def _report_agent_error(runtime: Runtime, label: str, msg: object) -> None:
-    """Report agent-emitted error payloads to the orchestrator console."""
-    try:
-        message = getattr(msg, "message", None) or getattr(msg, "data", None)
-        runtime.console.print(f"[red]Agent {label} error: {message}[/red]")
-    except (AttributeError, RuntimeError, TypeError, ValueError) as e:
-        runtime.console.print(
-            f"[red]Agent {label} reported an error (unreadable payload): {e}[/red]"
-        )

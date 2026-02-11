@@ -83,6 +83,18 @@ def handle_heartbeat(runtime: Runtime, label: str, msg: object) -> None:
             metrics = getattr(msg, "metrics", {})
             metrics_str = f" | {metrics}" if metrics else ""
             runtime.console.print(f"[cyan]❤️  {label}{metrics_str}[/cyan]")
+        raw_metrics = getattr(msg, "metrics", {})
+        metrics_payload: dict[str, Any]
+        if isinstance(raw_metrics, dict):
+            metrics_payload = cast(dict[str, Any], raw_metrics)
+        else:
+            metrics_payload = {}
+        runtime._write_diagnostic_event(
+            label=label,
+            event="heartbeat",
+            timestamp=timestamp,
+            data={"metrics": metrics_payload},
+        )
     except (AttributeError, RuntimeError, TypeError, ValueError) as e:
         runtime.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
 
@@ -142,3 +154,54 @@ def handle_agent_log(runtime: Runtime, label: str, msg: object) -> None:
         runtime.console.print(
             f"[red]Error rendering log from {label} (markup={markup}): {e}[/red]"
         )
+    runtime._write_diagnostic_event(
+        label=label,
+        event="log",
+        timestamp=coerce_timestamp(runtime, getattr(msg, "timestamp", None)),
+        data={
+            "level": level,
+            "message": message_text,
+            "markup": bool(markup),
+        },
+    )
+
+
+def handle_agent_error(runtime: Runtime, label: str, msg: object) -> None:
+    """Handle an error message from an agent."""
+    error_message = getattr(msg, "message", None) or getattr(msg, "data", None)
+    runtime.console.print(f"[red]Agent {label} error: {error_message}[/red]")
+    runtime._write_diagnostic_event(
+        label=label,
+        event="error",
+        timestamp=coerce_timestamp(runtime, getattr(msg, "timestamp", None)),
+        data={"message": str(error_message)},
+    )
+
+
+def handle_agent_ack(runtime: Runtime, label: str, msg: object) -> None:
+    """Handle an ack message from an agent."""
+    ack_command_raw = getattr(msg, "ack_command", None)
+    ack_command = (
+        str(ack_command_raw).strip()
+        if ack_command_raw is not None and str(ack_command_raw).strip()
+        else "unknown"
+    )
+    runtime._write_diagnostic_event(
+        label=label,
+        event="ack",
+        timestamp=coerce_timestamp(runtime, getattr(msg, "timestamp", None)),
+        data={
+            "ack_command": ack_command,
+            "message": str(getattr(msg, "message", "")),
+        },
+    )
+
+
+def handle_status(runtime: Runtime, label: str, msg: object) -> None:
+    """Handle a status message from an agent."""
+    runtime._write_diagnostic_event(
+        label=label,
+        event="status",
+        timestamp=coerce_timestamp(runtime, getattr(msg, "timestamp", None)),
+        data={"data": getattr(msg, "data", {})},
+    )

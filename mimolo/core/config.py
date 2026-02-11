@@ -32,6 +32,9 @@ class MonitorConfig(BaseModel):
     log_dir: str = Field(default="./logs")
     log_format: str = "jsonl"
     console_verbosity: Literal["debug", "info", "warning", "error"] = Field(default="info")
+    diagnostics_enabled: bool = Field(default=True)
+    diagnostics_log_dir: str = Field(default="./logs/diagnostics")
+    diagnostics_retention_days: int = Field(default=14, ge=1)
 
     @field_validator("log_dir")
     @classmethod
@@ -39,6 +42,17 @@ class MonitorConfig(BaseModel):
         """Validate log directory path."""
         path = Path(v)
         # Parent must exist or be creatable
+        if not path.exists():
+            parent = path.parent
+            if not parent.exists():
+                raise ValueError(f"Parent directory does not exist: {parent}")
+        return v
+
+    @field_validator("diagnostics_log_dir")
+    @classmethod
+    def validate_diagnostics_log_dir(cls, v: str) -> str:
+        """Validate diagnostics log directory path."""
+        path = Path(v)
         if not path.exists():
             parent = path.parent
             if not parent.exists():

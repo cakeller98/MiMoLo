@@ -6,9 +6,6 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from mimolo.core.errors import SinkError
-from mimolo.core.event import Event
-
 if TYPE_CHECKING:
     from mimolo.core.runtime import Runtime
 
@@ -46,38 +43,23 @@ def shutdown_runtime(runtime: Runtime) -> None:
     runtime.console.print("[yellow]Shutting down...[/yellow]")
     runtime._shutting_down = True
 
-    # Graceful stop sequence:
-    # Emit an orchestrator-level event so the file log shows shutdown boundaries.
-    try:
-        now = datetime.now(UTC)
-        agent_count = len(runtime.agent_manager.agents)
-        expected_msgs = max(1, agent_count * 2)
-        shutdown_event = Event(
-            timestamp=now,
-            label="orchestrator",
-            event="shutdown_initiated",
-            data={
-                "agent_count": agent_count,
-                "expected_shutdown_messages": expected_msgs,
-                "note": "Following entries are agent shutdown/flush messages",
-            },
-        )
-        try:
-            runtime.file_sink.write_event(shutdown_event)
-        except (SinkError, OSError, RuntimeError, ValueError, TypeError) as e:
-            runtime._debug(
-                f"[yellow]Failed to write shutdown_initiated event: {e}[/yellow]"
-            )
-        if runtime.config.monitor.console_verbosity in ("debug", "info"):
-            runtime.console_sink.write_event(shutdown_event)
-    except (AttributeError, RuntimeError, ValueError, TypeError, SinkError) as e:
-        runtime._debug(
-            f"[yellow]Failed to emit shutdown_initiated event: {e}[/yellow]"
-        )
+    now = datetime.now(UTC)
+    agent_count = len(runtime.agent_manager.agents)
+    expected_msgs = max(1, agent_count * 3)
+    runtime._write_diagnostic_event(
+        label="orchestrator",
+        event="shutdown_initiated",
+        timestamp=now,
+        data={
+            "agent_count": agent_count,
+            "expected_shutdown_messages": expected_msgs,
+            "note": "Expecting ACK(stop), ACK(flush), summary, ACK(shutdown), then process exit",
+        },
+    )
 
     # Graceful stop sequence using chained SEQUENCE command:
     # Send SEQUENCE([STOP, FLUSH, SHUTDOWN]) to all agents
-    # Agent responds: ACK(stop) → ACK(flush) + summary → final heartbeat → exit
+    # Agent responds: ACK(stop) → ACK(flush) + summary → ACK(shutdown) → exit
     # Orchestrator drains all messages and waits for responses
 
     # Initialize counters outside try block so they're available in except/finally
@@ -113,7 +95,9 @@ def shutdown_runtime(runtime: Runtime) -> None:
 
         runtime._set_agent_state(label, "shutting-down", "orchestrator_shutdown")
         got_stop_ack = False
+        got_flush_ack = False
         got_summary = False
+        got_shutdown_ack = False
         agent_deadline = time.time() + shutdown_timeout_s
         runtime._shutdown_deadlines[label] = agent_deadline
         runtime._shutdown_phase[label] = "sequence_sent"
@@ -128,13 +112,19 @@ def shutdown_runtime(runtime: Runtime) -> None:
             if runtime.config.monitor.console_verbosity == "debug":
                 runtime.console.print(f"[cyan]Sent shutdown SEQUENCE to {label}[/cyan]")
         except (OSError, RuntimeError, ValueError, TypeError) as e:
-            runtime.console.print(f"[red]Exception sending SEQUENCE to {label}: {e}[/red]")
-            continue
+                runtime.console.print(f"[red]Exception sending SEQUENCE to {label}: {e}[/red]")
+                continue
 
         while time.time() < agent_deadline:
             msg = handle.read_message(timeout=0.05)
             if msg is None:
-                if got_stop_ack and got_summary and not handle.is_alive():
+                if (
+                    got_stop_ack
+                    and got_flush_ack
+                    and got_summary
+                    and got_shutdown_ack
+                    and not handle.is_alive()
+                ):
                     break
                 continue
 
@@ -156,9 +146,15 @@ def shutdown_runtime(runtime: Runtime) -> None:
                         if runtime.config.monitor.console_verbosity == "debug":
                             runtime.console.print(f"[cyan]Agent {label} ACK(stop)[/cyan]")
                     elif ack_cmd == "flush":
+                        got_flush_ack = True
                         agent_deadline = time.time() + shutdown_timeout_s
                         runtime._shutdown_deadlines[label] = agent_deadline
                         runtime._shutdown_phase[label] = "flush_ack"
+                    elif ack_cmd == "shutdown":
+                        got_shutdown_ack = True
+                        agent_deadline = time.time() + shutdown_timeout_s
+                        runtime._shutdown_deadlines[label] = agent_deadline
+                        runtime._shutdown_phase[label] = "shutdown_ack"
                 elif t == "summary" or t.endswith("summary"):
                     try:
                         runtime._handle_agent_summary(label, msg)
@@ -172,7 +168,6 @@ def shutdown_runtime(runtime: Runtime) -> None:
                         RuntimeError,
                         ValueError,
                         TypeError,
-                        SinkError,
                     ) as e:
                         runtime._debug(
                             f"[yellow]Failed to handle shutdown summary from {label}: {e}[/yellow]"
@@ -189,7 +184,6 @@ def shutdown_runtime(runtime: Runtime) -> None:
                         RuntimeError,
                         ValueError,
                         TypeError,
-                        SinkError,
                     ) as e:
                         runtime._debug(
                             f"[yellow]Failed to handle shutdown log from {label}: {e}[/yellow]"
@@ -200,62 +194,87 @@ def shutdown_runtime(runtime: Runtime) -> None:
                     runtime._shutdown_deadlines[label] = agent_deadline
                     runtime._shutdown_phase[label] = "heartbeat"
                 elif t == "status" or t.endswith("status"):
+                    runtime._handle_status(label, msg)
                     agent_deadline = time.time() + shutdown_timeout_s
                     runtime._shutdown_deadlines[label] = agent_deadline
                     runtime._shutdown_phase[label] = "status"
+                elif t == "error" or t.endswith("error"):
+                    runtime._handle_agent_error(label, msg)
+                    agent_deadline = time.time() + shutdown_timeout_s
+                    runtime._shutdown_deadlines[label] = agent_deadline
+                    runtime._shutdown_phase[label] = "error"
             except (
                 AttributeError,
                 RuntimeError,
                 ValueError,
                 TypeError,
-                SinkError,
             ) as e:
                 runtime._debug(
                     f"[yellow]Failed to parse shutdown message from {label}: {e}[/yellow]"
                 )
 
-            if got_stop_ack and got_summary and not handle.is_alive():
+            if (
+                got_stop_ack
+                and got_flush_ack
+                and got_summary
+                and got_shutdown_ack
+                and not handle.is_alive()
+            ):
                 break
 
         if not got_stop_ack:
             runtime.console.print(f"[red]Agent {label} did not ACK STOP (timeout)[/red]")
-            try:
-                stop_exception = Event(
-                    timestamp=datetime.now(UTC),
-                    label="orchestrator",
-                    event="shutdown_exception",
-                    data={
-                        "agent": label,
-                        "phase": "stop",
-                        "error": "No stop ACK received",
-                    },
-                )
-                runtime.file_sink.write_event(stop_exception)
-            except (SinkError, OSError, RuntimeError, ValueError, TypeError) as e:
-                runtime._debug(
-                    f"[yellow]Failed to write shutdown_exception (stop) for {label}: {e}[/yellow]"
-                )
+            runtime._write_diagnostic_event(
+                label="orchestrator",
+                event="shutdown_exception",
+                timestamp=datetime.now(UTC),
+                data={
+                    "agent": label,
+                    "phase": "stop",
+                    "error": "No stop ACK received",
+                },
+            )
 
         if not got_summary:
             runtime.console.print(
                 f"[red]Agent {label} did not send summary after FLUSH (timeout)[/red]"
             )
-            try:
-                flush_exception = Event(
-                    timestamp=datetime.now(UTC),
-                    label="orchestrator",
-                    event="shutdown_exception",
-                    data={
-                        "agent": label,
-                        "phase": "flush",
-                        "error": "No summary received",
-                    },
-                )
-                runtime.file_sink.write_event(flush_exception)
-            except (SinkError, OSError, RuntimeError, ValueError, TypeError) as e:
-                runtime._debug(
-                    f"[yellow]Failed to write shutdown_exception (flush) for {label}: {e}[/yellow]"
-                )
+            runtime._write_diagnostic_event(
+                label="orchestrator",
+                event="shutdown_exception",
+                timestamp=datetime.now(UTC),
+                data={
+                    "agent": label,
+                    "phase": "flush",
+                    "error": "No summary received",
+                },
+            )
+        if not got_flush_ack:
+            runtime.console.print(f"[red]Agent {label} did not ACK FLUSH (timeout)[/red]")
+            runtime._write_diagnostic_event(
+                label="orchestrator",
+                event="shutdown_exception",
+                timestamp=datetime.now(UTC),
+                data={
+                    "agent": label,
+                    "phase": "flush_ack",
+                    "error": "No flush ACK received",
+                },
+            )
+        if not got_shutdown_ack:
+            runtime.console.print(
+                f"[red]Agent {label} did not ACK SHUTDOWN (timeout)[/red]"
+            )
+            runtime._write_diagnostic_event(
+                label="orchestrator",
+                event="shutdown_exception",
+                timestamp=datetime.now(UTC),
+                data={
+                    "agent": label,
+                    "phase": "shutdown_ack",
+                    "error": "No shutdown ACK received",
+                },
+            )
 
     # Agents should have shut down by now; wait for processes to exit
     handles = runtime.agent_manager.shutdown_all()
@@ -283,7 +302,6 @@ def shutdown_runtime(runtime: Runtime) -> None:
                             RuntimeError,
                             ValueError,
                             TypeError,
-                            SinkError,
                         ) as e:
                             runtime._debug(
                                 f"[yellow]Failed to handle late shutdown summary from {handle.label}: {e}[/yellow]"
@@ -297,7 +315,6 @@ def shutdown_runtime(runtime: Runtime) -> None:
                             RuntimeError,
                             ValueError,
                             TypeError,
-                            SinkError,
                         ) as e:
                             runtime._debug(
                                 f"[yellow]Failed to handle late shutdown log from {handle.label}: {e}[/yellow]"
@@ -305,15 +322,17 @@ def shutdown_runtime(runtime: Runtime) -> None:
                     elif t == "heartbeat" or t.endswith("heartbeat"):
                         runtime._handle_heartbeat(handle.label, msg)
                     elif t == "status" or t.endswith("status"):
-                        runtime._debug(
-                            f"[yellow]Late shutdown status from {handle.label} ignored[/yellow]"
-                        )
+                        runtime._handle_status(handle.label, msg)
+                    elif t == "ack" or t.endswith("ack"):
+                        runtime._handle_agent_ack(handle.label, msg)
+                        acks_count += 1
+                    elif t == "error" or t.endswith("error"):
+                        runtime._handle_agent_error(handle.label, msg)
                 except (
                     AttributeError,
                     RuntimeError,
                     ValueError,
                     TypeError,
-                    SinkError,
                 ) as e:
                     runtime._debug(
                         f"[yellow]Failed to handle late shutdown message from {handle.label}: {e}[/yellow]"
@@ -335,41 +354,28 @@ def shutdown_runtime(runtime: Runtime) -> None:
 
     # Flush and close sinks
     try:
-        # Emit a final orchestrator event indicating shutdown complete
-        try:
-            now = datetime.now(UTC)
-            complete_event = Event(
-                timestamp=now,
-                label="orchestrator",
-                event="shutdown_complete",
-                data={
-                    "agent_count_final": len(runtime.agent_manager.agents),
-                    "timestamp": now.isoformat(),
-                    "note": "All agents shutdown and sinks closed",
-                    "summaries_written_during_shutdown": summaries_count,
-                    "logs_written_during_shutdown": logs_count,
-                    "acks_received_during_shutdown": acks_count,
-                },
-            )
-            try:
-                runtime.file_sink.write_event(complete_event)
-            except (SinkError, OSError, RuntimeError, ValueError, TypeError) as e:
-                runtime._debug(
-                    f"[yellow]Failed to write shutdown_complete event: {e}[/yellow]"
-                )
-            if runtime.config.monitor.console_verbosity in ("debug", "info"):
-                runtime.console_sink.write_event(complete_event)
-        except (AttributeError, RuntimeError, ValueError, TypeError, SinkError) as e:
-            runtime._debug(
-                f"[yellow]Failed to emit shutdown_complete event: {e}[/yellow]"
-            )
+        runtime._write_diagnostic_event(
+            label="orchestrator",
+            event="shutdown_complete",
+            timestamp=datetime.now(UTC),
+            data={
+                "agent_count_final": len(runtime.agent_manager.agents),
+                "note": "All agents shutdown and sinks closed",
+                "summaries_written_during_shutdown": summaries_count,
+                "logs_written_during_shutdown": logs_count,
+                "acks_received_during_shutdown": acks_count,
+            },
+        )
 
         runtime.file_sink.flush()
         runtime.file_sink.close()
+        if runtime.diagnostics_sink is not None:
+            runtime.diagnostics_sink.flush()
+            runtime.diagnostics_sink.close()
         runtime.console.print("[green]MiMoLo stopped.[/green]")
         # Final console-only confirmation after sinks are closed
         runtime.console.print("[green]Shutdown complete.[/green]")
-    except (SinkError, OSError, RuntimeError, ValueError, TypeError) as e:
+    except (OSError, RuntimeError, ValueError, TypeError) as e:
         runtime.console.print(f"[red]Error closing sinks: {e}[/red]")
     finally:
         runtime._stop_ipc_server()

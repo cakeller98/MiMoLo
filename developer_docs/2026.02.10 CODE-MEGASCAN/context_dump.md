@@ -12,9 +12,10 @@ Purpose: compact carry-forward context without duplicating canonical docs.
 - Full code-health audit bundle: `developer_docs/2026.02.10 CODE-MEGASCAN/`
 
 ## Current Priority
-1. **Item 12 is now active highest priority**: Agent self-CPU budgeting, policy envelope, and adaptive-readiness baseline.
-2. Item 10 (maintainability-first decomposition) remains active and resumes as next priority after Item 12 phase-1 delivery.
-3. Item 1 (ops lifecycle/orphan elimination) remains critical but is currently below Item 12 + Item 10 unless safety/regression forces immediate behavior work.
+1. **Item 13 is now active highest priority**: agent-owned `widget_frame` end-to-end contract completion.
+2. **Item 14 is next**: Control JSONL evidence viewer with derived segment filtering (read-only projection).
+3. **Item 15 follows**: stable dummy evidence datasets + deterministic generator tooling.
+4. Item 12 (CPU budgeting policy envelope) remains active and resumes after Items 13-15 unless safety/regression forces immediate behavior work.
 
 ## Session Decision Lock (2026-02-11)
 - Folder watcher warning semantics are locked:
@@ -35,6 +36,8 @@ Purpose: compact carry-forward context without duplicating canonical docs.
 - Agents are autonomous and plugin-aware; Operations and Control are not plugin-aware renderers.
 - Agent -> Operations JSON-lines remains the only runtime transport channel; protocol is extended by schema/message type, not transport replacement.
 - `SUMMARY` packets are evidence/telemetry payloads that land in Operations logs as raw canonical records.
+- Canonical evidence ledger scope is now locked to `summary` records only.
+- Operational telemetry (`heartbeat`, `status`, `error`, `ack`, `log`) is persisted to diagnostics logs with retention and is not canonical work evidence.
 - `activity_signal` semantics must be carried in `summary.data` packets so activity inference is data-driven and auditable.
 - `activity_signal` contract lock:
   - `mode`: `active|passive`
@@ -51,6 +54,8 @@ Purpose: compact carry-forward context without duplicating canonical docs.
   - agent produces `html_fragment_v1` (plus metadata like `state_token`, `ttl_ms`),
   - Operations transports/caches frame data,
   - Control sanitizes and renders generically.
+- Shutdown completion contract is locked for clean exits:
+  - `ACK(stop)` -> `ACK(flush)` + final `summary` -> `ACK(shutdown)` -> process exit.
 - Daily evidence bundle producer is the agent (not Operations), with vault naming convention:
   - `<yyyymmdd>_<plugin>_<instance>.zip`
   - Operations stores for safekeeping with hash/index metadata.
@@ -183,19 +188,11 @@ Policy lock (approved):
 
 ## Confirmed Execution Order (User-Directed, Updated)
 Work in this exact order, one commit-ready slice at a time (not together):
-1. Pack-agent maintainability completion first:
-  - `mimolo/utils/src/pack_agent_core.ts` final concern split and dedup pass.
-2. Phase 1 MML shell decomposition (no TypeScript yet):
-  - `mml.sh` delegates to `scripts/mml/<concern>.sh` modules by concern.
-  - preserve behavior exactly while splitting concerns.
-3. Phase 2 MML TypeScript migration:
-  - move concern logic to `mimolo/utils/src/mml/<concern>.ts`.
-  - wrappers become thin launchers:
-    - `mml.sh` -> compiled `mml.js` -> concern modules
-    - `mml.ps1` -> compiled `mml.js` -> concern modules
-4. Then continue maintainability slices in order:
-  - `mimolo/control_proto/src/ui_renderer_sections/commands_and_install.ts`
-  - `mimolo/agents/screen_tracker/screen_tracker.py`
+1. Item 13: complete `widget_frame` end-to-end (agent -> operations transport/cache -> control sanitize/render).
+2. Item 14: implement JSONL evidence viewer in Control with derived (not canonical) segment filtering.
+3. Item 15: add deterministic fixture datasets + generator tooling to prevent rebuild wipeout of reference data.
+4. Resume Item 12 CPU-budgeting policy envelope implementation.
+5. Resume maintainability slices (Item 10) as queued in matrix.
 
 ## Scripts Refactor Direction (Design Intent, Updated)
 - Phase 1 explicitly avoids introducing TS; decompose shell concerns first for safety.

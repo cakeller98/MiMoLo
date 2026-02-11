@@ -186,6 +186,7 @@ class BaseAgent(ABC):
         elif cmd_type == "start":
             self.sampling_enabled = True
         elif cmd_type == "shutdown":
+            self._ack_shutdown(now)
             self.send_message(
                 {
                     "type": "log",
@@ -236,6 +237,20 @@ class BaseAgent(ABC):
             "message": msg,
             "data": {},
             "metrics": {"queue": self.flush_queue.qsize()},
+        })
+
+    def _ack_shutdown(self, now: datetime) -> None:
+        self.send_message({
+            "type": "ack",
+            "timestamp": now.isoformat(),
+            "agent_id": self.agent_id,
+            "agent_label": self.agent_label,
+            "protocol_version": self.protocol_version,
+            "agent_version": self.agent_version,
+            "ack_command": "shutdown",
+            "message": "Final summary delivered; shutting down",
+            "data": {},
+            "metrics": {"queue": self.flush_queue.qsize(), "accumulated_count": self._accumulated_count()},
         })
 
     def _emit_summary(self, start: datetime, end: datetime, snapshot: Any) -> None:
