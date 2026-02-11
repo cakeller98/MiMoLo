@@ -49,6 +49,7 @@ def handle_agent_summary(runtime: Runtime, label: str, msg: object) -> None:
             event_type = str(typ)
 
         event = Event(timestamp=timestamp, label=agent_label, event=event_type, data=data)
+        runtime.agent_last_summary[label] = data
 
         try:
             runtime.file_sink.write_event(event)

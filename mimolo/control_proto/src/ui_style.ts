@@ -434,6 +434,69 @@ export const UI_STYLE_CSS = `
       .widget-muted {
         color: #7f8ca0;
       }
+      .folder-widget-root {
+        display: grid;
+        gap: 6px;
+      }
+      .folder-widget-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        font-size: 10px;
+        color: #8fa0b9;
+      }
+      .folder-count {
+        padding: 1px 6px;
+        border: 1px solid #31415b;
+        border-radius: 999px;
+        background: #121a27;
+      }
+      .folder-widget-list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 4px;
+      }
+      .folder-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto auto;
+        gap: 8px;
+        align-items: center;
+        padding: 3px 6px;
+        border-radius: 4px;
+        background: #121a27;
+        border: 1px solid #28354d;
+      }
+      .folder-row-created {
+        border-color: #2f5f8a;
+        background: #142135;
+      }
+      .folder-row-modified {
+        border-color: #6a4f89;
+        background: #1b1730;
+      }
+      .folder-row-deleted {
+        border-color: #8f4545;
+        background: #2a1517;
+      }
+      .folder-row-empty {
+        border-style: dashed;
+      }
+      .folder-col {
+        font-size: 10px;
+        color: #aebad0;
+      }
+      .folder-path {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .folder-size,
+      .folder-time {
+        white-space: nowrap;
+        color: #8f9db2;
+      }
       .modal-overlay {
         position: fixed;
         inset: 0;

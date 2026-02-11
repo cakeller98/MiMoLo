@@ -75,6 +75,8 @@ from mimolo.core.runtime_perf import (
 from mimolo.core.runtime_shutdown import close_segment, flush_all_agents, shutdown_runtime
 from mimolo.core.runtime_tick import execute_tick
 from mimolo.core.runtime_widget_support import (
+    build_client_folder_widget_manifest,
+    build_client_folder_widget_render,
     build_screen_tracker_widget_manifest,
     build_screen_tracker_widget_render,
     resolve_screen_tracker_thumbnail,
@@ -124,6 +126,7 @@ class Runtime:
 
         self.agent_manager = AgentProcessManager(config)
         self.agent_last_flush: dict[str, datetime] = {}  # Track last flush time per agent
+        self.agent_last_summary: dict[str, dict[str, Any]] = {}
         self._agents_started = False
         self._shutdown_deadlines: dict[str, float] = {}
         self._shutdown_phase: dict[str, str] = {}
@@ -341,6 +344,16 @@ class Runtime:
     ) -> dict[str, Any]:
         """Build widget render payload for screen_tracker."""
         return build_screen_tracker_widget_render(self, instance_id, request_id, mode)
+
+    def _build_client_folder_widget_manifest(self, instance_id: str) -> dict[str, Any]:
+        """Build widget manifest for client_folder_activity."""
+        return build_client_folder_widget_manifest(self, instance_id)
+
+    def _build_client_folder_widget_render(
+        self, instance_id: str, request_id: str | None, mode: str
+    ) -> dict[str, Any]:
+        """Build widget render payload for client_folder_activity."""
+        return build_client_folder_widget_render(self, instance_id, request_id, mode)
 
     def _update_monitor_settings(
         self, updates: dict[str, Any]

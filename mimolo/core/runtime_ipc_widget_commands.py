@@ -71,6 +71,10 @@ def maybe_handle_widget_command(
 
     if template_id == "screen_tracker":
         return _handle_screen_tracker_widget_command(runtime, cmd, request, now, plugin_id, instance_id)
+    if template_id == "client_folder_activity":
+        return _handle_client_folder_widget_command(
+            runtime, cmd, request, now, plugin_id, instance_id
+        )
 
     return _build_not_implemented_widget_response(cmd, request, now, plugin_id, instance_id)
 
@@ -216,6 +220,63 @@ def _handle_widget_dispatch_action(
             "spec": WIDGET_SPEC_PATH,
         },
     }
+
+
+def _handle_client_folder_widget_command(
+    runtime: Runtime,
+    cmd: str,
+    request: dict[str, Any],
+    now: str,
+    plugin_id: str,
+    instance_id: str,
+) -> dict[str, Any]:
+    if cmd == "get_widget_manifest":
+        response_data = runtime._build_client_folder_widget_manifest(instance_id)
+        response_data.update(
+            {
+                "plugin_id": plugin_id,
+                "instance_id": instance_id,
+                "spec": WIDGET_SPEC_PATH,
+            }
+        )
+        return {
+            "ok": True,
+            "cmd": cmd,
+            "timestamp": now,
+            "data": response_data,
+        }
+
+    if cmd == "request_widget_render":
+        request_id_raw = request.get("request_id")
+        request_id = (
+            str(request_id_raw).strip()
+            if request_id_raw is not None and str(request_id_raw).strip()
+            else None
+        )
+        mode_raw = request.get("mode")
+        mode = (
+            str(mode_raw).strip()
+            if mode_raw is not None and str(mode_raw).strip()
+            else "html_fragment_v1"
+        )
+        response_data = runtime._build_client_folder_widget_render(
+            instance_id, request_id, mode
+        )
+        response_data.update(
+            {
+                "plugin_id": plugin_id,
+                "instance_id": instance_id,
+                "spec": WIDGET_SPEC_PATH,
+            }
+        )
+        return {
+            "ok": True,
+            "cmd": cmd,
+            "timestamp": now,
+            "data": response_data,
+        }
+
+    return _build_not_implemented_widget_response(cmd, request, now, plugin_id, instance_id)
 
 
 def _build_not_implemented_widget_response(

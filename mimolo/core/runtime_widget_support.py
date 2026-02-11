@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import html
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -184,6 +184,189 @@ def build_screen_tracker_widget_render(
             "html": html_fragment,
             "ttl_ms": ttl_ms,
             "state_token": state_token,
+            "warnings": [],
+        },
+    }
+
+
+def build_client_folder_widget_manifest(
+    runtime: Runtime, instance_id: str
+) -> dict[str, Any]:
+    """Build widget manifest for client_folder_activity."""
+    plugin_cfg = runtime.config.plugins.get(instance_id)
+    if plugin_cfg is None:
+        return {
+            "accepted": False,
+            "status": "unknown_instance",
+            "widget": {
+                "supports_render": False,
+                "default_aspect_ratio": "16:9",
+                "min_refresh_ms": 1000,
+                "supported_actions": [],
+                "content_modes": ["html_fragment_v1"],
+            },
+        }
+
+    min_refresh_ms = max(
+        1000, int(round(runtime._effective_heartbeat_interval_s(plugin_cfg) * 1000))
+    )
+    return {
+        "accepted": True,
+        "status": "ok",
+        "widget": {
+            "supports_render": True,
+            "default_aspect_ratio": "16:9",
+            "min_refresh_ms": min_refresh_ms,
+            "supported_actions": ["refresh"],
+            "content_modes": ["html_fragment_v1"],
+        },
+    }
+
+
+def _escape_or_dash(value: object) -> str:
+    if value is None:
+        return "-"
+    return html.escape(str(value))
+
+
+def _format_epoch_ns_as_iso(mtime_ns_raw: object) -> str:
+    if not isinstance(mtime_ns_raw, int):
+        return "-"
+    if mtime_ns_raw <= 0:
+        return "-"
+    seconds = mtime_ns_raw / 1_000_000_000
+    # Keep conversion deterministic and platform-independent.
+    if seconds > 253402300799:
+        return "-"
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
+    return (epoch + timedelta(seconds=seconds)).isoformat(timespec="seconds")
+
+
+def _collect_folder_rows(summary: dict[str, Any]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for kind, css in (
+        ("deleted_paths", "folder-row folder-row-deleted"),
+        ("created_paths", "folder-row folder-row-created"),
+        ("modified_paths", "folder-row folder-row-modified"),
+    ):
+        items = summary.get(kind, [])
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            rows.append(
+                {
+                    "css": css,
+                    "path": _escape_or_dash(item.get("path")),
+                    "size": _escape_or_dash(item.get("size")),
+                    "time": _format_epoch_ns_as_iso(item.get("mtime_ns")),
+                }
+            )
+    return rows
+
+
+def build_client_folder_widget_render(
+    runtime: Runtime, instance_id: str, request_id: str | None, mode: str
+) -> dict[str, Any]:
+    """Build widget render payload for client_folder_activity."""
+    plugin_cfg = runtime.config.plugins.get(instance_id)
+    if plugin_cfg is None:
+        return {
+            "accepted": False,
+            "status": "unknown_instance",
+            "request_id": request_id,
+            "render": {
+                "mode": mode,
+                "html": '<div class="widget-muted">unknown instance</div>',
+                "ttl_ms": 1000,
+                "state_token": None,
+                "warnings": ["unknown_instance"],
+            },
+        }
+
+    ttl_ms = max(1000, int(round(runtime._effective_heartbeat_interval_s(plugin_cfg) * 1000)))
+    summary = runtime.agent_last_summary.get(instance_id)
+    if not isinstance(summary, dict):
+        return {
+            "accepted": True,
+            "status": "ok",
+            "request_id": request_id,
+            "render": {
+                "mode": mode,
+                "html": (
+                    '<div class="widget-muted">'
+                    "folder watcher waiting for summary data"
+                    "</div>"
+                ),
+                "ttl_ms": ttl_ms,
+                "state_token": None,
+                "warnings": ["no_summary_yet"],
+            },
+        }
+
+    rows = _collect_folder_rows(summary)
+    counts = summary.get("counts", {})
+    created_count = 0
+    modified_count = 0
+    deleted_count = 0
+    total_count = 0
+    if isinstance(counts, dict):
+        created_count = int(counts.get("created", 0) or 0)
+        modified_count = int(counts.get("modified", 0) or 0)
+        deleted_count = int(counts.get("deleted", 0) or 0)
+        total_count = int(counts.get("total", 0) or 0)
+
+    if rows:
+        row_html = "".join(
+            (
+                f'<li class="{row["css"]}">'
+                f'<span class="folder-col folder-path">{row["path"]}</span>'
+                f'<span class="folder-col folder-size">{row["size"]}</span>'
+                f'<time class="folder-col folder-time">{row["time"]}</time>'
+                "</li>"
+            )
+            for row in rows
+        )
+    else:
+        row_html = (
+            '<li class="folder-row folder-row-empty">'
+            '<span class="folder-col folder-path">No file deltas in current window</span>'
+            '<span class="folder-col folder-size">-</span>'
+            '<span class="folder-col folder-time">-</span>'
+            "</li>"
+        )
+
+    state_token = summary.get("window", {})
+    if isinstance(state_token, dict):
+        token_value = str(state_token.get("end", ""))
+    else:
+        token_value = ""
+    if not token_value:
+        token_value = datetime.now(UTC).isoformat(timespec="seconds")
+
+    html_fragment = (
+        '<div class="folder-widget-root">'
+        '<div class="folder-widget-summary">'
+        f'<span class="folder-count">created {created_count}</span>'
+        f'<span class="folder-count">modified {modified_count}</span>'
+        f'<span class="folder-count">deleted {deleted_count}</span>'
+        f'<span class="folder-count">total {total_count}</span>'
+        "</div>"
+        '<ul class="folder-widget-list">'
+        f"{row_html}"
+        "</ul>"
+        "</div>"
+    )
+    return {
+        "accepted": True,
+        "status": "ok",
+        "request_id": request_id,
+        "render": {
+            "mode": mode,
+            "html": html_fragment,
+            "ttl_ms": ttl_ms,
+            "state_token": token_value,
             "warnings": [],
         },
     }
