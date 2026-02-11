@@ -72,6 +72,7 @@ class ClientFolderActivityAgent(BaseAgent):
         heartbeat_interval: float,
         emit_path_samples_limit: int,
         use_watchfiles: bool,
+        widget_recent_rows_limit: int,
     ) -> None:
         super().__init__(
             agent_id=agent_id,
@@ -94,6 +95,7 @@ class ClientFolderActivityAgent(BaseAgent):
         self.watchfiles_debounce_ms = max(0, watchfiles_debounce_ms)
         self.emit_path_samples_limit = max(1, emit_path_samples_limit)
         self.use_watchfiles = bool(use_watchfiles)
+        self.widget_recent_rows_limit = max(1, int(widget_recent_rows_limit))
 
         self._segment_start: datetime | None = None
         self._last_snapshot: dict[str, tuple[int, int]] = {}
@@ -111,6 +113,7 @@ class ClientFolderActivityAgent(BaseAgent):
         self._watch_event_buffer: list[tuple[datetime, str, str]] = []
         self._watch_event_lock = threading.Lock()
         self._watch_backend_status_emitted = False
+        self._recent_widget_rows: list[dict[str, Any]] = []
 
     def _path_included(self, root: Path, file_path: Path) -> bool:
         try:
@@ -260,6 +263,27 @@ class ClientFolderActivityAgent(BaseAgent):
             record["mtime_ns"] = None
             record["size"] = None
         return record
+
+    def _widget_event_type_for_record(self, record: _WindowPathRecord) -> str:
+        if record.deleted:
+            return "deleted"
+        if record.modified:
+            return "modified"
+        if record.created:
+            return "created"
+        return "modified"
+
+    def _append_widget_row(
+        self,
+        path_text: str,
+        record: _WindowPathRecord,
+    ) -> None:
+        row = self._event_record_for_path(path_text)
+        row["event"] = self._widget_event_type_for_record(record)
+        row["seen_at"] = record.last_seen.isoformat(timespec="seconds")
+        self._recent_widget_rows.insert(0, row)
+        if len(self._recent_widget_rows) > self.widget_recent_rows_limit:
+            self._recent_widget_rows = self._recent_widget_rows[: self.widget_recent_rows_limit]
 
     def _emit_health_transition(self, now: datetime, degraded_paths: set[str]) -> None:
         if degraded_paths:
@@ -557,9 +581,13 @@ class ClientFolderActivityAgent(BaseAgent):
         counts: Counter[str] = Counter()
 
         reportable_paths = sorted(
-            path_text
-            for path_text, record in self._window_records.items()
-            if record.pending_report
+            (
+                path_text
+                for path_text, record in self._window_records.items()
+                if record.pending_report
+            ),
+            key=lambda path_text: self._window_records[path_text].last_seen,
+            reverse=True,
         )
 
         for path_text in reportable_paths:
@@ -593,8 +621,12 @@ class ClientFolderActivityAgent(BaseAgent):
             ext = Path(path_text).suffix.lower() or "[no_ext]"
             top_extensions[ext] += 1
 
+            self._append_widget_row(path_text, record)
             record.pending_report = False
             record.last_reported = now
+            record.created = False
+            record.modified = False
+            record.deleted = False
 
         snapshot: dict[str, Any] = {
             "counts": {
@@ -614,6 +646,7 @@ class ClientFolderActivityAgent(BaseAgent):
             "capture_window_s": self.capture_window_s,
             "reemit_cooldown_s": self.reemit_cooldown_s,
             "backend": self._watch_backend,
+            "recent_widget_rows": list(self._recent_widget_rows),
         }
         self._segment_start = now
         return start, end, snapshot
@@ -644,6 +677,7 @@ class ClientFolderActivityAgent(BaseAgent):
             "created_paths": list(snapshot.get("created_paths", [])),
             "modified_paths": list(snapshot.get("modified_paths", [])),
             "deleted_paths": list(snapshot.get("deleted_paths", [])),
+            "recent_widget_rows": list(snapshot.get("recent_widget_rows", [])),
             "top_extensions": [{"ext": ext, "count": int(count)} for ext, count in items[:10]],
             "path_samples": list(snapshot.get("path_samples", [])),
             "dropped_events": int(snapshot.get("dropped_events", 0)),
@@ -746,6 +780,10 @@ def main(
         50,
         help="Maximum path samples emitted in each summary.",
     ),
+    widget_recent_rows_limit: int = typer.Option(
+        24,
+        help="Maximum rows retained for widget list rendering.",
+    ),
     use_watchfiles: bool = typer.Option(
         True,
         "--use-watchfiles/--no-use-watchfiles",
@@ -792,6 +830,7 @@ def main(
         heartbeat_interval=max(1.0, heartbeat_interval_s),
         emit_path_samples_limit=emit_path_samples_limit,
         use_watchfiles=use_watchfiles,
+        widget_recent_rows_limit=widget_recent_rows_limit,
     )
     agent.run()
 

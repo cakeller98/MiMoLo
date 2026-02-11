@@ -5,6 +5,12 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
 ## 2026-02-11
 
 ### Changed
+- Updated context + backlog docs to lock folder-widget frame behavior:
+  - `client_folder_activity` agent owns `recent_widget_rows` (ephemeral, bounded, newest-first, persistent across no-change ticks).
+  - runtime renderer contract prefers `recent_widget_rows` with legacy fallback for compatibility.
+  - updated docs:
+    - `developer_docs/2026.02.10 CODE-MEGASCAN/context_dump.md`
+    - `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
 - Locked evidence-vs-diagnostics ledger semantics in docs:
   - canonical work evidence = `summary` records only.
   - diagnostics stream (`heartbeat`, `status`, `error`, `ack`, `log`) is retained separately and excluded from canonical work-evidence ledger.

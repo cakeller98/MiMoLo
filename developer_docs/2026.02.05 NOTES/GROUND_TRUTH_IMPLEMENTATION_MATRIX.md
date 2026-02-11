@@ -371,6 +371,9 @@ Priority-index rule:
     - agent runtime now records telemetry message classes (`heartbeat`, `status`, `error`, `ack`, `log`) to diagnostics without polluting canonical work evidence.
     - shutdown sequence now requires `ACK(stop)`, `ACK(flush)`, final `summary`, and `ACK(shutdown)` before clean completion.
     - base agent now emits explicit `ACK(shutdown)` before exit log.
+    - `client_folder_activity` now emits agent-owned `recent_widget_rows` in summary payloads for widget rendering.
+    - folder widget rows are now explicitly newest-first, bounded, and persistent across no-change ticks for run-session visual continuity.
+    - runtime widget renderer now prefers `recent_widget_rows` when present and falls back to legacy created/modified/deleted arrays for compatibility.
   - validation rerun:
     - `poetry run ruff check ...` => PASS
     - `poetry run mypy ...` => PASS

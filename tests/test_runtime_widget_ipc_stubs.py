@@ -262,6 +262,47 @@ def test_request_widget_render_client_folder_activity_summary_payload() -> None:
     assert render["warnings"] == []
 
 
+def test_request_widget_render_client_folder_activity_prefers_recent_rows() -> None:
+    runtime = _make_runtime_with_plugins()
+    runtime.agent_last_summary["folder_widget"] = {
+        "counts": {"created": 1, "modified": 1, "deleted": 1, "total": 3},
+        "recent_widget_rows": [
+            {
+                "event": "modified",
+                "path": "newest.txt",
+                "size": 10,
+                "mtime_ns": 1_700_000_200_000_000_000,
+            },
+            {
+                "event": "created",
+                "path": "older.txt",
+                "size": 8,
+                "mtime_ns": 1_700_000_100_000_000_000,
+            },
+        ],
+        # Deliberately conflicting fallback lists to prove recent rows are preferred.
+        "created_paths": [{"path": "fallback.txt", "size": 1, "mtime_ns": 1_700_000_000_000_000_000}],
+        "modified_paths": [],
+        "deleted_paths": [],
+        "window": {"end": "2026-02-11T12:05:00+00:00"},
+    }
+    response = runtime._build_ipc_response(
+        {
+            "cmd": "request_widget_render",
+            "plugin_id": "client_folder_activity",
+            "instance_id": "folder_widget",
+            "request_id": "req_folder_003",
+            "mode": "html_fragment_v1",
+        }
+    )
+    assert response["ok"] is True
+    render = response["data"]["render"]
+    html_body = render["html"]
+    assert "newest.txt" in html_body
+    assert "older.txt" in html_body
+    assert "fallback.txt" not in html_body
+
+
 def test_handle_ipc_line_echoes_request_id() -> None:
     runtime = _make_runtime_with_plugins()
     raw_request = (

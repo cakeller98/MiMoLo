@@ -242,7 +242,45 @@ def _format_epoch_ns_as_iso(mtime_ns_raw: object) -> str:
     return (epoch + timedelta(seconds=seconds)).isoformat(timespec="seconds")
 
 
+def _folder_css_for_event(event_name_raw: object) -> str:
+    event_name = str(event_name_raw).lower()
+    if event_name == "deleted":
+        return "folder-row folder-row-deleted"
+    if event_name == "created":
+        return "folder-row folder-row-created"
+    return "folder-row folder-row-modified"
+
+
+def _collect_folder_rows_from_recent(summary: dict[str, Any]) -> list[dict[str, str]]:
+    recent_rows = summary.get("recent_widget_rows", [])
+    if not isinstance(recent_rows, list):
+        return []
+
+    rows: list[dict[str, str]] = []
+    for item in recent_rows:
+        if not isinstance(item, dict):
+            continue
+        mtime_iso_raw = item.get("mtime_iso")
+        if isinstance(mtime_iso_raw, str) and mtime_iso_raw:
+            time_value = mtime_iso_raw
+        else:
+            time_value = _format_epoch_ns_as_iso(item.get("mtime_ns"))
+        rows.append(
+            {
+                "css": _folder_css_for_event(item.get("event")),
+                "path": _escape_or_dash(item.get("path")),
+                "size": _escape_or_dash(item.get("size")),
+                "time": _escape_or_dash(time_value),
+            }
+        )
+    return rows
+
+
 def _collect_folder_rows(summary: dict[str, Any]) -> list[dict[str, str]]:
+    recent_rows = _collect_folder_rows_from_recent(summary)
+    if recent_rows:
+        return recent_rows
+
     rows: list[dict[str, str]] = []
     for kind, css in (
         ("deleted_paths", "folder-row folder-row-deleted"),

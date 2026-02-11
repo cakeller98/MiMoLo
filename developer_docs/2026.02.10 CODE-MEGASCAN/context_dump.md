@@ -24,6 +24,10 @@ Purpose: compact carry-forward context without duplicating canonical docs.
   - no interval-spam warnings for repeatedly missing paths.
 - Manual widget `update` behavior is locked:
   - it must execute the same pipeline as the scheduled poll tick path (no separate/manual-only logic).
+- Folder-widget list behavior is locked:
+  - agent owns `recent_widget_rows` (ephemeral view state, not canonical evidence),
+  - newest-first ordering, bounded length, persistent across no-change ticks,
+  - rows are only replaced when new rows arrive or capacity trimming is applied.
 - Startup/restart scan burst is currently acceptable:
   - short transient CPU spikes during initial listing are tolerated for now.
 - Watch-root policy is locked:
@@ -151,6 +155,8 @@ Purpose: compact carry-forward context without duplicating canonical docs.
   - manual widget update dispatch (`refresh`) before render,
   - runtime dispatch action translates `refresh` into immediate agent `flush`,
   - folder watcher snapshots run the same accumulation pipeline used by scheduled polling.
+  - client_folder_activity now emits `recent_widget_rows` in summary payloads for render use.
+  - runtime widget rendering prefers `recent_widget_rows` when present, with legacy fallback to created/modified/deleted path arrays.
 
 ## Remaining Exception Patterns in pack-agent module (intentional)
 - Core invariant throws (schema/semver/repo-dir contract): keep.
