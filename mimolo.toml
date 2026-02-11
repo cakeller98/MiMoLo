@@ -107,8 +107,8 @@
     "python",
     "client_folder_activity/client_folder_activity.py",
     "--watch-path",
-    "/Users/christopherkeller/Desktop/PROJECTS/CODE_2025/MiMoLo/monitor_this_folder",
+    "/Users/christopherkeller/Desktop/PROJECTS/CODE_2025/MiMoLo/temp_debug/monitor_this_folder",
   ]
-  heartbeat_interval_s = 15.0
+  heartbeat_interval_s = 3.0
   agent_flush_interval_s = 60.0
   launch_in_separate_terminal = false
