@@ -3,22 +3,22 @@
     {
       "id": "client_folder_activity",
       "path": "client_folder_activity",
-      "ver": "1.0.0"
+      "ver": "1.0.1"
     },
     {
       "id": "agent_example",
       "path": "agent_example",
-      "ver": "1.0.0"
+      "ver": "1.0.1"
     },
     {
       "id": "agent_template",
       "path": "agent_template",
-      "ver": "1.0.0"
+      "ver": "1.0.1"
     },
     {
       "id": "screen_tracker",
       "path": "screen_tracker",
-      "ver": "1.0.0"
+      "ver": "1.0.1"
     }
   ]
 }
