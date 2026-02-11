@@ -92,6 +92,9 @@ Purpose: compact carry-forward context without duplicating canonical docs.
     - startup overlay captures real bootstrap stage lines and paths,
     - progress bar advances from actual bootstrap events (not fake timers),
     - explicit `OK` acknowledgement is required after runtime-ready before overlay dismissal.
+  - bootstrap trigger behavior now matches first-run expectations:
+    - runtime prepare is invoked automatically during initial renderer startup (no Start Ops click required),
+    - bootstrap script output is streamed over a dedicated IPC event (`ops:bootstrap-line`) so overlay updates are immediate even when disconnected poll loops are slow.
 
 ## Remaining Exception Patterns in pack-agent module (intentional)
 - Core invariant throws (schema/semver/repo-dir contract): keep.

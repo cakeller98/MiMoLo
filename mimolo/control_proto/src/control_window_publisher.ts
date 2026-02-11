@@ -24,6 +24,14 @@ export class WindowPublisher {
     window.webContents.send("ops:line", line);
   }
 
+  publishBootstrapLine(line: string): void {
+    const window = this.getMainWindow();
+    if (!window) {
+      return;
+    }
+    window.webContents.send("ops:bootstrap-line", line);
+  }
+
   publishTraffic(
     direction: "tx" | "rx",
     kind: IpcTrafficClass,

@@ -159,6 +159,7 @@ export function buildCardsAndBootstrapSection(): string {
           return;
         }
         try {
+          await prepareRuntimeIfNeeded();
           const state = await ipcRenderer.invoke("mml:initial-state");
           ipcPathEl.textContent = state.ipcPath || "(unset)";
           opsLogPathEl.textContent = state.opsLogPath || "(unset)";
@@ -170,6 +171,45 @@ export function buildCardsAndBootstrapSection(): string {
         } catch (err) {
           const detail = err instanceof Error ? err.message : "initial_state_failed";
           setStatus("disconnected - " + detail);
+        }
+      }
+
+      let runtimePrepareInFlight = false;
+      async function prepareRuntimeIfNeeded() {
+        if (!ipcRenderer || runtimePrepareInFlight || bootstrapState.failed || bootstrapState.done) {
+          return;
+        }
+        runtimePrepareInFlight = true;
+        try {
+          const response = await ipcRenderer.invoke("mml:prepare-runtime");
+          if (!response || !response.ok) {
+            const detail = response && response.error ? String(response.error) : "runtime_prepare_failed";
+            setBootstrapFailed("[bootstrap] " + detail);
+            append("[bootstrap] prepare failed: " + detail);
+            return;
+          }
+          const portablePython = response && response.portablePython
+            ? String(response.portablePython)
+            : "";
+          const runtimeConfigPath = response && response.runtimeConfigPath
+            ? String(response.runtimeConfigPath)
+            : "";
+          if (portablePython.length > 0) {
+            updateBootstrapFromLine("[bootstrap] runtime ready: " + portablePython);
+          }
+          if (runtimeConfigPath.length > 0) {
+            updateBootstrapFromLine("[bootstrap] runtime config: " + runtimeConfigPath);
+          }
+          if (!bootstrapState.done) {
+            setBootstrapProgress(100, "Runtime ready");
+            setBootstrapDone();
+          }
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : "runtime_prepare_failed";
+          setBootstrapFailed("[bootstrap] " + detail);
+          append("[bootstrap] prepare failed: " + detail);
+        } finally {
+          runtimePrepareInFlight = false;
         }
       }
 
@@ -278,6 +318,10 @@ export function buildCardsAndBootstrapSection(): string {
 
         ipcRenderer.on("ops:line", (_event, line) => {
           append(line);
+        });
+
+        ipcRenderer.on("ops:bootstrap-line", (_event, line) => {
+          updateBootstrapFromLine(String(line));
         });
 
         ipcRenderer.on("ops:instances", (_event, payload) => {

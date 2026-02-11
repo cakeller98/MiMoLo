@@ -141,6 +141,7 @@ const opsLogWriter = new OpsLogWriter(opsLogPath);
 const appendOpsLogChunk = opsLogWriter.append.bind(opsLogWriter);
 
 const publishLine = windowPublisher.publishLine.bind(windowPublisher);
+const publishBootstrapLine = windowPublisher.publishBootstrapLine.bind(windowPublisher);
 const publishTraffic = windowPublisher.publishTraffic.bind(windowPublisher);
 const publishInstances = windowPublisher.publishInstances.bind(windowPublisher);
 const publishStatus = windowPublisher.publishStatus.bind(windowPublisher);
@@ -202,6 +203,7 @@ const operationsController = new OperationsController({
   opsLogPath,
   sendIpcCommand,
   appendOpsLogChunk,
+  publishBootstrapLine,
   publishLine,
   getLastStatusState: () => snapshotRefresher.getStatus().state,
   getOperationsControlState: () => operationsStateStore.get(),
@@ -431,6 +433,7 @@ registerIpcHandlers({
   getInstances: () => snapshotRefresher.getAgentInstances(),
   resetReconnectBackoff: resetIpcConnectBackoff,
   controlOperations: (request) => operationsController.control(request),
+  prepareRuntime: () => operationsController.prepareRuntime(),
   refreshTemplatesCached,
   refreshMonitorSettings,
   updateMonitorSettings,

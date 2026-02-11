@@ -28,6 +28,7 @@ interface OperationsControllerDependencies {
   getStopWaitGracefulExitMs: () => number;
   getStopWaitManagedExitMs: () => number;
   opsLogPath: string;
+  publishBootstrapLine: (line: string) => void;
   publishLine: (line: string) => void;
   runtimeProcess: RuntimeProcess;
   sendIpcCommand: SendIpcCommandFn;
@@ -43,6 +44,13 @@ interface OperationsControlResult {
   error?: string;
   ok: boolean;
   state: OperationsControlSnapshot;
+}
+
+interface RuntimePrepareResult {
+  error?: string;
+  ok: boolean;
+  portablePython?: string;
+  runtimeConfigPath?: string;
 }
 
 function quoteBashArg(value: string): string {
@@ -118,6 +126,22 @@ export class OperationsController {
 
   public hasManagedProcess(): boolean {
     return this.operationsProcess !== null;
+  }
+
+  public async prepareRuntime(): Promise<RuntimePrepareResult> {
+    const spawnCwd = this.getSpawnCwd();
+    const result = await this.ensurePortableRuntimeReady(spawnCwd);
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: result.error,
+      };
+    }
+    return {
+      ok: true,
+      portablePython: result.portablePython,
+      runtimeConfigPath: result.runtimeConfigPath,
+    };
   }
 
   public haltManagedForShutdown(): void {
@@ -198,9 +222,18 @@ export class OperationsController {
     };
   }
 
+  private getSpawnCwd(): string | undefined {
+    const cwdRaw = this.deps.runtimeProcess.env.MIMOLO_REPO_ROOT || "";
+    return cwdRaw.trim().length > 0
+      ? cwdRaw.trim()
+      : (typeof this.deps.runtimeProcess.cwd === "function"
+        ? this.deps.runtimeProcess.cwd()
+        : undefined);
+  }
+
   private async ensurePortableRuntimeReady(
     spawnCwd: string | undefined,
-  ): Promise<{ error?: string; ok: boolean }> {
+  ): Promise<{ error?: string; ok: boolean; portablePython?: string; runtimeConfigPath?: string }> {
     if (this.runtimePreparePromise) {
       return this.runtimePreparePromise;
     }
@@ -208,7 +241,7 @@ export class OperationsController {
     const env = this.deps.runtimeProcess.env;
     const portablePython = resolvePortableOperationsPython(env);
     if (portablePython.length === 0) {
-      return { ok: true };
+      return { ok: true, portablePython };
     }
 
     const runtimeConfigPath = (env.MIMOLO_RUNTIME_CONFIG_PATH || "").trim();
@@ -220,7 +253,15 @@ export class OperationsController {
       ? await runtimeConfigUsesPoetry(runtimeConfigPath)
       : false;
     if (!needsPython && !needsConfig && !needsConfigRewrite) {
-      return { ok: true };
+      this.deps.publishBootstrapLine(`[bootstrap] runtime ready: ${portablePython}`);
+      if (runtimeConfigPath.length > 0) {
+        this.deps.publishBootstrapLine(`[bootstrap] runtime config: ${runtimeConfigPath}`);
+      }
+      return {
+        ok: true,
+        portablePython,
+        runtimeConfigPath,
+      };
     }
 
     const prepareScript = (env.MIMOLO_RUNTIME_PREPARE_SCRIPT || "").trim();
@@ -310,11 +351,25 @@ export class OperationsController {
       if (child.stdout) {
         child.stdout.on("data", (chunk: unknown) => {
           this.deps.appendOpsLogChunk(chunk);
+          const text = typeof chunk === "string" ? chunk : String(chunk);
+          for (const line of text.split(/\r?\n/)) {
+            const trimmed = line.trim();
+            if (trimmed.length > 0) {
+              this.deps.publishBootstrapLine(trimmed);
+            }
+          }
         });
       }
       if (child.stderr) {
         child.stderr.on("data", (chunk: unknown) => {
           this.deps.appendOpsLogChunk(chunk);
+          const text = typeof chunk === "string" ? chunk : String(chunk);
+          for (const line of text.split(/\r?\n/)) {
+            const trimmed = line.trim();
+            if (trimmed.length > 0) {
+              this.deps.publishBootstrapLine(trimmed);
+            }
+          }
           const chunkText = typeof chunk === "string" ? chunk : String(chunk);
           stderrDetail += chunkText;
           if (stderrDetail.length > 4000) {
@@ -366,7 +421,11 @@ export class OperationsController {
         error: "runtime_prepare_missing_config",
       };
     }
-    return { ok: true };
+    return {
+      ok: true,
+      portablePython,
+      runtimeConfigPath,
+    };
   }
 
   private async waitForIpcDisconnect(timeoutMs: number): Promise<boolean> {
@@ -452,12 +511,7 @@ export class OperationsController {
       };
     }
 
-    const cwdRaw = this.deps.runtimeProcess.env.MIMOLO_REPO_ROOT || "";
-    const spawnCwd = cwdRaw.trim().length > 0
-      ? cwdRaw.trim()
-      : (typeof this.deps.runtimeProcess.cwd === "function"
-        ? this.deps.runtimeProcess.cwd()
-        : undefined);
+    const spawnCwd = this.getSpawnCwd();
 
     const runtimeReady = await this.ensurePortableRuntimeReady(spawnCwd);
     if (!runtimeReady.ok) {

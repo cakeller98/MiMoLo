@@ -20,6 +20,7 @@ interface OperationsControlResult {
 interface RegisterIpcHandlersDependencies {
   controlDevMode: boolean;
   controlOperations: (request: OperationsControlRequest) => Promise<OperationsControlResult>;
+  prepareRuntime: () => Promise<{ error?: string; ok: boolean; portablePython?: string; runtimeConfigPath?: string }>;
   dialog: typeof import("electron").dialog;
   getControlSettings: () => ControlTimingSettings;
   getInstances: () => Record<string, AgentInstanceSnapshot>;
@@ -88,6 +89,10 @@ export function registerIpcHandlers(
     return deps.controlOperations({
       action: actionRaw,
     });
+  });
+
+  deps.ipcMain.handle("mml:prepare-runtime", async () => {
+    return deps.prepareRuntime();
   });
 
   deps.ipcMain.handle("mml:list-agent-templates", async () => {
