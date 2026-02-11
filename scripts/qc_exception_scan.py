@@ -1,7 +1,8 @@
-"""List try/except and try/catch patterns in modified Python/TypeScript files."""
+"""List try/except, try/catch, and throw patterns in Python/TypeScript files."""
 
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 from pathlib import Path
@@ -13,6 +14,7 @@ PY_TRY_RE: Final[re.Pattern[str]] = re.compile(r"^\s*try\s*:\s*(#.*)?$")
 PY_EXCEPT_RE: Final[re.Pattern[str]] = re.compile(r"^\s*except(?:\s+[^\n:]+)?\s*:\s*(#.*)?$")
 TS_TRY_RE: Final[re.Pattern[str]] = re.compile(r"\btry\b")
 TS_CATCH_RE: Final[re.Pattern[str]] = re.compile(r"\bcatch\s*\(")
+TS_THROW_RE: Final[re.Pattern[str]] = re.compile(r"\bthrow\b")
 
 
 def run_git(args: list[str]) -> list[str]:
@@ -42,6 +44,19 @@ def collect_modified_code_files() -> list[Path]:
     return supported
 
 
+def collect_all_code_files() -> list[Path]:
+    """Collect all tracked Python/TypeScript files in repo."""
+    tracked_files: list[str] = run_git(["ls-files"])
+    supported: list[Path] = []
+    for rel_path in sorted(tracked_files):
+        if not (rel_path.endswith(".py") or rel_path.endswith(".ts")):
+            continue
+        abs_path = ROOT / rel_path
+        if abs_path.is_file():
+            supported.append(abs_path)
+    return supported
+
+
 def scan_python_line(line: str) -> str | None:
     if PY_TRY_RE.search(line):
         return "py_try"
@@ -51,6 +66,8 @@ def scan_python_line(line: str) -> str | None:
 
 
 def scan_typescript_line(line: str) -> str | None:
+    if TS_THROW_RE.search(line):
+        return "ts_throw"
     if TS_CATCH_RE.search(line):
         return "ts_catch"
     if TS_TRY_RE.search(line):
@@ -73,17 +90,42 @@ def scan_file(path: Path) -> list[tuple[int, str, str]]:
     return findings
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Scan Python/TypeScript code for try/except, try/catch, and throw patterns."
+        )
+    )
+    parser.add_argument(
+        "--scope",
+        choices=("modified", "all"),
+        default="modified",
+        help="Scan only modified/untracked files or all tracked files.",
+    )
+    parser.add_argument(
+        "--fail-on-findings",
+        action="store_true",
+        help="Exit with code 1 when any pattern findings are present.",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
-    modified_files: list[Path] = collect_modified_code_files()
-    print("Exception Pattern QC (modified files)")
+    args = parse_args()
+    if args.scope == "all":
+        files = collect_all_code_files()
+    else:
+        files = collect_modified_code_files()
+
+    print(f"Exception Pattern QC ({args.scope} files)")
     print("")
 
-    if not modified_files:
-        print("No modified .py/.ts files detected.")
+    if not files:
+        print("No .py/.ts files detected for selected scope.")
         return 0
 
     total_findings: int = 0
-    for file_path in modified_files:
+    for file_path in files:
         findings = scan_file(file_path)
         if not findings:
             continue
@@ -95,9 +137,11 @@ def main() -> int:
         print("")
 
     if total_findings == 0:
-        print("No try/except or try/catch patterns found in modified files.")
+        print("No try/except, try/catch, or throw patterns found.")
     else:
         print(f"Total findings: {total_findings}")
+        if args.fail_on_findings:
+            return 1
 
     return 0
 

@@ -113,7 +113,13 @@ Run as standard gate:
 - `poetry run ruff check .`
 - `poetry run mypy mimolo scripts/qc_exception_scan.py`
 - `poetry run pytest -q`
-- `poetry run python scripts/qc_exception_scan.py`
+- `poetry run python scripts/qc_exception_scan.py --scope modified`
+- `poetry run python scripts/qc_exception_scan.py --scope all`
+
+Exception scan behavior:
+- scanner now detects `py_try`, `py_except`, `ts_try`, `ts_catch`, and `ts_throw`.
+- `--scope` supports `modified` and `all`.
+- optional strict gate: `--fail-on-findings`.
 
 Last known snapshot in matrix/changelog: clean, `132 passed`.
 
