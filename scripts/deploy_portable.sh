@@ -28,14 +28,6 @@ resolve_portable_python_path() {
 }
 
 resolve_host_python() {
-  if command -v python3 >/dev/null 2>&1; then
-    printf "python3"
-    return
-  fi
-  if command -v python >/dev/null 2>&1; then
-    printf "python"
-    return
-  fi
   if command -v poetry >/dev/null 2>&1; then
     poetry run python -c "import sys; print(sys.executable)"
     return

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -85,6 +86,7 @@ def infer_template_id(runtime: Runtime, label: str, plugin_cfg: PluginConfig) ->
 def discover_agent_templates(runtime: Runtime) -> dict[str, dict[str, Any]]:
     """Discover agent templates from local agents directory."""
     templates: dict[str, dict[str, Any]] = {}
+    runtime_python = str(Path(sys.executable).resolve())
     agents_root = Path(__file__).parent.parent / "agents"
 
     if agents_root.exists():
@@ -112,8 +114,8 @@ def discover_agent_templates(runtime: Runtime) -> dict[str, dict[str, Any]]:
                 "default_config": {
                     "enabled": True,
                     "plugin_type": "agent",
-                    "executable": "poetry",
-                    "args": ["run", "python", script_rel],
+                    "executable": runtime_python,
+                    "args": [script_rel],
                     "heartbeat_interval_s": 15.0,
                     "agent_flush_interval_s": 60.0,
                     "launch_in_separate_terminal": False,
@@ -163,8 +165,8 @@ def discover_agent_templates(runtime: Runtime) -> dict[str, dict[str, Any]]:
             "default_config": {
                 "enabled": True,
                 "plugin_type": "agent",
-                "executable": "poetry",
-                "args": ["run", "python", script_abs],
+                "executable": runtime_python,
+                "args": [script_abs],
                 "heartbeat_interval_s": 15.0,
                 "agent_flush_interval_s": 60.0,
                 "launch_in_separate_terminal": False,

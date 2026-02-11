@@ -41,6 +41,13 @@
   bundle_bundle_id_proto = "com.mimolo.control.proto.dev"
   bundle_bundle_id_control = "com.mimolo.control.dev"
   bundle_dev_mode_default = ""
+  # Runtime bootstrap policy for bundled app:
+  #   auto      -> /Applications/* uses user_data runtime; elsewhere uses portable runtime path
+  #   portable  -> always use bundle_runtime_path (relative to app parent if not absolute)
+  #   user_data -> always use ~/Library/Application Support/mimolo/runtime/.venv
+  bundle_runtime_mode = "auto"
+  # Portable runtime venv path; "./.venv" means sidecar venv next to the .app bundle.
+  bundle_runtime_path = "./.venv"
 
   # Optional explicit overrides; leave blank to derive from portable_root.
   # data_dir = "./temp_debug/user_home/mimolo"

@@ -12,6 +12,8 @@ print_usage() {
   local display_bundle_id_proto="${CONFIG_BUNDLE_BUNDLE_ID_PROTO:-com.mimolo.control.proto.dev}"
   local display_bundle_id_control="${CONFIG_BUNDLE_BUNDLE_ID_CONTROL:-com.mimolo.control.dev}"
   local display_bundle_dev_mode="${CONFIG_BUNDLE_DEV_MODE_DEFAULT:-<inherit launcher env/--dev>}"
+  local display_bundle_runtime_mode="$(get_toml_value "bundle_runtime_mode" "auto")"
+  local display_bundle_runtime_path="$(get_toml_value "bundle_runtime_path" "./.venv")"
   cat <<EOF
 MiMoLo Portable Dev Launcher
 
@@ -25,7 +27,7 @@ Commands:
   bundle-app  Build macOS .app bundle for proto/control via scripts/bundle_app.sh
   ps          List running MiMoLo-related processes (dev diagnostics)
   env         Show effective environment and launch commands
-  operations  Launch Operations (orchestrator): poetry run python -m mimolo.cli ops
+  operations  Launch Operations (orchestrator): portable runtime python (fallback: poetry)
   control     Launch Electron Control app (mimolo-control)
   proto       Launch Control IPC prototype (mimolo/control_proto)
   all         Alias to all-proto or all-control (default_stack in mml.toml)
@@ -36,6 +38,7 @@ Commands:
 Notes:
   - Portable mode is default: MIMOLO_DATA_DIR and MIMOLO_BIN_DIR are always set.
   - Operations uses a runtime config at MIMOLO_RUNTIME_CONFIG_PATH unless --config is passed explicitly.
+  - bundle-app defaults to first-run in-app runtime bootstrap (use --prepare-runtime to pre-seed runtime).
 
 Examples:
   ./mml.sh
@@ -67,6 +70,8 @@ Defaults from mml.toml:
   bundle_bundle_id_proto=$display_bundle_id_proto
   bundle_bundle_id_control=$display_bundle_id_control
   bundle_dev_mode_default=$display_bundle_dev_mode
+  bundle_runtime_mode=$display_bundle_runtime_mode
+  bundle_runtime_path=$display_bundle_runtime_path
 EOF
 }
 
@@ -98,6 +103,8 @@ print_env() {
   echo "bundle_bundle_id_proto=${CONFIG_BUNDLE_BUNDLE_ID_PROTO:-com.mimolo.control.proto.dev}"
   echo "bundle_bundle_id_control=${CONFIG_BUNDLE_BUNDLE_ID_CONTROL:-com.mimolo.control.dev}"
   echo "bundle_dev_mode_default=${CONFIG_BUNDLE_DEV_MODE_DEFAULT:-}"
+  echo "bundle_runtime_mode=$(get_toml_value "bundle_runtime_mode" "auto")"
+  echo "bundle_runtime_path=$(get_toml_value "bundle_runtime_path" "./.venv")"
   echo "no_cache_supported=true"
   echo
   echo "Launch commands:"

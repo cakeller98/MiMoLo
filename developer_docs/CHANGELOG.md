@@ -184,6 +184,10 @@ All notable documentation changes under `developer_docs/` are tracked in this fi
   - `scripts/mml/common.sh` `run_ops_command` now prefers `MIMOLO_OPERATIONS_PYTHON` (or portable `.venv` python path) before falling back to `poetry run`.
   - `mimolo/control_proto/src/control_operations.ts` now supports direct interpreter startup when `MIMOLO_OPERATIONS_PYTHON` is present.
   - `scripts/bundle_app.sh` now writes `MIMOLO_OPERATIONS_PYTHON` into bundle defaults so bundled app operations controls do not require poetry launcher on runtime PATH.
+  - Added bundle runtime-sidecar policy controls in `mml.toml` and wired bundle runtime resolution:
+    - `bundle_runtime_mode = auto|portable|user_data`
+    - `bundle_runtime_path = ./.venv` (portable mode sidecar path, app-parent relative by default)
+  - `bundle_main.mjs` now resolves runtime sidecar paths at app launch based on policy (instead of static build-time-only paths), enabling portable sidecar behavior for test bundles and user-data runtime for `/Applications` installs in auto mode.
 - Hardened Control renderer non-critical promise handling:
   - replaced silent swallow on reconnect-backoff reset invocation in
     `mimolo/control_proto/src/ui_renderer_sections/state_and_ops.ts`
