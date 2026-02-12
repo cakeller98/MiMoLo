@@ -1,13 +1,14 @@
 # Unified Workflow Intent (Reference-History Consolidation)
 
-Date: 2026-02-08
+Date: 2026-02-08 PT
 Status: Canonical workflow-intent document
 
 ## 1. Purpose
 This document captures product and UX workflow intent extracted from historical `developer_docs` material.
 
 Interpretation rules:
-- Code remains implementation truth.
+- If code/tests and docs differ, pause implementation, discuss with developer, reconcile canonical docs, then continue.
+- Code/tests show observed current behavior; reconciled docs remain authoritative intent/policy.
 - This document preserves UX/workflow intent even when implementation is incomplete.
 - Historical docs are references, not direct coding plans.
 

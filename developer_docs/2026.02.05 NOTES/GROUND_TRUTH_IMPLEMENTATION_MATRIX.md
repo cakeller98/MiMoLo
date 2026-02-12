@@ -1,7 +1,8 @@
 # Ground Truth Implementation Matrix (Canonical Active Backlog)
 
-Date: 2026-02-10
-Rule: code and tests are implementation truth when docs differ.
+Date: 2026-02-10 PT
+Last Updated: 2026-02-12 PT
+Rule (2026-02-12 PT): if code/tests and docs differ, pause implementation, discuss with developer, then update canonical docs before continuing. Until reconciled, code/tests are observed behavior, not automatically approved policy.
 
 Verification snapshot:
 - `poetry run pytest -q` => 132 passed
@@ -152,8 +153,8 @@ Architecture decision lock (2026-02-11):
 ### Priority Index (Reprioritize Here, Keep Backlog Item Numbers Stable)
 
 1. [[#Item 13 — Agent-owned widget frame contract + operations evidence-vault model]]
-2. [[#Item 14 — Control JSONL evidence viewer with derived segment filtering]]
-3. [[#Item 15 — Stable dummy evidence datasets and generator tooling]]
+2. [[#Item 15 — Stable dummy evidence datasets and generator tooling]]
+3. [[#Item 14 — Control JSONL evidence viewer with derived segment filtering]]
 4. [[#Item 12 — Agent self-CPU budgeting, policy envelope, and adaptive-readiness baseline]]
 5. [[#Item 10 — Maintainability-first decomposition and concern-boundary compliance]]
 6. [[#Item 1 — Operations lifecycle ownership + orphan-process elimination]]
@@ -469,6 +470,17 @@ Priority-index rule:
 ## 4) Canonical Planning Rules
 
 - This file is the canonical active backlog/todo for implementation tracking.
+- 2026-02-12 clarity lock:
+  - this matrix is the single-source of truth for implementation priority order.
+  - `context_dump.md` may mirror this order but must not override or diverge from it.
+  - `CHANGELOG.md` is completion history only and is not a planning source.
+- Document role boundaries:
+  - `context_dump.md`: ephemeral blast-notes, discuss major plan changes before action.
+  - `GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`: precise coding todo + active ordering.
+  - `CHANGELOG.md`: completed work only; if logged as done, it must exist in repo changes.
+- Deduplication policy:
+  - avoid repeating conflicting "next action" statements across documents.
+  - if multiple docs disagree, this matrix is authoritative.
 - `developer_docs/8_Future_Roadmap_and_Summary.md` remains strategic direction.
 - `developer_docs/agent_dev/PROTOCOL_IMPLEMENTATION_STATUS.md` remains protocol reality map.
 - Keep planned items explicit; do not delete them when incomplete.

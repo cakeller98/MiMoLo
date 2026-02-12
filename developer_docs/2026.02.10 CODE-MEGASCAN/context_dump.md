@@ -1,5 +1,5 @@
 # Context Dump (Working Session Snapshot)
-Date: 2026-02-11 as of current working session
+Date: 2026-02-12 PT as of current working session
 Purpose: compact carry-forward context without duplicating canonical docs.
 
 ## Canonical Sources (read first)
@@ -11,11 +11,26 @@ Purpose: compact carry-forward context without duplicating canonical docs.
   - `.vscode/tasks.json` (`qc:exceptions`)
 - Full code-health audit bundle: `developer_docs/2026.02.10 CODE-MEGASCAN/`
 
+## Document Governance (2026-02-12 PT)
+- This `context_dump.md` is the most ephemeral document ("blast-notes"):
+  - useful, but brittle by design.
+  - entries must be date-stamped.
+  - major plan changes from this file require explicit discussion before execution.
+- Single-source rule for execution order and coding todo:
+  - `GROUND_TRUTH_IMPLEMENTATION_MATRIX.md` is the authoritative source.
+  - this context dump may mirror priorities, but must not diverge from matrix.
+- Changelog rule:
+  - `CHANGELOG.md` records completed work only.
+  - if it appears in changelog, it must exist in the repo state.
+- Deduplication rule:
+  - avoid duplicate, competing priority statements across docs.
+  - when in doubt, matrix wins.
+
 ## Current Priority
 1. **Item 13 is now active highest priority**: agent-owned `widget_frame` end-to-end contract completion.
-2. **Item 14 is next**: Control JSONL evidence viewer with derived segment filtering (read-only projection).
-3. **Item 15 follows**: stable dummy evidence datasets + deterministic generator tooling.
-4. Item 12 (CPU budgeting policy envelope) remains active and resumes after Items 13-15 unless safety/regression forces immediate behavior work.
+2. **Item 15 is next**: stable dummy evidence datasets + deterministic generator tooling.
+3. **Item 14 follows**: Control JSONL evidence viewer with derived segment filtering (read-only projection).
+4. Item 12 (CPU budgeting policy envelope) remains active and resumes after Items 13/15/14 unless safety/regression forces immediate behavior work.
 
 ## Session Decision Lock (2026-02-11)
 - Folder watcher warning semantics are locked:
@@ -65,7 +80,7 @@ Purpose: compact carry-forward context without duplicating canonical docs.
   - Operations stores for safekeeping with hash/index metadata.
 
 ## Rule-Set Sensibilities (non-negotiable)
-- **Code/tests are implementation truth** when docs differ.
+- **Mismatch rule (2026-02-12 PT)**: if code/tests and docs differ, pause, discuss with developer, reconcile docs, then continue. Code/tests show current behavior, but docs define approved intent once reconciled.
 - Maintainability first:
   - coordinator files should keep shrinking;
   - one primary concern per module;
@@ -180,11 +195,12 @@ Exception scan behavior:
 
 Last known snapshot in matrix/changelog: clean, `132 passed`.
 
-## Next Recommended Action
-Item 12 phase-1 implementation is the immediate next action:
-1. BaseAgent one-time CPU self-monitoring and heartbeat budget telemetry.
-2. Operations budget policy wiring (default/override/max + envelope auto-scale).
-3. Control/runtime visibility updates and strict QC rerun.
+## Next Recommended Action (2026-02-12)
+Follow matrix priority order to minimize throw-away work:
+1. Item 13 closeout (widget_frame contract and boundary completion).
+2. Item 15 deterministic evidence fixtures/generator.
+3. Item 14 Control evidence viewer against stable fixture corpus.
+4. Item 12 CPU-budgeting envelope implementation.
 
 Policy lock (approved):
 - missing per-agent override => info only (normal), not warning.
@@ -195,8 +211,8 @@ Policy lock (approved):
 ## Confirmed Execution Order (User-Directed, Updated)
 Work in this exact order, one commit-ready slice at a time (not together):
 1. Item 13: complete `widget_frame` end-to-end (agent -> operations transport/cache -> control sanitize/render).
-2. Item 14: implement JSONL evidence viewer in Control with derived (not canonical) segment filtering.
-3. Item 15: add deterministic fixture datasets + generator tooling to prevent rebuild wipeout of reference data.
+2. Item 15: add deterministic fixture datasets + generator tooling to prevent rebuild wipeout of reference data.
+3. Item 14: implement JSONL evidence viewer in Control with derived (not canonical) segment filtering.
 4. Resume Item 12 CPU-budgeting policy envelope implementation.
 5. Resume maintainability slices (Item 10) as queued in matrix.
 
