@@ -1,5 +1,5 @@
 # mimolo/core/ipc.py
-"""Generic IPC using Unix domain sockets (Windows 10+, macOS, Linux only)."""
+"""Generic IPC helpers for MiMoLo transport selection."""
 
 import json
 import logging
@@ -7,7 +7,7 @@ import os
 import platform as _platform
 import socket
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 MIN_WINDOWS_VERSION = "10.0.17063"  # First Windows with AF_UNIX support
 MIN_MACOS_VERSION = "10.13"  # High Sierra
@@ -23,6 +23,7 @@ platform = _platform
 MAX_SOCKET_PATH_LENGTH = 100  # Unix typically allows ~108, Windows ~256
 
 logger = logging.getLogger(__name__)
+IpcMode = Literal["auto", "unix", "slowpoke"]
 
 
 def _check_af_unix_support() -> None:
@@ -44,6 +45,49 @@ def _check_af_unix_support() -> None:
             "  2. Upgrade Python to 3.9+ (if on Windows)\n"
             "  3. Use SLOWPOKE fallback (not recommended)\n"
         )
+
+
+def normalize_ipc_mode(raw: str | None) -> IpcMode:
+    """Normalize requested IPC mode."""
+    normalized = (raw or "auto").strip().lower()
+    if normalized in {"", "auto"}:
+        return "auto"
+    if normalized == "unix":
+        return "unix"
+    if normalized == "slowpoke":
+        return "slowpoke"
+    logger.warning("Unknown IPC mode '%s'; defaulting to auto", raw)
+    return "auto"
+
+
+def effective_ipc_mode(requested: str | None) -> IpcMode:
+    """Resolve the IPC mode to use for the current runtime."""
+    mode = normalize_ipc_mode(requested)
+    if mode != "auto":
+        return mode
+    supported, _reason = check_platform_support()
+    return "unix" if supported else "slowpoke"
+
+
+def derive_slowpoke_root(
+    socket_path: str, root_override: str | None = None
+) -> str:
+    """Derive the slowpoke root directory from the socket path."""
+    if root_override and root_override.strip():
+        return root_override.strip()
+    return f"{socket_path}.slowpoke"
+
+
+def derive_slowpoke_dirs(
+    socket_path: str, root_override: str | None = None
+) -> tuple[str, str, str]:
+    """Return slowpoke root plus control_to_ops and ops_to_control directories."""
+    root = derive_slowpoke_root(socket_path, root_override)
+    return (
+        root,
+        os.path.join(root, "control_to_ops"),
+        os.path.join(root, "ops_to_control"),
+    )
 
 
 class MessageChannel:
@@ -253,6 +297,9 @@ def check_platform_support() -> tuple[bool, str]:
     import sys
 
     plat = platform  # use module-level platform (monkeypatch-friendly)
+
+    if AF_UNIX == -1:
+        return False, "AF_UNIX not available in this Python socket module"
 
     if sys.platform == "win32":
         # Windows 10 build 17063+ required

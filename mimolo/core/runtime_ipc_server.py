@@ -10,7 +10,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from mimolo.core.ipc import MAX_SOCKET_PATH_LENGTH
+from mimolo.core.ipc import (
+    AF_UNIX,
+    MAX_SOCKET_PATH_LENGTH,
+    derive_slowpoke_dirs,
+    effective_ipc_mode,
+)
 
 if TYPE_CHECKING:
     from mimolo.core.runtime import Runtime
@@ -88,6 +93,17 @@ def ipc_server_loop(runtime: Runtime) -> None:
     if not runtime._ipc_socket_path:
         return
 
+    mode = effective_ipc_mode(getattr(runtime, "_ipc_mode", "auto"))
+    if mode == "slowpoke":
+        _ipc_server_loop_slowpoke(runtime)
+        return
+
+    if AF_UNIX == -1:
+        runtime.console.print(
+            "[red]IPC disabled: this Python build does not provide AF_UNIX sockets.[/red]"
+        )
+        return
+
     socket_path = runtime._ipc_socket_path
     if len(socket_path) > MAX_SOCKET_PATH_LENGTH:
         runtime.console.print(
@@ -101,7 +117,7 @@ def ipc_server_loop(runtime: Runtime) -> None:
 
     server_sock: socket.socket | None = None
     try:
-        server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server_sock = socket.socket(AF_UNIX, socket.SOCK_STREAM)
         server_sock.bind(socket_path)
         try:
             os.chmod(socket_path, 0o600)
@@ -147,3 +163,52 @@ def serve_ipc_client_thread(runtime: Runtime, conn: socket.socket) -> None:
     """Serve one IPC client connection on its own thread."""
     with conn:
         serve_ipc_connection(runtime, conn)
+
+
+def _cleanup_slowpoke_json(directory: Path) -> None:
+    """Remove stale slowpoke message files from a directory."""
+    if not directory.exists():
+        return
+    for file in directory.glob("*.json"):
+        file.unlink(missing_ok=True)
+    for file in directory.glob("*.tmp"):
+        file.unlink(missing_ok=True)
+
+
+def _ipc_server_loop_slowpoke(runtime: Runtime) -> None:
+    """Serve IPC requests through the file-backed slowpoke transport."""
+    from mimolo.core.ipc_slowpoke import SlowpokeChannel
+
+    socket_path = runtime._ipc_socket_path or ""
+    root_dir, control_to_ops_dir, ops_to_control_dir = derive_slowpoke_dirs(
+        socket_path,
+        getattr(runtime, "_ipc_slowpoke_root", None),
+    )
+    control_to_ops_path = Path(control_to_ops_dir)
+    ops_to_control_path = Path(ops_to_control_dir)
+    root_path = Path(root_dir)
+    root_path.mkdir(parents=True, exist_ok=True)
+    _cleanup_slowpoke_json(control_to_ops_path)
+    _cleanup_slowpoke_json(ops_to_control_path)
+
+    channel: SlowpokeChannel | None = None
+    try:
+        channel = SlowpokeChannel(
+            read_dir=control_to_ops_dir,
+            write_dir=ops_to_control_dir,
+            create=True,
+        )
+        runtime._ipc_slowpoke_channel = channel
+        runtime._debug(f"[dim]IPC server listening in slowpoke mode at {root_dir}[/dim]")
+        while not runtime._ipc_stop_event.is_set():
+            line = channel.read_line()
+            if not line:
+                continue
+            response = handle_ipc_line(runtime, line)
+            channel.write_line(response)
+    except OSError as e:
+        runtime.console.print(f"[red]IPC slowpoke server failed to start: {e}[/red]")
+    finally:
+        if channel is not None:
+            channel.close()
+        runtime._ipc_slowpoke_channel = None

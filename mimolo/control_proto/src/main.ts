@@ -33,6 +33,7 @@ import {
   runAgentCommandWrapper,
 } from "./control_command_wrappers.js";
 import { PersistentIpcClient } from "./control_persistent_ipc.js";
+import { SlowpokeIpcClient } from "./control_slowpoke_ipc.js";
 import { OperationsController } from "./control_operations.js";
 import { registerIpcHandlers } from "./control_ipc_handlers.js";
 import { OpsLogTailer } from "./control_ops_log_tailer.js";
@@ -69,7 +70,7 @@ if (!maybeRuntimeProcess) {
   throw new Error("Node.js process global is unavailable");
 }
 const runtimeProcess: RuntimeProcess = maybeRuntimeProcess;
-const { ipcPath, opsLogPath, controlDevMode } =
+const { ipcMode, ipcPath, ipcSlowpokeRoot, opsLogPath, controlDevMode } =
   resolveControlEnvironment(runtimeProcess);
 
 let mainWindow: InstanceType<typeof BrowserWindow> | null = null;
@@ -152,30 +153,41 @@ const publishRuntimePerf = windowPublisher.publishRuntimePerf.bind(windowPublish
 
 const opsLogTailer = new OpsLogTailer(opsLogPath, publishLine);
 
-const persistentIpcClient = new PersistentIpcClient({
-  ipcPath,
-  parseResponse: parseIpcResponse,
-  publishLine,
-  publishTraffic,
-  getTimingSnapshot: () => ({
-    requestTimeoutMs: Math.max(
-      1,
-      Math.round(controlTimingSettings.ipc_request_timeout_s * 1000),
-    ),
-    backoffInitialMs: Math.max(
-      1,
-      Math.round(controlTimingSettings.ipc_connect_backoff_initial_s * 1000),
-    ),
-    backoffExtendedMs: Math.max(
-      1,
-      Math.round(controlTimingSettings.ipc_connect_backoff_extended_s * 1000),
-    ),
-    backoffEscalateAfter: Math.max(
-      1,
-      Math.floor(controlTimingSettings.ipc_connect_backoff_escalate_after),
-    ),
-  }),
+const getIpcTimingSnapshot = () => ({
+  requestTimeoutMs: Math.max(
+    1,
+    Math.round(controlTimingSettings.ipc_request_timeout_s * 1000),
+  ),
+  backoffInitialMs: Math.max(
+    1,
+    Math.round(controlTimingSettings.ipc_connect_backoff_initial_s * 1000),
+  ),
+  backoffExtendedMs: Math.max(
+    1,
+    Math.round(controlTimingSettings.ipc_connect_backoff_extended_s * 1000),
+  ),
+  backoffEscalateAfter: Math.max(
+    1,
+    Math.floor(controlTimingSettings.ipc_connect_backoff_escalate_after),
+  ),
 });
+
+const ipcClient =
+  ipcMode === "slowpoke"
+    ? new SlowpokeIpcClient({
+        slowpokeRoot: ipcSlowpokeRoot,
+        parseResponse: parseIpcResponse,
+        publishLine,
+        publishTraffic,
+        getTimingSnapshot: getIpcTimingSnapshot,
+      })
+    : new PersistentIpcClient({
+        ipcPath,
+        parseResponse: parseIpcResponse,
+        publishLine,
+        publishTraffic,
+        getTimingSnapshot: getIpcTimingSnapshot,
+      });
 
 async function sendIpcCommand(
   cmd: string,
@@ -183,10 +195,14 @@ async function sendIpcCommand(
   trafficLabel?: string,
   trafficClass: IpcTrafficClass = "interactive",
 ): Promise<IpcResponsePayload> {
-  if (!ipcPath) {
+  if (ipcMode === "slowpoke") {
+    if (!ipcSlowpokeRoot) {
+      throw new Error("MIMOLO_IPC_SLOWPOKE_ROOT not set");
+    }
+  } else if (!ipcPath) {
     throw new Error("MIMOLO_IPC_PATH not set");
   }
-  return persistentIpcClient.sendCommand(
+  return ipcClient.sendCommand(
     cmd,
     extraPayload,
     trafficLabel,
@@ -195,7 +211,7 @@ async function sendIpcCommand(
 }
 
 function resetIpcConnectBackoff(): void {
-  persistentIpcClient.resetBackoff();
+  ipcClient.resetBackoff();
 }
 
 let snapshotRefresher: ControlSnapshotRefresher;
@@ -345,7 +361,7 @@ const backgroundLoopController = new BackgroundLoopController({
   refreshInstances: refreshAgentInstances,
   pumpLog: pumpOpsLog,
   deriveIntervals: deriveBackgroundIntervals,
-  stopPersistentIpc: () => persistentIpcClient.stop("control_shutdown"),
+  stopPersistentIpc: () => ipcClient.stop("control_shutdown"),
 });
 
 function restartBackgroundTimers(): void {

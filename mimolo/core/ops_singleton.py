@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +31,8 @@ class OperationsSingletonLock:
     def _is_pid_running(self, pid: int) -> bool:
         if pid <= 0:
             return False
+        if sys.platform == "win32":
+            return self._is_pid_running_windows(pid)
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
@@ -37,6 +40,34 @@ class OperationsSingletonLock:
         except PermissionError:
             return True
         return True
+
+    def _is_pid_running_windows(self, pid: int) -> bool:
+        """Check process liveness with Win32 APIs instead of os.kill(pid, 0)."""
+        import ctypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            error = ctypes.GetLastError()
+            if error in {5, 87}:
+                # Access denied or invalid parameter can both happen for stale/system PIDs.
+                return False
+            return False
+
+        exit_code = ctypes.c_ulong()
+        try:
+            ok = kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            if ok == 0:
+                error = ctypes.GetLastError()
+                if error == 5:
+                    return True
+                return False
+            return int(exit_code.value) == STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
 
     def _read_existing_pid(self) -> int | None:
         if not self._meta_path.exists():

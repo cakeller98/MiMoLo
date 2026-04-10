@@ -235,19 +235,28 @@ export class OperationsController {
         args,
       };
     }
-    const defaultCmd = configPath
-      ? `exec poetry run python -m mimolo.cli ops --config ${quoteBashArg(configPath)}`
-      : "exec poetry run python -m mimolo.cli ops";
-    const shellCommand = override.trim().length > 0 ? override.trim() : defaultCmd;
+    if (override.trim().length === 0) {
+      const poetryArgs = ["run", "python", "-m", "mimolo.cli", "ops"];
+      if (configPath) {
+        poetryArgs.push("--config", configPath);
+      }
+      return {
+        command: "poetry",
+        args: poetryArgs,
+      };
+    }
     if (this.deps.runtimeProcess.platform === "win32") {
       return {
         command: "pwsh",
-        args: ["-NoProfile", "-Command", shellCommand],
+        args: ["-NoProfile", "-Command", override.trim()],
       };
     }
+    const shellCommand = configPath
+      ? `exec poetry run python -m mimolo.cli ops --config ${quoteBashArg(configPath)}`
+      : "exec poetry run python -m mimolo.cli ops";
     return {
       command: "bash",
-      args: ["-lc", shellCommand],
+      args: ["-lc", override.trim().length > 0 ? override.trim() : shellCommand],
     };
   }
 

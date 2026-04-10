@@ -40,6 +40,7 @@ $ConfigBundleAppNameControl = ""
 $ConfigBundleBundleIdProto = ""
 $ConfigBundleBundleIdControl = ""
 $ConfigBundleDevModeDefault = ""
+$DefaultIpcMode = "auto"
 if ($IsWindows) {
     $DefaultIpcPath = Join-Path $env:TEMP "mimolo\operations.sock"
     $DefaultOpsLogPath = Join-Path $env:TEMP "mimolo\operations.log"
@@ -99,6 +100,42 @@ function Load-LauncherConfig {
     $script:ConfigBundleBundleIdProto = Get-TomlValue -Path $ConfigFile -Key "bundle_bundle_id_proto" -Fallback ""
     $script:ConfigBundleBundleIdControl = Get-TomlValue -Path $ConfigFile -Key "bundle_bundle_id_control" -Fallback ""
     $script:ConfigBundleDevModeDefault = Get-TomlValue -Path $ConfigFile -Key "bundle_dev_mode_default" -Fallback ""
+}
+
+function Get-SlowpokeRoot {
+    param([string]$IpcPath)
+
+    return "$IpcPath.slowpoke"
+}
+
+function Get-SlowpokePaths {
+    param([string]$Root)
+
+    return @{
+        Root = $Root
+        ControlToOps = Join-Path $Root "control_to_ops"
+        OpsToControl = Join-Path $Root "ops_to_control"
+    }
+}
+
+function Resolve-IpcMode {
+    if (-not [string]::IsNullOrWhiteSpace($env:MIMOLO_IPC_MODE)) {
+        return $env:MIMOLO_IPC_MODE.Trim().ToLowerInvariant()
+    }
+
+    $probeArgs = @(
+        "run",
+        "python",
+        "-c",
+        "import socket,sys; sys.exit(0 if hasattr(socket, 'AF_UNIX') else 1)"
+    )
+
+    & poetry @probeArgs *> $null
+    if ($LASTEXITCODE -eq 0) {
+        return "unix"
+    }
+
+    return "slowpoke"
 }
 
 function Resolve-AllCommand {
@@ -210,6 +247,41 @@ function Invoke-NoCachePreflight {
     Run-Prepare
 }
 
+function Get-LatestWriteTimeUtc {
+    param(
+        [string[]]$Paths
+    )
+
+    $latest = [datetime]::MinValue
+    foreach ($path in $Paths) {
+        if (-not (Test-Path -LiteralPath $path)) {
+            continue
+        }
+        $items = Get-ChildItem -LiteralPath $path -Recurse -File -ErrorAction SilentlyContinue
+        foreach ($item in $items) {
+            if ($item.LastWriteTimeUtc -gt $latest) {
+                $latest = $item.LastWriteTimeUtc
+            }
+        }
+    }
+    return $latest
+}
+
+function Test-NodeTargetNeedsBuild {
+    param(
+        [string]$DistMainPath,
+        [string[]]$SourcePaths
+    )
+
+    if (-not (Test-Path -LiteralPath $DistMainPath)) {
+        return $true
+    }
+
+    $distInfo = Get-Item -LiteralPath $DistMainPath
+    $latestSourceWrite = Get-LatestWriteTimeUtc -Paths $SourcePaths
+    return $latestSourceWrite -gt $distInfo.LastWriteTimeUtc
+}
+
 Load-LauncherConfig
 
 # Back-compat parse if user passes global flags positionally.
@@ -253,6 +325,12 @@ if ($ArgsRest.Count -gt 0) {
 if (-not $env:MIMOLO_IPC_PATH) {
     $env:MIMOLO_IPC_PATH = $DefaultIpcPath
 }
+if (-not $env:MIMOLO_IPC_MODE) {
+    $env:MIMOLO_IPC_MODE = Resolve-IpcMode
+}
+if (-not $env:MIMOLO_IPC_SLOWPOKE_ROOT) {
+    $env:MIMOLO_IPC_SLOWPOKE_ROOT = Get-SlowpokeRoot -IpcPath $env:MIMOLO_IPC_PATH
+}
 if (-not $env:MIMOLO_OPS_LOG_PATH) {
     $env:MIMOLO_OPS_LOG_PATH = $DefaultOpsLogPath
 }
@@ -287,6 +365,11 @@ if ($env:MIMOLO_IPC_PATH.Length -gt 100) {
 $ipcDir = Split-Path -Parent $env:MIMOLO_IPC_PATH
 if ($ipcDir) {
     New-Item -ItemType Directory -Path $ipcDir -Force | Out-Null
+}
+$slowpokePaths = Get-SlowpokePaths -Root $env:MIMOLO_IPC_SLOWPOKE_ROOT
+$slowpokeParent = Split-Path -Parent $slowpokePaths.Root
+if ($slowpokeParent) {
+    New-Item -ItemType Directory -Path $slowpokeParent -Force | Out-Null
 }
 $opsLogDir = Split-Path -Parent $env:MIMOLO_OPS_LOG_PATH
 if ($opsLogDir) {
@@ -335,6 +418,7 @@ function Show-Usage {
     Write-Host "  default_command=$DefaultCommand"
     Write-Host "  default_stack=$DefaultStack"
     Write-Host "  socket_wait_seconds=$SocketWaitSeconds"
+    Write-Host "  ipc_mode=$env:MIMOLO_IPC_MODE"
     Write-Host "  portable_root=$displayPortableRoot"
     Write-Host "  deploy_agents_default=$displaySeedAgents"
     Write-Host "  release_agents_path=$displayReleaseAgentsPath"
@@ -351,6 +435,8 @@ function Show-Usage {
 function Launch-Operations {
     param([string[]]$OpsArgs)
     Write-Host "[dev-stack] MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
+    Write-Host "[dev-stack] MIMOLO_IPC_MODE=$env:MIMOLO_IPC_MODE"
+    Write-Host "[dev-stack] MIMOLO_IPC_SLOWPOKE_ROOT=$env:MIMOLO_IPC_SLOWPOKE_ROOT"
     Write-Host "[dev-stack] MIMOLO_OPS_LOG_PATH=$env:MIMOLO_OPS_LOG_PATH"
     poetry run python -m mimolo.cli ops @OpsArgs
 }
@@ -402,6 +488,9 @@ function Launch-Control {
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[dev-stack] Electron runtime missing for mimolo-control; running npm ci..."
             npm ci
+            if ($LASTEXITCODE -ne 0) {
+                throw "[dev-stack] npm ci failed in mimolo-control"
+            }
         }
     }
     finally {
@@ -409,22 +498,38 @@ function Launch-Control {
     }
 
     $controlMain = Join-Path $PSScriptRoot "mimolo-control/dist/main.js"
-    if (-not (Test-Path -LiteralPath $controlMain)) {
-        Write-Host "[dev-stack] Building mimolo-control (dist missing)..."
+    $controlNeedsBuild = Test-NodeTargetNeedsBuild -DistMainPath $controlMain -SourcePaths @(
+        (Join-Path $PSScriptRoot "mimolo-control/src"),
+        (Join-Path $PSScriptRoot "mimolo-control/package.json"),
+        (Join-Path $PSScriptRoot "mimolo-control/tsconfig.json")
+    )
+    if ($controlNeedsBuild) {
+        Write-Host "[dev-stack] Building mimolo-control..."
         Push-Location "mimolo-control"
         try {
             npm run build
+            if ($LASTEXITCODE -ne 0) {
+                throw "[dev-stack] mimolo-control build failed"
+            }
         }
         finally {
             Pop-Location
         }
     }
 
+    if (-not (Test-Path -LiteralPath $controlMain)) {
+        throw "[dev-stack] mimolo-control did not produce dist/main.js"
+    }
+
     Write-Host "[dev-stack] MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
+    Write-Host "[dev-stack] MIMOLO_IPC_MODE=$env:MIMOLO_IPC_MODE"
     Write-Host "[dev-stack] MIMOLO_CONTROL_DEV_MODE=$env:MIMOLO_CONTROL_DEV_MODE"
     Push-Location "mimolo-control"
     try {
         npm run start
+        if ($LASTEXITCODE -ne 0) {
+            throw "[dev-stack] mimolo-control start failed"
+        }
     }
     finally {
         Pop-Location
@@ -438,30 +543,65 @@ function Launch-Proto {
         if ($LASTEXITCODE -ne 0) {
             Write-Host "[dev-stack] Electron runtime missing for control_proto launch; running npm ci in mimolo-control..."
             npm ci
+            if ($LASTEXITCODE -ne 0) {
+                throw "[dev-stack] npm ci failed in mimolo-control"
+            }
         }
     }
     finally {
         Pop-Location
     }
 
-    $protoMain = Join-Path $PSScriptRoot "mimolo/control_proto/dist/main.js"
-    if (-not (Test-Path -LiteralPath $protoMain)) {
-        Write-Host "[dev-stack] Building control_proto (dist missing)..."
+    $protoTsc = Join-Path $PSScriptRoot "mimolo/control_proto/node_modules/.bin/tsc.cmd"
+    if (-not (Test-Path -LiteralPath $protoTsc)) {
+        Write-Host "[dev-stack] TypeScript toolchain missing for control_proto; running npm ci in mimolo/control_proto..."
         Push-Location "mimolo/control_proto"
         try {
-            npm run build
+            npm ci
+            if ($LASTEXITCODE -ne 0) {
+                throw "[dev-stack] npm ci failed in mimolo/control_proto"
+            }
         }
         finally {
             Pop-Location
         }
     }
 
+    $protoMain = Join-Path $PSScriptRoot "mimolo/control_proto/dist/main.js"
+    $protoNeedsBuild = Test-NodeTargetNeedsBuild -DistMainPath $protoMain -SourcePaths @(
+        (Join-Path $PSScriptRoot "mimolo/control_proto/src"),
+        (Join-Path $PSScriptRoot "mimolo/control_proto/package.json"),
+        (Join-Path $PSScriptRoot "mimolo/control_proto/tsconfig.json")
+    )
+    if ($protoNeedsBuild) {
+        Write-Host "[dev-stack] Building control_proto..."
+        Push-Location "mimolo/control_proto"
+        try {
+            npm run build
+            if ($LASTEXITCODE -ne 0) {
+                throw "[dev-stack] control_proto build failed"
+            }
+        }
+        finally {
+            Pop-Location
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $protoMain)) {
+        throw "[dev-stack] control_proto did not produce dist/main.js"
+    }
+
     Write-Host "[dev-stack] MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
+    Write-Host "[dev-stack] MIMOLO_IPC_MODE=$env:MIMOLO_IPC_MODE"
+    Write-Host "[dev-stack] MIMOLO_IPC_SLOWPOKE_ROOT=$env:MIMOLO_IPC_SLOWPOKE_ROOT"
     Write-Host "[dev-stack] MIMOLO_OPS_LOG_PATH=$env:MIMOLO_OPS_LOG_PATH"
     Write-Host "[dev-stack] MIMOLO_CONTROL_DEV_MODE=$env:MIMOLO_CONTROL_DEV_MODE"
     Push-Location "mimolo/control_proto"
     try {
         npm run start
+        if ($LASTEXITCODE -ne 0) {
+            throw "[dev-stack] control_proto start failed"
+        }
     }
     finally {
         Pop-Location
@@ -484,7 +624,7 @@ function Wait-ForIpcSocket {
         [System.Diagnostics.Process]$OperationsProcess
     )
 
-    function Test-IpcPing {
+    function Test-IpcPingUnix {
         $pythonCmd = Get-Command python3 -ErrorAction SilentlyContinue
         if (-not $pythonCmd) {
             $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
@@ -509,9 +649,53 @@ sys.exit(0 if "\"ok\": true" in data or "\"ok\":true" in data else 1)'
         return ($LASTEXITCODE -eq 0)
     }
 
+    function Test-IpcPingSlowpoke {
+        $paths = Get-SlowpokePaths -Root $env:MIMOLO_IPC_SLOWPOKE_ROOT
+        if (-not (Test-Path $paths.ControlToOps) -or -not (Test-Path $paths.OpsToControl)) {
+            return $false
+        }
+
+        $requestId = "launcher-ping-$([guid]::NewGuid().ToString('N'))"
+        $tempPath = Join-Path $paths.ControlToOps "$requestId.tmp"
+        $requestPath = Join-Path $paths.ControlToOps "$requestId.json"
+        $requestPayload = @{
+            cmd = "ping"
+            request_id = $requestId
+        } | ConvertTo-Json -Compress
+
+        Set-Content -LiteralPath $tempPath -Value $requestPayload -NoNewline
+        Move-Item -LiteralPath $tempPath -Destination $requestPath -Force
+
+        $deadline = (Get-Date).AddSeconds(1)
+        while ((Get-Date) -lt $deadline) {
+            $responseFiles = Get-ChildItem -LiteralPath $paths.OpsToControl -Filter "*.json" -File -ErrorAction SilentlyContinue | Sort-Object Name
+            foreach ($responseFile in $responseFiles) {
+                try {
+                    $raw = Get-Content -LiteralPath $responseFile.FullName -Raw
+                    $payload = $raw | ConvertFrom-Json
+                    Remove-Item -LiteralPath $responseFile.FullName -Force -ErrorAction SilentlyContinue
+                    if ($payload.request_id -eq $requestId -and $payload.ok -eq $true) {
+                        return $true
+                    }
+                }
+                catch {
+                    Remove-Item -LiteralPath $responseFile.FullName -Force -ErrorAction SilentlyContinue
+                }
+            }
+            Start-Sleep -Milliseconds 100
+        }
+
+        return $false
+    }
+
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        if ((Test-Path $env:MIMOLO_IPC_PATH) -and (Test-IpcPing)) {
+        if ($env:MIMOLO_IPC_MODE -eq "slowpoke") {
+            if (Test-IpcPingSlowpoke) {
+                return $true
+            }
+        }
+        elseif ((Test-Path $env:MIMOLO_IPC_PATH) -and (Test-IpcPingUnix)) {
             return $true
         }
         if ($OperationsProcess.HasExited) {
@@ -521,11 +705,21 @@ sys.exit(0 if "\"ok\": true" in data or "\"ok\":true" in data else 1)'
         Start-Sleep -Milliseconds 200
     }
 
-    if (Test-Path $env:MIMOLO_IPC_PATH) {
+    if ($env:MIMOLO_IPC_MODE -eq "slowpoke") {
+        if (Test-IpcPingSlowpoke) {
+            return $true
+        }
+    }
+    elseif (Test-Path $env:MIMOLO_IPC_PATH) {
         return $true
     }
 
-    Write-Host "[dev-stack] IPC socket not ready after ${TimeoutSeconds}s: $env:MIMOLO_IPC_PATH"
+    if ($env:MIMOLO_IPC_MODE -eq "slowpoke") {
+        Write-Host "[dev-stack] IPC slowpoke transport not ready after ${TimeoutSeconds}s: $env:MIMOLO_IPC_SLOWPOKE_ROOT"
+    }
+    else {
+        Write-Host "[dev-stack] IPC socket not ready after ${TimeoutSeconds}s: $env:MIMOLO_IPC_PATH"
+    }
     Write-Host "[dev-stack] Operations may not expose IPC yet in current runtime."
     return $false
 }
@@ -585,6 +779,10 @@ switch ($Command) {
     "env" {
         Write-Host "MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
         Write-Host ('$env:MIMOLO_IPC_PATH="' + $env:MIMOLO_IPC_PATH + '"')
+        Write-Host "MIMOLO_IPC_MODE=$env:MIMOLO_IPC_MODE"
+        Write-Host ('$env:MIMOLO_IPC_MODE="' + $env:MIMOLO_IPC_MODE + '"')
+        Write-Host "MIMOLO_IPC_SLOWPOKE_ROOT=$env:MIMOLO_IPC_SLOWPOKE_ROOT"
+        Write-Host ('$env:MIMOLO_IPC_SLOWPOKE_ROOT="' + $env:MIMOLO_IPC_SLOWPOKE_ROOT + '"')
         Write-Host "MIMOLO_OPS_LOG_PATH=$env:MIMOLO_OPS_LOG_PATH"
         Write-Host ('$env:MIMOLO_OPS_LOG_PATH="' + $env:MIMOLO_OPS_LOG_PATH + '"')
         Write-Host "MIMOLO_REPO_ROOT=$env:MIMOLO_REPO_ROOT"

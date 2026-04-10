@@ -24,6 +24,7 @@ from rich.console import Console
 from mimolo.core.config import Config, PluginConfig
 from mimolo.core.cooldown import CooldownTimer
 from mimolo.core.errors import SinkError
+from mimolo.core.ipc import derive_slowpoke_root, normalize_ipc_mode
 from mimolo.core.plugin_store import PluginStore
 from mimolo.core.runtime_agent_events import (
     coerce_timestamp,
@@ -153,9 +154,15 @@ class Runtime:
 
         # IPC server support for Control prototype
         self._ipc_socket_path: str | None = os.environ.get("MIMOLO_IPC_PATH")
+        self._ipc_mode = normalize_ipc_mode(os.environ.get("MIMOLO_IPC_MODE"))
+        self._ipc_slowpoke_root = derive_slowpoke_root(
+            self._ipc_socket_path or "",
+            os.environ.get("MIMOLO_IPC_SLOWPOKE_ROOT"),
+        )
         self._ipc_stop_event = threading.Event()
         self._ipc_thread: threading.Thread | None = None
         self._ipc_server_socket: socket.socket | None = None
+        self._ipc_slowpoke_channel: Any | None = None
         self._plugin_store = PluginStore()
         self._perf_state = new_runtime_perf_state()
 
@@ -233,6 +240,13 @@ class Runtime:
             except OSError:
                 # OSError: server socket may already be closed by worker thread.
                 pass
+
+        if self._ipc_slowpoke_channel is not None:
+            try:
+                self._ipc_slowpoke_channel.close()
+            except OSError:
+                pass
+            self._ipc_slowpoke_channel = None
 
         if self._ipc_thread is not None:
             self._ipc_thread.join(timeout=1.0)

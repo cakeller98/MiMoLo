@@ -68,6 +68,11 @@ declare module "node:fs/promises" {
     size: number;
   }
 
+  export interface Dirent {
+    isFile(): boolean;
+    name: string;
+  }
+
   export interface WriteFileOptions {
     flag?: string;
   }
@@ -76,11 +81,21 @@ declare module "node:fs/promises" {
     path: string,
     encoding: "utf8"
   ): Promise<string>;
+  export function readdir(
+    path: string,
+    options?: { withFileTypes?: false }
+  ): Promise<string[]>;
+  export function readdir(
+    path: string,
+    options: { withFileTypes: true }
+  ): Promise<Dirent[]>;
   export function stat(path: string): Promise<Stats>;
   export function mkdir(
     path: string,
     options?: { recursive?: boolean }
   ): Promise<void>;
+  export function rename(oldPath: string, newPath: string): Promise<void>;
+  export function unlink(path: string): Promise<void>;
   export function writeFile(
     path: string,
     data: string,
@@ -91,6 +106,7 @@ declare module "node:fs/promises" {
 declare module "node:path" {
   interface PathModule {
     dirname(path: string): string;
+    join(...paths: string[]): string;
   }
 
   const path: PathModule;

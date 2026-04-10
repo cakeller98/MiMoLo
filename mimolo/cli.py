@@ -25,7 +25,7 @@ from mimolo.common.paths import get_mimolo_data_dir
 from mimolo.core.config import Config, load_config_or_default
 from mimolo.core.errors import ConfigError
 from mimolo.core.event import Event
-from mimolo.core.ipc import check_platform_support
+from mimolo.core.ipc import check_platform_support, effective_ipc_mode, normalize_ipc_mode
 from mimolo.core.logging_setup import init_orchestrator_logging
 from mimolo.core.ops_singleton import OperationsSingletonLock
 from mimolo.core.runtime import Runtime
@@ -33,17 +33,36 @@ from mimolo.core.runtime import Runtime
 console = Console()
 
 
-def _check_platform_or_exit() -> None:
+def _check_platform_or_exit(require_ipc: bool) -> None:
+    requested_mode = normalize_ipc_mode(os.environ.get("MIMOLO_IPC_MODE"))
+    resolved_mode = effective_ipc_mode(os.environ.get("MIMOLO_IPC_MODE"))
     supported, reason = check_platform_support()
     if not supported:
-        console.print(f"[red]ERROR: {reason}[/red]")
-        console.print("\n[yellow]MiMoLo requires:[/yellow]")
-        console.print("  - Windows 10 version 1803+ (April 2018 or later)")
-        console.print("  - macOS 10.13 High Sierra or later")
-        console.print("  - Modern Linux (kernel 2.6+)")
-        console.print("\n[dim]Your platform is not supported.[/dim]")
-        sys.exit(1)
+        if require_ipc:
+            if requested_mode == "unix":
+                console.print(f"[red]ERROR: {reason}[/red]")
+                console.print("\n[yellow]MiMoLo IPC currently requires:[/yellow]")
+                console.print("  - A Python build with AF_UNIX socket support")
+                console.print("  - Windows 10 version 1803+ when using Windows AF_UNIX")
+                console.print("  - macOS 10.13 High Sierra or later")
+                console.print("  - Modern Linux (kernel 2.6+)")
+                console.print(
+                    "\n[dim]Switch MIMOLO_IPC_MODE to auto/slowpoke, disable IPC, or use a supported Python build.[/dim]"
+                )
+                sys.exit(1)
+            console.print(f"[yellow]Platform check warning:[/yellow] {reason}")
+            console.print(
+                f"[dim]Continuing with {resolved_mode} IPC mode (requested={requested_mode}).[/dim]"
+            )
+            return
+        console.print(f"[yellow]Platform check warning:[/yellow] {reason}")
+        console.print("[dim]Continuing without IPC support.[/dim]")
+        return
     console.print(f"[dim]Platform check: {reason}[/dim]")
+    if require_ipc:
+        console.print(
+            f"[dim]IPC mode: requested={requested_mode} resolved={resolved_mode}[/dim]"
+        )
 
 
 def _apply_monitor_env_overrides(config: Config) -> None:
@@ -112,7 +131,8 @@ def _run_ops_command(
     Loads configuration, registers plugins, and runs the main event loop.
     """
     try:
-        _check_platform_or_exit()
+        require_ipc = bool(os.environ.get("MIMOLO_IPC_PATH"))
+        _check_platform_or_exit(require_ipc=require_ipc)
 
         # Load config
         config = load_config_or_default(config_path)

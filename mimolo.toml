@@ -18,6 +18,13 @@
   console_verbosity = "warning"
 
 # Control (Control Proto / dashboard IPC cadence + retry behavior)
+journal_dir = "./journals"
+cache_dir = "./cache"
+main_system_max_cpu_per_plugin = 0.1
+agent_heartbeat_timeout_s = 30.0
+diagnostics_enabled = true
+diagnostics_log_dir = "./logs/diagnostics"
+diagnostics_retention_days = 14
 [control]
   # Polling cadence when Operations is reachable.
   status_poll_connected_s = 1.0
@@ -58,10 +65,6 @@
   widget_auto_refresh_default_s = 15.0
 
   # Agent Configuration
-  journal_dir = "./journals"
-  cache_dir = "./cache"
-  main_system_max_cpu_per_plugin = 0.1
-  agent_heartbeat_timeout_s = 30.0
 [plugins.agent_template]
   enabled = true
   plugin_type = "agent"
@@ -102,13 +105,7 @@
   enabled = true
   plugin_type = "agent"
   executable = "poetry"
-  args = [
-    "run",
-    "python",
-    "client_folder_activity/client_folder_activity.py",
-    "--watch-path",
-    "/Users/christopherkeller/Desktop/PROJECTS/CODE_2025/MiMoLo/monitor_this_folder",
-  ]
+  args = ["run", "python", "client_folder_activity/client_folder_activity.py", "--watch-path", "M:/Clients/Belkerr"]
   heartbeat_interval_s = 3.0
   agent_flush_interval_s = 60.0
   launch_in_separate_terminal = false
