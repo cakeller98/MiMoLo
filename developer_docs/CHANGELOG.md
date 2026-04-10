@@ -2,6 +2,31 @@
 
 All notable documentation changes under `developer_docs/` are tracked in this file.
 
+## 2026-02-12
+
+### Changed
+- Clarified mismatch governance wording across canonical docs:
+  - replaced “code/tests are implementation truth when docs differ” with explicit reconciliation policy:
+    - pause implementation on mismatch,
+    - discuss with developer,
+    - update canonical docs,
+    - then continue.
+  - updated:
+    - `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
+    - `developer_docs/2026.02.10 CODE-MEGASCAN/context_dump.md`
+    - `developer_docs/2026.02.05 NOTES/UNIFIED_WORKFLOW_INTENT.md`
+- Clarified and locked document roles to reduce drift risk:
+  - `developer_docs/2026.02.10 CODE-MEGASCAN/context_dump.md` is now explicitly marked as ephemeral blast-notes (date-stamped, discuss-major-changes-before-action).
+  - `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md` is now explicitly locked as single-source implementation priority/todo truth.
+  - `developer_docs/CHANGELOG.md` remains completion history only (not a planning source).
+- Removed cross-doc priority ambiguity by aligning execution order in docs:
+  - locked order is now `Item 13 -> Item 15 -> Item 14 -> Item 12`.
+  - updated:
+    - `developer_docs/2026.02.10 CODE-MEGASCAN/context_dump.md`
+    - `developer_docs/2026.02.05 NOTES/GROUND_TRUTH_IMPLEMENTATION_MATRIX.md`
+- Added explicit deduplication guidance to prevent competing “next action” statements across docs:
+  - matrix is authoritative if any conflict appears.
+
 ## 2026-02-11
 
 ### Changed
