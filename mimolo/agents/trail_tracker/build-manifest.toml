@@ -1,0 +1,5 @@
+plugin_id = "trail_tracker"
+version = "0.1.0"
+kind = "agent"
+entry = "files/trail_tracker.py"
+files = ["trail_tracker.py"]

@@ -15,7 +15,7 @@
   log_format = "jsonl"
 
   # Console verbosity: debug, info, warning, error
-  console_verbosity = "warning"
+  console_verbosity = "debug"
 
 # Control (Control Proto / dashboard IPC cadence + retry behavior)
 journal_dir = "./journals"
@@ -109,3 +109,12 @@ diagnostics_retention_days = 14
   heartbeat_interval_s = 3.0
   agent_flush_interval_s = 60.0
   launch_in_separate_terminal = false
+
+[plugins."Creo Tracker"]
+enabled = true
+plugin_type = "agent"
+executable = "V:\\CODE\\MiMoLo\\.venv\\Scripts\\python.exe"
+args = ["trail_tracker/trail_tracker.py"]
+heartbeat_interval_s = 15.0
+agent_flush_interval_s = 60.0
+launch_in_separate_terminal = true
