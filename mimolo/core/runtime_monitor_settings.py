@@ -40,11 +40,13 @@ def update_monitor_settings(
     previous_monitor = runtime.config.monitor
     runtime.config.monitor = updated_monitor
     runtime.cooldown.cooldown_seconds = updated_monitor.cooldown_seconds
+    runtime.console_sink.verbosity = updated_monitor.console_verbosity
 
     saved, save_detail = runtime._persist_runtime_config()
     if not saved:
         runtime.config.monitor = previous_monitor
         runtime.cooldown.cooldown_seconds = previous_monitor.cooldown_seconds
+        runtime.console_sink.verbosity = previous_monitor.console_verbosity
         return False, save_detail, {}
 
     return True, "updated", runtime._snapshot_monitor_settings()

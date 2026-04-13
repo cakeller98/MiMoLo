@@ -53,13 +53,17 @@ def handle_agent_summary(runtime: Runtime, label: str, msg: object) -> None:
         try:
             runtime.file_sink.write_event(event)
         except SinkError as e:
-            runtime.console.print(f"[red]Sink error writing agent summary: {e}[/red]")
+            runtime._console_print_safe(
+                f"[red]Sink error writing agent summary: {e}[/red]"
+            )
 
         if runtime.config.monitor.console_verbosity in ("debug", "info"):
             runtime.console_sink.write_event(event)
 
     except (AttributeError, TypeError, ValueError, RuntimeError) as e:
-        runtime.console.print(f"[red]Error handling agent summary {label}: {e}[/red]")
+        runtime._console_print_safe(
+            f"[red]Error handling agent summary {label}: {e}[/red]"
+        )
 
 
 def handle_heartbeat(runtime: Runtime, label: str, msg: object) -> None:
@@ -82,7 +86,7 @@ def handle_heartbeat(runtime: Runtime, label: str, msg: object) -> None:
         if runtime.config.monitor.console_verbosity == "debug":
             metrics = getattr(msg, "metrics", {})
             metrics_str = f" | {metrics}" if metrics else ""
-            runtime.console.print(f"[cyan]❤️  {label}{metrics_str}[/cyan]")
+            runtime._console_print_safe(f"[cyan]❤️  {label}{metrics_str}[/cyan]")
         raw_metrics = getattr(msg, "metrics", {})
         metrics_payload: dict[str, Any]
         if isinstance(raw_metrics, dict):
@@ -96,7 +100,9 @@ def handle_heartbeat(runtime: Runtime, label: str, msg: object) -> None:
             data={"metrics": metrics_payload},
         )
     except (AttributeError, RuntimeError, TypeError, ValueError) as e:
-        runtime.console.print(f"[red]Error handling heartbeat from {label}: {e}[/red]")
+        runtime._console_print_safe(
+            f"[red]Error handling heartbeat from {label}: {e}[/red]"
+        )
 
 
 def handle_agent_log(runtime: Runtime, label: str, msg: object) -> None:
@@ -142,16 +148,16 @@ def handle_agent_log(runtime: Runtime, label: str, msg: object) -> None:
             lines = message_text.split("\n")
             for line in lines:
                 if markup:
-                    runtime.console.print(prefix + line)
+                    runtime._console_print_safe(prefix + line)
                 else:
-                    runtime.console.print(prefix + line, markup=False)
+                    runtime._console_print_safe(prefix + line, markup=False)
         else:
             if markup:
-                runtime.console.print(prefix + message_text)
+                runtime._console_print_safe(prefix + message_text)
             else:
-                runtime.console.print(prefix + message_text, markup=False)
-    except (AttributeError, RuntimeError, TypeError, ValueError) as e:
-        runtime.console.print(
+                runtime._console_print_safe(prefix + message_text, markup=False)
+    except (AttributeError, RuntimeError, TypeError, ValueError, UnicodeEncodeError) as e:
+        runtime._console_print_safe(
             f"[red]Error rendering log from {label} (markup={markup}): {e}[/red]"
         )
     runtime._write_diagnostic_event(
@@ -169,7 +175,7 @@ def handle_agent_log(runtime: Runtime, label: str, msg: object) -> None:
 def handle_agent_error(runtime: Runtime, label: str, msg: object) -> None:
     """Handle an error message from an agent."""
     error_message = getattr(msg, "message", None) or getattr(msg, "data", None)
-    runtime.console.print(f"[red]Agent {label} error: {error_message}[/red]")
+    runtime._console_print_safe(f"[red]Agent {label} error: {error_message}[/red]")
     runtime._write_diagnostic_event(
         label=label,
         event="error",

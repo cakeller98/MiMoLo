@@ -24,6 +24,49 @@ if (-not $env:TEMP) {
     $env:TEMP = [System.IO.Path]::GetTempPath()
 }
 
+$IsWindowsPlatform = $false
+$IsMacOSPlatform = $false
+if ($PSVersionTable.PSVersion.Major -ge 6) {
+    $IsWindowsPlatform = [bool]$IsWindows
+    $IsMacOSPlatform = [bool]$IsMacOS
+}
+else {
+    $IsWindowsPlatform = ($env:OS -eq "Windows_NT")
+    $IsMacOSPlatform = $false
+}
+
+function Get-MimoloPersistentRoot {
+    if ($IsWindowsPlatform) {
+        $base = $env:APPDATA
+        if ([string]::IsNullOrWhiteSpace($base)) {
+            $base = Join-Path $HOME "AppData\Roaming"
+        }
+    }
+    elseif ($IsMacOSPlatform) {
+        $base = Join-Path $HOME "Library/Application Support"
+    }
+    else {
+        $base = $env:XDG_DATA_HOME
+        if ([string]::IsNullOrWhiteSpace($base)) {
+            $base = Join-Path $HOME ".local/share"
+        }
+    }
+
+    return Join-Path $base "mimolo"
+}
+
+function Get-MimoloRuntimeRoot {
+    if ($IsWindowsPlatform) {
+        $base = $env:LOCALAPPDATA
+        if ([string]::IsNullOrWhiteSpace($base)) {
+            $base = Join-Path $HOME "AppData\Local"
+        }
+        return Join-Path $base "mimolo\run"
+    }
+
+    return Join-Path (Get-MimoloPersistentRoot) "run"
+}
+
 $ConfigFile = Join-Path $PSScriptRoot "mml.toml"
 $DefaultCommand = "all"
 $DefaultStack = "proto"
@@ -41,14 +84,10 @@ $ConfigBundleBundleIdProto = ""
 $ConfigBundleBundleIdControl = ""
 $ConfigBundleDevModeDefault = ""
 $DefaultIpcMode = "auto"
-if ($IsWindows) {
-    $DefaultIpcPath = Join-Path $env:TEMP "mimolo\operations.sock"
-    $DefaultOpsLogPath = Join-Path $env:TEMP "mimolo\operations.log"
-}
-else {
-    $DefaultIpcPath = Join-Path $env:TEMP "mimolo/operations.sock"
-    $DefaultOpsLogPath = Join-Path $env:TEMP "mimolo/operations.log"
-}
+$PersistentRoot = Get-MimoloPersistentRoot
+$RuntimeRoot = Get-MimoloRuntimeRoot
+$DefaultIpcPath = Join-Path $RuntimeRoot "operations.sock"
+$DefaultOpsLogPath = Join-Path (Join-Path $PersistentRoot "logs") "operations.log"
 
 function Get-TomlValue {
     param(
@@ -115,6 +154,26 @@ function Get-SlowpokePaths {
         Root = $Root
         ControlToOps = Join-Path $Root "control_to_ops"
         OpsToControl = Join-Path $Root "ops_to_control"
+    }
+}
+
+function Test-SamePath {
+    param(
+        [string]$Left,
+        [string]$Right
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Left) -or [string]::IsNullOrWhiteSpace($Right)) {
+        return $false
+    }
+
+    try {
+        $leftPath = [System.IO.Path]::GetFullPath($Left)
+        $rightPath = [System.IO.Path]::GetFullPath($Right)
+        return [string]::Equals($leftPath, $rightPath, [System.StringComparison]::OrdinalIgnoreCase)
+    }
+    catch {
+        return [string]::Equals($Left, $Right, [System.StringComparison]::OrdinalIgnoreCase)
     }
 }
 
@@ -322,16 +381,22 @@ if ($ArgsRest.Count -gt 0) {
     $ArgsRest = $filtered
 }
 
-if (-not $env:MIMOLO_IPC_PATH) {
+$LegacyDefaultIpcPath = Join-Path $env:TEMP "mimolo\operations.sock"
+$LegacyDefaultOpsLogPath = Join-Path $env:TEMP "mimolo\operations.log"
+
+if ((-not $env:MIMOLO_IPC_PATH) -or (Test-SamePath -Left $env:MIMOLO_IPC_PATH -Right $LegacyDefaultIpcPath)) {
     $env:MIMOLO_IPC_PATH = $DefaultIpcPath
 }
 if (-not $env:MIMOLO_IPC_MODE) {
     $env:MIMOLO_IPC_MODE = Resolve-IpcMode
 }
-if (-not $env:MIMOLO_IPC_SLOWPOKE_ROOT) {
+if (
+    (-not $env:MIMOLO_IPC_SLOWPOKE_ROOT) -or
+    (Test-SamePath -Left $env:MIMOLO_IPC_SLOWPOKE_ROOT -Right (Get-SlowpokeRoot -IpcPath $LegacyDefaultIpcPath))
+) {
     $env:MIMOLO_IPC_SLOWPOKE_ROOT = Get-SlowpokeRoot -IpcPath $env:MIMOLO_IPC_PATH
 }
-if (-not $env:MIMOLO_OPS_LOG_PATH) {
+if ((-not $env:MIMOLO_OPS_LOG_PATH) -or (Test-SamePath -Left $env:MIMOLO_OPS_LOG_PATH -Right $LegacyDefaultOpsLogPath)) {
     $env:MIMOLO_OPS_LOG_PATH = $DefaultOpsLogPath
 }
 if (-not $env:MIMOLO_REPO_ROOT) {
@@ -445,7 +510,7 @@ function Show-MimoloProcesses {
     $pattern = [regex]::new("mimolo\.cli (ops|monitor)|mimolo-control|control_proto|mml\.(sh|ps1)|MiMoLo", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
     Write-Host "[dev-stack] MiMoLo-related processes:"
 
-    if ($IsWindows) {
+    if ($IsWindowsPlatform) {
         $rows = Get-CimInstance Win32_Process | Where-Object {
             $cmd = if ($null -eq $_.CommandLine) { "" } else { $_.CommandLine }
             $name = if ($null -eq $_.Name) { "" } else { $_.Name }
@@ -621,7 +686,7 @@ function Invoke-BundleApp {
 function Wait-ForIpcSocket {
     param(
         [int]$TimeoutSeconds,
-        [System.Diagnostics.Process]$OperationsProcess
+        [System.Diagnostics.Process]$OperationsProcess = $null
     )
 
     function Test-IpcPingUnix {
@@ -698,7 +763,7 @@ sys.exit(0 if "\"ok\": true" in data or "\"ok\":true" in data else 1)'
         elseif ((Test-Path $env:MIMOLO_IPC_PATH) -and (Test-IpcPingUnix)) {
             return $true
         }
-        if ($OperationsProcess.HasExited) {
+        if ($null -ne $OperationsProcess -and $OperationsProcess.HasExited) {
             Write-Host "[dev-stack] Operations exited before socket became ready."
             return $false
         }
@@ -732,9 +797,27 @@ function Run-AllTarget {
     )
 
     Write-Host "[dev-stack] Starting Operations in background..."
+    if (Wait-ForIpcSocket -TimeoutSeconds 1) {
+        Write-Host "[dev-stack] Existing Operations instance detected; reusing current IPC endpoint."
+        if ($Target -eq "proto") {
+            Write-Host "[dev-stack] Launching proto..."
+            Launch-Proto
+            return
+        }
+
+        Write-Host "[dev-stack] Launching Control app..."
+        Launch-Control
+        return
+    }
+
     $opsArguments = @("run", "python", "-m", "mimolo.cli", "ops") + $OpsArgs
     if ($Target -eq "proto") {
-        Set-Content -Path $env:MIMOLO_OPS_LOG_PATH -Value ""
+        try {
+            Set-Content -Path $env:MIMOLO_OPS_LOG_PATH -Value ""
+        }
+        catch {
+            Write-Host "[dev-stack] Operations log is busy; preserving existing file: $env:MIMOLO_OPS_LOG_PATH"
+        }
         Write-Host "[dev-stack] Operations log file: $env:MIMOLO_OPS_LOG_PATH"
         $opsProc = Start-Process -FilePath "poetry" -ArgumentList $opsArguments -PassThru -RedirectStandardOutput $env:MIMOLO_OPS_LOG_PATH
     }

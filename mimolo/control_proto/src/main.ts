@@ -153,24 +153,40 @@ const publishRuntimePerf = windowPublisher.publishRuntimePerf.bind(windowPublish
 
 const opsLogTailer = new OpsLogTailer(opsLogPath, publishLine);
 
-const getIpcTimingSnapshot = () => ({
-  requestTimeoutMs: Math.max(
+const getIpcTimingSnapshot = () => {
+  const requestTimeoutMs = Math.max(
     1,
     Math.round(controlTimingSettings.ipc_request_timeout_s * 1000),
-  ),
-  backoffInitialMs: Math.max(
+  );
+  const backoffInitialMs = Math.max(
     1,
     Math.round(controlTimingSettings.ipc_connect_backoff_initial_s * 1000),
-  ),
-  backoffExtendedMs: Math.max(
+  );
+  const backoffExtendedMs = Math.max(
     1,
     Math.round(controlTimingSettings.ipc_connect_backoff_extended_s * 1000),
-  ),
-  backoffEscalateAfter: Math.max(
+  );
+  const backoffEscalateAfter = Math.max(
     1,
     Math.floor(controlTimingSettings.ipc_connect_backoff_escalate_after),
-  ),
-});
+  );
+
+  if (ipcMode === "slowpoke") {
+    return {
+      requestTimeoutMs: Math.max(requestTimeoutMs, 5000),
+      backoffInitialMs: Math.max(backoffInitialMs, 1000),
+      backoffExtendedMs: Math.max(backoffExtendedMs, 5000),
+      backoffEscalateAfter,
+    };
+  }
+
+  return {
+    requestTimeoutMs,
+    backoffInitialMs,
+    backoffExtendedMs,
+    backoffEscalateAfter,
+  };
+};
 
 const ipcClient =
   ipcMode === "slowpoke"

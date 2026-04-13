@@ -48,6 +48,7 @@ class AgentHandle:
     _stdout_thread: threading.Thread | None = None
     _stderr_thread: threading.Thread | None = None
     stderr_log: str | None = None
+    tail_process: subprocess.Popen[Any] | None = None
     _running: bool = True
 
     def start_reader(self) -> None:
@@ -166,6 +167,24 @@ class AgentHandle:
                 logger.warning(
                     f"[{self.label}] Failed to join stdout reader thread: {e}"
                 )
+
+        if self.tail_process is not None and self.tail_process.poll() is None:
+            try:
+                self.tail_process.terminate()
+            except OSError as e:
+                logger.warning(
+                    f"[{self.label}] Failed to terminate tail window process: {e}"
+                )
+            try:
+                self.tail_process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                try:
+                    self.tail_process.kill()
+                except OSError as e:
+                    logger.warning(
+                        f"[{self.label}] Failed to kill tail window process: {e}"
+                    )
+            self.tail_process = None
 
 
 class AgentProcessManager:
@@ -366,6 +385,23 @@ class AgentProcessManager:
         for handle in handles:
             if handle.is_alive():
                 handle.shutdown()
+            elif handle.tail_process is not None and handle.tail_process.poll() is None:
+                try:
+                    handle.tail_process.terminate()
+                except OSError as e:
+                    logger.warning(
+                        f"[{handle.label}] Failed to terminate tail window process during shutdown_all: {e}"
+                    )
+                try:
+                    handle.tail_process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    try:
+                        handle.tail_process.kill()
+                    except OSError as e:
+                        logger.warning(
+                            f"[{handle.label}] Failed to kill tail window process during shutdown_all: {e}"
+                        )
+                handle.tail_process = None
 
         # Do not clear `self.agents` here — let the caller decide when to
         # discard handles after draining any outstanding messages.

@@ -15,7 +15,7 @@
   log_format = "jsonl"
 
   # Console verbosity: debug, info, warning, error
-  console_verbosity = "debug"
+  console_verbosity = "warning"
 
 # Control (Control Proto / dashboard IPC cadence + retry behavior)
 journal_dir = "./journals"
@@ -105,7 +105,7 @@ diagnostics_retention_days = 14
   enabled = true
   plugin_type = "agent"
   executable = "poetry"
-  args = ["run", "python", "client_folder_activity/client_folder_activity.py", "--watch-path", "M:/Clients/Belkerr"]
+  args = ["run", "python", "client_folder_activity/client_folder_activity.py", "--watch-path", "M:/Clients/Belker"]
   heartbeat_interval_s = 3.0
   agent_flush_interval_s = 60.0
   launch_in_separate_terminal = false
@@ -118,3 +118,4 @@ args = ["trail_tracker/trail_tracker.py"]
 heartbeat_interval_s = 15.0
 agent_flush_interval_s = 60.0
 launch_in_separate_terminal = true
+

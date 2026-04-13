@@ -143,6 +143,10 @@ function sleepMs(ms: number): Promise<void> {
   });
 }
 
+function isSlowpokeMode(env: RuntimeProcess["env"]): boolean {
+  return (env.MIMOLO_IPC_MODE || "").trim().toLowerCase() === "slowpoke";
+}
+
 export class OperationsController {
   private readonly deps: OperationsControllerDependencies;
   private operationsProcess: ReturnType<typeof spawn> | null = null;
@@ -557,6 +561,14 @@ export class OperationsController {
     return false;
   }
 
+  private getExternalStopDisconnectTimeoutMs(): number {
+    const configuredMs = Math.max(1, this.deps.getStopWaitDisconnectTimeoutMs());
+    if (isSlowpokeMode(this.deps.runtimeProcess.env)) {
+      return Math.max(configuredMs, 20000);
+    }
+    return configuredMs;
+  }
+
   private async requestOperationsStopOverIpc(): Promise<{ error?: string; ok: boolean }> {
     try {
       const stopResponse = await this.deps.sendIpcCommand(
@@ -580,9 +592,14 @@ export class OperationsController {
     }
 
     const disconnected = await this.waitForIpcDisconnect(
-      Math.max(1, this.deps.getStopWaitDisconnectTimeoutMs()),
+      this.getExternalStopDisconnectTimeoutMs(),
     );
     if (!disconnected) {
+      if (this.deps.getLastStatusState() !== "connected") {
+        return {
+          ok: true,
+        };
+      }
       return {
         ok: false,
         error: "external_stop_timeout",
@@ -591,6 +608,20 @@ export class OperationsController {
     return {
       ok: true,
     };
+  }
+
+  private async probeExternalOperationsReachable(): Promise<boolean> {
+    try {
+      const response = await this.deps.sendIpcCommand(
+        "ping",
+        undefined,
+        undefined,
+        "background",
+      );
+      return response.ok === true;
+    } catch {
+      return false;
+    }
   }
 
   private async start(): Promise<OperationsControlResult> {
@@ -610,12 +641,15 @@ export class OperationsController {
     }
 
     if (this.deps.getLastStatusState() === "connected") {
-      this.deps.setOperationsControlState("running", "external_unmanaged", false, null);
-      return {
-        ok: false,
-        error: "operations_running_unmanaged",
-        state: this.deps.getOperationsControlState(),
-      };
+      const externallyReachable = await this.probeExternalOperationsReachable();
+      if (externallyReachable) {
+        this.deps.setOperationsControlState("running", "external_unmanaged", false, null);
+        return {
+          ok: false,
+          error: "operations_running_unmanaged",
+          state: this.deps.getOperationsControlState(),
+        };
+      }
     }
 
     const spawnCwd = this.getSpawnCwd();

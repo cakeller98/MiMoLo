@@ -34,7 +34,7 @@ def persist_runtime_config(runtime: Runtime) -> tuple[bool, str]:
         return True, "saved"
     except ConfigError as e:
         detail = f"save_failed:{e}"
-        runtime.console.print(f"[red]Failed to save config: {e}[/red]")
+        runtime._console_print_safe(f"[red]Failed to save config: {e}[/red]")
         return False, detail
 
 

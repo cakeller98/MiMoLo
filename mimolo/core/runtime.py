@@ -179,16 +179,18 @@ class Runtime:
         self._running = True
         self._start_ipc_server()
         self._start_agents()
-        self.console.print("[bold green]MiMoLo starting...[/bold green]")
-        self.console.print(f"Cooldown: {self.config.monitor.cooldown_seconds}s")
-        self.console.print(f"Poll tick: {self.config.monitor.poll_tick_s}s")
+        self._console_print_safe("[bold green]MiMoLo starting...[/bold green]")
+        self._console_print_safe(f"Cooldown: {self.config.monitor.cooldown_seconds}s")
+        self._console_print_safe(f"Poll tick: {self.config.monitor.poll_tick_s}s")
 
         agent_count = len(self.agent_manager.agents)
-        self.console.print(f"Agents: {agent_count}")
-        self.console.print()
+        self._console_print_safe(f"Agents: {agent_count}")
+        self._console_print_safe("")
 
         if agent_count == 0:
-            self.console.print("[yellow]No Agents configured. Nothing to monitor.[/yellow]")
+            self._console_print_safe(
+                "[yellow]No Agents configured. Nothing to monitor.[/yellow]"
+            )
             return
 
         try:
@@ -204,14 +206,14 @@ class Runtime:
                 time.sleep(self.config.monitor.poll_tick_s)
 
         except KeyboardInterrupt:
-            self.console.print("\n[yellow]Shutting down...[/yellow]")
+            self._console_print_safe("\n[yellow]Shutting down...[/yellow]")
         finally:
             self._shutdown()
 
     def _debug(self, message: str) -> None:
         """Print a debug-only message to the console."""
         if self.config.monitor.console_verbosity == "debug":
-            self.console.print(message)
+            self._console_print_safe(message)
 
     def _start_ipc_server(self) -> None:
         """Start background IPC server for Control commands."""
@@ -393,6 +395,27 @@ class Runtime:
         except SinkError as exc:
             # SinkError: diagnostics write failures should not break orchestrator flow.
             self._debug(f"[yellow]Diagnostics sink write failed: {exc}[/yellow]")
+
+    def _console_safe_text(self, text: object) -> str:
+        """Return console-safe text for legacy terminals that reject Unicode."""
+        rendered = str(text)
+        encoding = self.console.encoding or "utf-8"
+        try:
+            rendered.encode(encoding)
+            return rendered
+        except UnicodeEncodeError:
+            return rendered.encode("ascii", errors="replace").decode("ascii")
+
+    def _console_print_safe(self, text: object, *, markup: bool = True) -> None:
+        """Print to console with Unicode fallback for legacy Windows terminals."""
+        rendered = str(text)
+        encoding = (self.console.encoding or "utf-8").lower()
+        if encoding not in ("utf-8", "utf8"):
+            rendered = self._console_safe_text(rendered)
+        try:
+            self.console.print(rendered, markup=markup)
+        except UnicodeEncodeError:
+            self.console.print(self._console_safe_text(rendered), markup=markup)
 
     def _resolve_screen_tracker_thumbnail(
         self, instance_id: str

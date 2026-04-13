@@ -99,14 +99,14 @@ def ipc_server_loop(runtime: Runtime) -> None:
         return
 
     if AF_UNIX == -1:
-        runtime.console.print(
+        runtime._console_print_safe(
             "[red]IPC disabled: this Python build does not provide AF_UNIX sockets.[/red]"
         )
         return
 
     socket_path = runtime._ipc_socket_path
     if len(socket_path) > MAX_SOCKET_PATH_LENGTH:
-        runtime.console.print(
+        runtime._console_print_safe(
             f"[red]IPC socket path too long ({len(socket_path)} > {MAX_SOCKET_PATH_LENGTH}).[/red]"
         )
         return
@@ -148,7 +148,7 @@ def ipc_server_loop(runtime: Runtime) -> None:
             ipc_conn_thread.start()
     except OSError as e:
         # OSError: bind/listen can fail due path/permission conflicts.
-        runtime.console.print(f"[red]IPC server failed to start: {e}[/red]")
+        runtime._console_print_safe(f"[red]IPC server failed to start: {e}[/red]")
     finally:
         if server_sock is not None:
             try:
@@ -207,7 +207,9 @@ def _ipc_server_loop_slowpoke(runtime: Runtime) -> None:
             response = handle_ipc_line(runtime, line)
             channel.write_line(response)
     except OSError as e:
-        runtime.console.print(f"[red]IPC slowpoke server failed to start: {e}[/red]")
+        runtime._console_print_safe(
+            f"[red]IPC slowpoke server failed to start: {e}[/red]"
+        )
     finally:
         if channel is not None:
             channel.close()

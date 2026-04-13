@@ -72,7 +72,7 @@ def _reap_unexpected_agent_exits(runtime: Runtime, now: datetime) -> None:
         last_heartbeat = (
             handle.last_heartbeat.isoformat() if handle.last_heartbeat else None
         )
-        runtime.console.print(
+        runtime._console_print_safe(
             f"[red]Agent {label} exited unexpectedly (code={exit_code})[/red]"
         )
         runtime._write_diagnostic_event(
@@ -88,6 +88,12 @@ def _reap_unexpected_agent_exits(runtime: Runtime, now: datetime) -> None:
         )
         detail = f"exit_code:{exit_code}" if exit_code is not None else "exit_code:unknown"
         runtime._set_agent_state(label, "error", detail)
+        if handle.tail_process is not None and handle.tail_process.poll() is None:
+            try:
+                handle.tail_process.terminate()
+            except OSError:
+                pass
+            handle.tail_process = None
         del runtime.agent_manager.agents[label]
 
 
@@ -115,10 +121,10 @@ def _maybe_send_flush(
         else:
             sent = False
         if runtime.config.monitor.console_verbosity == "debug":
-            runtime.console.print(f"[cyan]Sent flush to {label}[/cyan]")
+            runtime._console_print_safe(f"[cyan]Sent flush to {label}[/cyan]")
         return (True, sent)
     except (OSError, RuntimeError, ValueError, TypeError) as e:
-        runtime.console.print(f"[red]Error sending flush to {label}: {e}[/red]")
+        runtime._console_print_safe(f"[red]Error sending flush to {label}: {e}[/red]")
         return (True, False)
 
 
@@ -168,7 +174,7 @@ def _drain_agent_messages(
                 counts["unknown"] += 1
         except (AttributeError, RuntimeError, TypeError, ValueError) as e:
             counts["handler_errors"] += 1
-            runtime.console.print(
+            runtime._console_print_safe(
                 f"[red]Error handling agent message from {label}: {e}[/red]"
             )
     return counts

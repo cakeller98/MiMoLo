@@ -51,14 +51,14 @@ def spawn_agent_for_label(runtime: Runtime, label: str) -> tuple[bool, str]:
         if getattr(plugin_config, "launch_in_separate_terminal", False) and handle.stderr_log:
             from mimolo.core.agent_debug import open_tail_window
 
-            open_tail_window(handle.stderr_log)
+            handle.tail_process = open_tail_window(handle.stderr_log)
         runtime._set_agent_state(label, "running", "spawned")
-        runtime.console.print(f"[green]Spawned Agent: {label}[/green]")
+        runtime._console_print_safe(f"[green]Spawned Agent: {label}[/green]")
         return True, "started"
     except (FileNotFoundError, OSError, PermissionError, RuntimeError, ValueError) as e:
         detail = f"spawn_failed:{e}"
         runtime._set_agent_state(label, "error", detail)
-        runtime.console.print(f"[red]Failed to spawn agent {label}: {e}[/red]")
+        runtime._console_print_safe(f"[red]Failed to spawn agent {label}: {e}[/red]")
         return False, detail
 
 
@@ -76,7 +76,7 @@ def stop_agent_for_label(runtime: Runtime, label: str) -> tuple[bool, str]:
     except (OSError, RuntimeError, ValueError) as e:
         detail = f"stop_failed:{e}"
         runtime._set_agent_state(label, "error", detail)
-        runtime.console.print(f"[red]Failed stopping agent {label}: {e}[/red]")
+        runtime._console_print_safe(f"[red]Failed stopping agent {label}: {e}[/red]")
         return False, detail
 
     runtime.agent_manager.agents.pop(label, None)
