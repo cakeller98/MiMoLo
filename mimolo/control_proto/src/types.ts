@@ -139,3 +139,18 @@ export interface OperationsControlSnapshot {
 export interface OperationsControlRequest {
   action: "start" | "stop" | "restart" | "status";
 }
+
+export type QuitProgressState = "pending" | "active" | "done" | "error";
+
+export interface QuitProgressStep {
+  key: string;
+  label: string;
+  state: QuitProgressState;
+}
+
+export interface QuitProgressPayload {
+  detail?: string;
+  steps: QuitProgressStep[];
+  title: string;
+  visible: boolean;
+}

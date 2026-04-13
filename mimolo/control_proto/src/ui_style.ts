@@ -513,11 +513,71 @@ export const UI_STYLE_CSS = `
         border-radius: 10px;
         padding: 12px;
       }
+      .quit-progress-card {
+        display: grid;
+        gap: 10px;
+      }
       .modal-title {
         font-size: 12px;
         font-weight: 700;
         color: var(--text);
         margin-bottom: 10px;
+      }
+      .quit-progress-detail {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+      .quit-progress-list {
+        display: grid;
+        gap: 6px;
+      }
+      .quit-progress-row {
+        display: grid;
+        grid-template-columns: 10px minmax(0, 1fr);
+        gap: 8px;
+        align-items: center;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #31415b;
+        background: #101722;
+      }
+      .quit-progress-row-active {
+        border-color: #8f7a33;
+        background: #1f1a10;
+      }
+      .quit-progress-row-done {
+        border-color: #355d42;
+        background: #121d17;
+      }
+      .quit-progress-row-error {
+        border-color: #8e4040;
+        background: #241315;
+      }
+      .quit-progress-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--neutral);
+      }
+      .quit-progress-dot-pending {
+        background: var(--neutral);
+      }
+      .quit-progress-dot-active {
+        background: var(--shutting);
+        box-shadow: 0 0 8px rgba(214, 184, 69, 0.6);
+      }
+      .quit-progress-dot-done {
+        background: var(--running);
+        box-shadow: 0 0 8px rgba(47, 207, 112, 0.6);
+      }
+      .quit-progress-dot-error {
+        background: var(--error);
+        box-shadow: 0 0 8px rgba(217, 76, 76, 0.6);
+      }
+      .quit-progress-label {
+        font-size: 11px;
+        color: var(--text);
       }
       .modal-body {
         display: grid;

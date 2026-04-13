@@ -5,6 +5,7 @@ import type {
   MonitorSettingsSnapshot,
   OperationsControlSnapshot,
   OpsStatusPayload,
+  QuitProgressPayload,
   RuntimePerfSnapshot,
 } from "./types.js";
 
@@ -88,5 +89,13 @@ export class WindowPublisher {
       return;
     }
     window.webContents.send("ops:process", state);
+  }
+
+  publishQuitProgress(payload: QuitProgressPayload): void {
+    const window = this.getMainWindow();
+    if (!window) {
+      return;
+    }
+    window.webContents.send("ops:quit-progress", payload);
   }
 }

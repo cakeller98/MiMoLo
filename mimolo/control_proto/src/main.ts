@@ -150,6 +150,8 @@ const publishStatus = windowPublisher.publishStatus.bind(windowPublisher);
 const publishMonitorSettings =
   windowPublisher.publishMonitorSettings.bind(windowPublisher);
 const publishRuntimePerf = windowPublisher.publishRuntimePerf.bind(windowPublisher);
+const publishQuitProgress =
+  windowPublisher.publishQuitProgress.bind(windowPublisher);
 
 const opsLogTailer = new OpsLogTailer(opsLogPath, publishLine);
 
@@ -438,6 +440,7 @@ async function handleQuitRequest(event: { preventDefault: () => void }): Promise
       quitInProgress = value;
     },
     operationsMayBeRunning,
+    publishQuitProgress,
     stopBackgroundLoops,
     quitApp: () => {
       app.quit();
@@ -457,6 +460,19 @@ function createWindow(): void {
     onClosed: () => {
       mainWindow = null;
     },
+  });
+  (
+    mainWindow as unknown as {
+      on: (
+        event: string,
+        listener: (event: { preventDefault: () => void }) => void,
+      ) => void;
+    }
+  ).on("close", (event: { preventDefault: () => void }) => {
+    if (quitInProgress) {
+      return;
+    }
+    void handleQuitRequest(event);
   });
 }
 
@@ -502,16 +518,8 @@ app.whenReady().then(async () => {
   });
 });
 
-app.on("before-quit", () => {
-  // Actual quit handling is centralized in `will-quit` to allow async prompt logic.
-});
-
 app.on("window-all-closed", () => {
   if (runtimeProcess.platform !== "darwin") {
     app.quit();
   }
-});
-
-app.on("will-quit", (event) => {
-  void handleQuitRequest(event);
 });

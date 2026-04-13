@@ -36,6 +36,58 @@ export function buildModalsSection(toastDurationMs: number): string {
         });
       }
 
+      function renderQuitProgressModal(payload) {
+        if (!modalHost) {
+          return;
+        }
+        if (!payload || payload.visible !== true) {
+          modalHost.innerHTML = "";
+          return;
+        }
+        modalHost.innerHTML = "";
+        const overlay = document.createElement("div");
+        overlay.className = "modal-overlay";
+        const card = document.createElement("div");
+        card.className = "modal-card quit-progress-card";
+
+        const title = document.createElement("div");
+        title.className = "modal-title";
+        title.textContent = payload.title || "Shutting down";
+
+        card.appendChild(title);
+
+        if (typeof payload.detail === "string" && payload.detail.trim().length > 0) {
+          const detail = document.createElement("div");
+          detail.className = "quit-progress-detail";
+          detail.textContent = payload.detail;
+          card.appendChild(detail);
+        }
+
+        const list = document.createElement("div");
+        list.className = "quit-progress-list";
+        const steps = Array.isArray(payload.steps) ? payload.steps : [];
+        for (const step of steps) {
+          const row = document.createElement("div");
+          row.className = "quit-progress-row quit-progress-row-" + String(step && step.state ? step.state : "pending");
+
+          const dot = document.createElement("div");
+          dot.className = "quit-progress-dot quit-progress-dot-" + String(step && step.state ? step.state : "pending");
+
+          const label = document.createElement("div");
+          label.className = "quit-progress-label";
+          const state = step && step.state ? String(step.state) : "pending";
+          const suffix = state === "done" ? " [done]" : (state === "error" ? " [failed]" : "");
+          label.textContent = String(step && step.label ? step.label : "step") + suffix;
+
+          row.appendChild(dot);
+          row.appendChild(label);
+          list.appendChild(row);
+        }
+        card.appendChild(list);
+        overlay.appendChild(card);
+        modalHost.appendChild(overlay);
+      }
+
       async function pickTemplateModal(templateIds) {
         return showModal((card, close) => {
           const title = document.createElement("div");

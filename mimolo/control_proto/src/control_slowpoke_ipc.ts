@@ -38,6 +38,8 @@ export class SlowpokeIpcClient {
   private connectFailureCount = 0;
   private nextConnectAttemptAt = 0;
   private readonly pendingRequestQueue: PendingIpcRequest[] = [];
+  private stopped = false;
+  private stopReason = "control_shutdown";
 
   public constructor(deps: SlowpokeIpcClientDependencies) {
     this.deps = deps;
@@ -52,6 +54,9 @@ export class SlowpokeIpcClient {
     trafficLabel?: string,
     trafficClass: IpcTrafficClass = "interactive",
   ): Promise<IpcResponsePayload> {
+    if (this.stopped) {
+      throw new Error(this.stopReason);
+    }
     const providedRequestId =
       extraPayload &&
       typeof extraPayload.request_id === "string" &&
@@ -89,9 +94,13 @@ export class SlowpokeIpcClient {
   public resetBackoff(): void {
     this.connectFailureCount = 0;
     this.nextConnectAttemptAt = 0;
+    this.stopped = false;
+    this.stopReason = "control_shutdown";
   }
 
   public stop(reason: string): void {
+    this.stopped = true;
+    this.stopReason = reason;
     if (this.inFlightRequest) {
       const inFlight = this.inFlightRequest;
       this.inFlightRequest = null;
@@ -118,6 +127,9 @@ export class SlowpokeIpcClient {
   }
 
   private async ensureReady(): Promise<void> {
+    if (this.stopped) {
+      throw new Error(this.stopReason);
+    }
     const now = Date.now();
     if (now < this.nextConnectAttemptAt) {
       throw new Error("ipc_connect_backoff");
@@ -168,6 +180,9 @@ export class SlowpokeIpcClient {
   ): Promise<IpcResponsePayload> {
     const deadline = Date.now() + Math.max(1, timeoutMs);
     while (Date.now() < deadline) {
+      if (this.stopped) {
+        throw new Error(this.stopReason);
+      }
       const raw = await this.readResponse();
       if (!raw) {
         await delay(100);
@@ -209,7 +224,15 @@ export class SlowpokeIpcClient {
     this.queueDrainRunning = true;
 
     try {
+      if (this.stopped) {
+        this.rejectPendingQueue(this.stopReason);
+        return;
+      }
       while (!this.inFlightRequest && this.pendingRequestQueue.length > 0) {
+        if (this.stopped) {
+          this.rejectPendingQueue(this.stopReason);
+          return;
+        }
         try {
           await this.ensureReady();
         } catch (err) {

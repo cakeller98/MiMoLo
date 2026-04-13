@@ -348,6 +348,10 @@ export function buildCardsAndBootstrapSection(): string {
           renderOpsProcessState(payload || {});
         });
 
+        ipcRenderer.on("ops:quit-progress", (_event, payload) => {
+          renderQuitProgressModal(payload || null);
+        });
+
         ipcRenderer.on("ops:monitor-settings", (_event, payload) => {
           const monitor = payload && payload.monitor ? payload.monitor : null;
           renderMonitorSettings(monitor);
