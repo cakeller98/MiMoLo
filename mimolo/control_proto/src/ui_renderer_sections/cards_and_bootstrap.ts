@@ -352,6 +352,14 @@ export function buildCardsAndBootstrapSection(): string {
           renderQuitProgressModal(payload || null);
         });
 
+        ipcRenderer.on("ops:quit-prompt", (_event, payload) => {
+          renderQuitPromptModal(payload || null);
+        });
+
+        ipcRenderer.on("ops:quit-error", (_event, payload) => {
+          renderQuitErrorModal(payload || null);
+        });
+
         ipcRenderer.on("ops:monitor-settings", (_event, payload) => {
           const monitor = payload && payload.monitor ? payload.monitor : null;
           renderMonitorSettings(monitor);

@@ -88,6 +88,112 @@ export function buildModalsSection(toastDurationMs: number): string {
         modalHost.appendChild(overlay);
       }
 
+      function renderQuitPromptModal(payload) {
+        if (!payload || payload.visible !== true) {
+          return;
+        }
+        void showModal((card, close) => {
+          const title = document.createElement("div");
+          title.className = "modal-title";
+          title.textContent = payload.title || "Quit";
+
+          const body = document.createElement("div");
+          body.className = "modal-body";
+
+          const message = document.createElement("div");
+          message.className = "quit-progress-detail";
+          message.textContent = payload.message || "";
+          body.appendChild(message);
+
+          if (typeof payload.detail === "string" && payload.detail.trim().length > 0) {
+            const detail = document.createElement("div");
+            detail.className = "quit-progress-detail";
+            detail.textContent = payload.detail;
+            body.appendChild(detail);
+          }
+
+          const actions = document.createElement("div");
+          actions.className = "modal-actions";
+
+          const shutdownBtn = document.createElement("button");
+          shutdownBtn.textContent = "Shutdown Operations + Agents";
+          shutdownBtn.addEventListener("click", () => {
+            close(0);
+          });
+
+          const leaveBtn = document.createElement("button");
+          leaveBtn.textContent = "Leave Operations Running";
+          leaveBtn.addEventListener("click", () => {
+            close(1);
+          });
+
+          const cancelBtn = document.createElement("button");
+          cancelBtn.textContent = "Cancel";
+          cancelBtn.addEventListener("click", () => {
+            close(2);
+          });
+
+          actions.appendChild(cancelBtn);
+          actions.appendChild(leaveBtn);
+          actions.appendChild(shutdownBtn);
+
+          card.appendChild(title);
+          card.appendChild(body);
+          card.appendChild(actions);
+          shutdownBtn.focus();
+        }).then((response) => {
+          if (!ipcRenderer) {
+            return;
+          }
+          return ipcRenderer.invoke("mml:resolve-quit-prompt", {
+            response: typeof response === "number" ? response : 2,
+          });
+        });
+      }
+
+      function renderQuitErrorModal(payload) {
+        if (!payload || payload.visible !== true) {
+          return;
+        }
+        void showModal((card, close) => {
+          const title = document.createElement("div");
+          title.className = "modal-title";
+          title.textContent = payload.title || "Error";
+
+          const body = document.createElement("div");
+          body.className = "modal-body";
+
+          const message = document.createElement("div");
+          message.className = "quit-progress-detail";
+          message.textContent = payload.message || "";
+          body.appendChild(message);
+
+          const detail = document.createElement("div");
+          detail.className = "quit-progress-detail";
+          detail.textContent = payload.detail || "";
+          body.appendChild(detail);
+
+          const actions = document.createElement("div");
+          actions.className = "modal-actions";
+          const okBtn = document.createElement("button");
+          okBtn.textContent = "OK";
+          okBtn.addEventListener("click", () => {
+            close(true);
+          });
+          actions.appendChild(okBtn);
+
+          card.appendChild(title);
+          card.appendChild(body);
+          card.appendChild(actions);
+          okBtn.focus();
+        }).then(() => {
+          if (!ipcRenderer) {
+            return;
+          }
+          return ipcRenderer.invoke("mml:ack-quit-error");
+        });
+      }
+
       async function pickTemplateModal(templateIds) {
         return showModal((card, close) => {
           const title = document.createElement("div");

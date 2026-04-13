@@ -154,3 +154,17 @@ export interface QuitProgressPayload {
   title: string;
   visible: boolean;
 }
+
+export interface QuitPromptPayload {
+  detail?: string;
+  message: string;
+  title: string;
+  visible: boolean;
+}
+
+export interface QuitErrorPayload {
+  detail: string;
+  message: string;
+  title: string;
+  visible: boolean;
+}

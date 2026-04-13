@@ -10,6 +10,8 @@ import type {
   OperationsControlSnapshot,
   OperationsProcessState,
   OpsStatusPayload,
+  QuitErrorPayload,
+  QuitPromptPayload,
   RuntimeProcess,
 } from "./types.js";
 import { buildHtml } from "./ui_html.js";
@@ -86,6 +88,8 @@ const DEFAULT_MONITOR_SETTINGS: MonitorSettingsSnapshot = {
 };
 
 let quitInProgress = false;
+let pendingQuitPromptResolver: ((response: number) => void) | null = null;
+let pendingQuitErrorResolver: (() => void) | null = null;
 
 function setOperationsControlState(
   state: OperationsProcessState,
@@ -152,6 +156,10 @@ const publishMonitorSettings =
 const publishRuntimePerf = windowPublisher.publishRuntimePerf.bind(windowPublisher);
 const publishQuitProgress =
   windowPublisher.publishQuitProgress.bind(windowPublisher);
+const publishQuitPrompt =
+  windowPublisher.publishQuitPrompt.bind(windowPublisher);
+const publishQuitError =
+  windowPublisher.publishQuitError.bind(windowPublisher);
 
 const opsLogTailer = new OpsLogTailer(opsLogPath, publishLine);
 
@@ -403,33 +411,41 @@ function operationsMayBeRunning(): boolean {
 }
 
 async function promptQuitBehavior(): Promise<number> {
-  const prompt = await dialog.showMessageBox(mainWindow ?? undefined, {
-    type: "question",
-    buttons: [
-      "Shutdown Operations + Agents",
-      "Leave Operations Running",
-      "Cancel",
-    ],
-    defaultId: 0,
-    cancelId: 2,
-    noLink: true,
-    title: "Quit MiMoLo Control Proto",
-    message: "Operations appears active. Choose quit behavior.",
-    detail:
-      "Shutdown will gracefully stop Operations and all Agents before closing Control.",
+  if (!mainWindow) {
+    return 2;
+  }
+  return new Promise<number>((resolve) => {
+    pendingQuitPromptResolver = (response) => {
+      pendingQuitPromptResolver = null;
+      resolve(response);
+    };
+    const payload: QuitPromptPayload = {
+      visible: true,
+      title: "Quit MiMoLo Control Proto",
+      message: "Operations appears active. Choose quit behavior.",
+      detail:
+        "Shutdown will gracefully stop Operations and all Agents before closing Control.",
+    };
+    publishQuitPrompt(payload);
   });
-  return prompt.response;
 }
 
 async function showShutdownError(detail: string): Promise<void> {
-  await dialog.showMessageBox(mainWindow ?? undefined, {
-    type: "error",
-    buttons: ["OK"],
-    defaultId: 0,
-    noLink: true,
-    title: "Shutdown Failed",
-    message: "Unable to stop Operations cleanly.",
-    detail,
+  if (!mainWindow) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    pendingQuitErrorResolver = () => {
+      pendingQuitErrorResolver = null;
+      resolve();
+    };
+    const payload: QuitErrorPayload = {
+      visible: true,
+      title: "Shutdown Failed",
+      message: "Unable to stop Operations cleanly.",
+      detail,
+    };
+    publishQuitError(payload);
   });
 }
 
@@ -500,6 +516,18 @@ registerIpcHandlers({
   inspectPluginArchive,
   installPluginArchive,
   runAgentCommand,
+  resolveQuitPrompt: (response) => {
+    const resolver = pendingQuitPromptResolver;
+    if (resolver) {
+      resolver(response);
+    }
+  },
+  acknowledgeQuitError: () => {
+    const resolver = pendingQuitErrorResolver;
+    if (resolver) {
+      resolver();
+    }
+  },
 });
 
 app.whenReady().then(async () => {

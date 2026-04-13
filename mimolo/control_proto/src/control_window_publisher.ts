@@ -5,7 +5,9 @@ import type {
   MonitorSettingsSnapshot,
   OperationsControlSnapshot,
   OpsStatusPayload,
+  QuitErrorPayload,
   QuitProgressPayload,
+  QuitPromptPayload,
   RuntimePerfSnapshot,
 } from "./types.js";
 
@@ -97,5 +99,21 @@ export class WindowPublisher {
       return;
     }
     window.webContents.send("ops:quit-progress", payload);
+  }
+
+  publishQuitPrompt(payload: QuitPromptPayload): void {
+    const window = this.getMainWindow();
+    if (!window) {
+      return;
+    }
+    window.webContents.send("ops:quit-prompt", payload);
+  }
+
+  publishQuitError(payload: QuitErrorPayload): void {
+    const window = this.getMainWindow();
+    if (!window) {
+      return;
+    }
+    window.webContents.send("ops:quit-error", payload);
   }
 }

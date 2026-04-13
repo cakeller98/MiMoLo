@@ -43,6 +43,8 @@ interface RegisterIpcHandlersDependencies {
   resetReconnectBackoff: () => void;
   runAgentCommand: (payload: ControlCommandPayload) => Promise<IpcResponsePayload>;
   updateMonitorSettings: (updates: Record<string, unknown>) => Promise<IpcResponsePayload>;
+  resolveQuitPrompt: (response: number) => void;
+  acknowledgeQuitError: () => void;
 }
 
 export function registerIpcHandlers(
@@ -317,5 +319,29 @@ export function registerIpcHandlers(
         error: detail,
       };
     });
+  });
+
+  deps.ipcMain.handle("mml:resolve-quit-prompt", (_event, payload: unknown) => {
+    if (!payload || typeof payload !== "object") {
+      return {
+        ok: false,
+        error: "invalid_quit_prompt_payload",
+      };
+    }
+    const raw = payload as Record<string, unknown>;
+    const responseRaw = raw.response;
+    if (typeof responseRaw !== "number" || !Number.isFinite(responseRaw)) {
+      return {
+        ok: false,
+        error: "invalid_quit_prompt_response",
+      };
+    }
+    deps.resolveQuitPrompt(Math.trunc(responseRaw));
+    return { ok: true };
+  });
+
+  deps.ipcMain.handle("mml:ack-quit-error", () => {
+    deps.acknowledgeQuitError();
+    return { ok: true };
   });
 }
