@@ -93,6 +93,7 @@ def handle_heartbeat(runtime: Runtime, label: str, msg: object) -> None:
             metrics_payload = cast(dict[str, Any], raw_metrics)
         else:
             metrics_payload = {}
+        runtime.agent_last_heartbeat_metrics[label] = metrics_payload
         runtime._write_diagnostic_event(
             label=label,
             event="heartbeat",
@@ -205,9 +206,17 @@ def handle_agent_ack(runtime: Runtime, label: str, msg: object) -> None:
 
 def handle_status(runtime: Runtime, label: str, msg: object) -> None:
     """Handle a status message from an agent."""
+    ts = getattr(msg, "timestamp", None)
+    timestamp = coerce_timestamp(runtime, ts)
+    raw_data = getattr(msg, "data", {})
+    if isinstance(raw_data, dict):
+        runtime.agent_last_status[label] = cast(dict[str, Any], raw_data)
+    else:
+        runtime.agent_last_status[label] = {}
+    runtime.agent_last_status_at[label] = timestamp
     runtime._write_diagnostic_event(
         label=label,
         event="status",
-        timestamp=coerce_timestamp(runtime, getattr(msg, "timestamp", None)),
+        timestamp=timestamp,
         data={"data": getattr(msg, "data", {})},
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -75,8 +76,11 @@ def maybe_handle_widget_command(
         return _handle_client_folder_widget_command(
             runtime, cmd, request, now, plugin_id, instance_id
         )
-
-    return _build_not_implemented_widget_response(cmd, request, now, plugin_id, instance_id)
+    if template_id == "trail_tracker":
+        return _handle_trail_tracker_widget_command(
+            runtime, cmd, request, now, plugin_id, instance_id
+        )
+    return _handle_generic_widget_command(runtime, cmd, request, now, plugin_id, instance_id)
 
 
 def _handle_screen_tracker_widget_command(
@@ -183,7 +187,15 @@ def _handle_widget_dispatch_action(
             },
         }
 
-    flush_cmd = OrchestratorCommand(cmd=CommandType.FLUSH)
+    template_id = runtime._infer_template_id(instance_id, runtime.config.plugins[instance_id])
+    command = CommandType.FLUSH
+    wait_for_status = False
+    prior_status_at = runtime.agent_last_status_at.get(instance_id)
+    if template_id in {"trail_tracker", "client_folder_activity"}:
+        command = CommandType.STATUS
+        wait_for_status = True
+
+    flush_cmd = OrchestratorCommand(cmd=command)
     try:
         sent = handle.send_command(flush_cmd)
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
@@ -205,7 +217,17 @@ def _handle_widget_dispatch_action(
         }
 
     if sent:
-        runtime.agent_last_flush[instance_id] = datetime.now(UTC)
+        if command == CommandType.FLUSH:
+            runtime.agent_last_flush[instance_id] = datetime.now(UTC)
+        if wait_for_status:
+            deadline = time.perf_counter() + 1.0
+            while time.perf_counter() < deadline:
+                current_status_at = runtime.agent_last_status_at.get(instance_id)
+                if current_status_at is not None and (
+                    prior_status_at is None or current_status_at > prior_status_at
+                ):
+                    break
+                time.sleep(0.05)
     return {
         "ok": True,
         "cmd": "dispatch_widget_action",
@@ -216,6 +238,7 @@ def _handle_widget_dispatch_action(
             "plugin_id": plugin_id,
             "instance_id": instance_id,
             "action": action,
+            "dispatch_command": command.value,
             "supported_actions": ["refresh"],
             "spec": WIDGET_SPEC_PATH,
         },
@@ -260,6 +283,120 @@ def _handle_client_folder_widget_command(
             else "html_fragment_v1"
         )
         response_data = runtime._build_client_folder_widget_render(
+            instance_id, request_id, mode
+        )
+        response_data.update(
+            {
+                "plugin_id": plugin_id,
+                "instance_id": instance_id,
+                "spec": WIDGET_SPEC_PATH,
+            }
+        )
+        return {
+            "ok": True,
+            "cmd": cmd,
+            "timestamp": now,
+            "data": response_data,
+        }
+
+    return _handle_generic_widget_command(runtime, cmd, request, now, plugin_id, instance_id)
+
+
+def _handle_trail_tracker_widget_command(
+    runtime: Runtime,
+    cmd: str,
+    request: dict[str, Any],
+    now: str,
+    plugin_id: str,
+    instance_id: str,
+) -> dict[str, Any]:
+    if cmd == "get_widget_manifest":
+        response_data = runtime._build_trail_tracker_widget_manifest(instance_id)
+        response_data.update(
+            {
+                "plugin_id": plugin_id,
+                "instance_id": instance_id,
+                "spec": WIDGET_SPEC_PATH,
+            }
+        )
+        return {
+            "ok": True,
+            "cmd": cmd,
+            "timestamp": now,
+            "data": response_data,
+        }
+
+    if cmd == "request_widget_render":
+        request_id_raw = request.get("request_id")
+        request_id = (
+            str(request_id_raw).strip()
+            if request_id_raw is not None and str(request_id_raw).strip()
+            else None
+        )
+        mode_raw = request.get("mode")
+        mode = (
+            str(mode_raw).strip()
+            if mode_raw is not None and str(mode_raw).strip()
+            else "html_fragment_v1"
+        )
+        response_data = runtime._build_trail_tracker_widget_render(
+            instance_id, request_id, mode
+        )
+        response_data.update(
+            {
+                "plugin_id": plugin_id,
+                "instance_id": instance_id,
+                "spec": WIDGET_SPEC_PATH,
+            }
+        )
+        return {
+            "ok": True,
+            "cmd": cmd,
+            "timestamp": now,
+            "data": response_data,
+        }
+
+    return _handle_generic_widget_command(runtime, cmd, request, now, plugin_id, instance_id)
+
+
+def _handle_generic_widget_command(
+    runtime: Runtime,
+    cmd: str,
+    request: dict[str, Any],
+    now: str,
+    plugin_id: str,
+    instance_id: str,
+) -> dict[str, Any]:
+    if cmd == "get_widget_manifest":
+        response_data = runtime._build_generic_agent_widget_manifest(instance_id)
+        response_data.update(
+            {
+                "plugin_id": plugin_id,
+                "instance_id": instance_id,
+                "spec": WIDGET_SPEC_PATH,
+            }
+        )
+        return {
+            "ok": True,
+            "cmd": cmd,
+            "timestamp": now,
+            "data": response_data,
+        }
+
+    if cmd == "request_widget_render":
+        request_id_raw = request.get("request_id")
+        request_id = (
+            str(request_id_raw).strip()
+            if request_id_raw is not None and str(request_id_raw).strip()
+            else None
+        )
+        mode_raw = request.get("mode")
+        mode = (
+            str(mode_raw).strip()
+            if mode_raw is not None and str(mode_raw).strip()
+            else "html_fragment_v1"
+        )
+        response_data = runtime._build_generic_agent_widget_render(
             instance_id, request_id, mode
         )
         response_data.update(

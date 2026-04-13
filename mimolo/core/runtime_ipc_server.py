@@ -38,9 +38,36 @@ def handle_ipc_line(runtime: Runtime, line: str) -> dict[str, Any]:
         if request_id_raw is not None and str(request_id_raw).strip()
         else ""
     )
-    if request_id:
-        response["request_id"] = request_id
-    return response
+    try:
+        response = runtime._build_ipc_response(request)
+        if request_id:
+            response["request_id"] = request_id
+        return response
+    except Exception as exc:
+        runtime._console_print_safe(
+            f"[red]IPC request handling failed: {type(exc).__name__}: {exc}[/red]"
+        )
+        runtime._write_diagnostic_event(
+            label="orchestrator",
+            event="ipc_request_error",
+            timestamp=datetime.now(UTC),
+            data={
+                "request": request,
+                "request_id": request_id or None,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        )
+        return {
+            "ok": False,
+            "timestamp": now,
+            "error": "ipc_request_exception",
+            "data": {
+                "request_id": request_id or None,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            },
+        }
 
 def send_ipc_response(conn: socket.socket, payload: dict[str, Any]) -> bool:
     """Send a single JSON-line response to an IPC client."""
@@ -204,8 +231,22 @@ def _ipc_server_loop_slowpoke(runtime: Runtime) -> None:
             line = channel.read_line()
             if not line:
                 continue
-            response = handle_ipc_line(runtime, line)
-            channel.write_line(response)
+            try:
+                response = handle_ipc_line(runtime, line)
+                channel.write_line(response)
+            except Exception as exc:
+                runtime._console_print_safe(
+                    f"[red]IPC slowpoke loop failed: {type(exc).__name__}: {exc}[/red]"
+                )
+                runtime._write_diagnostic_event(
+                    label="orchestrator",
+                    event="ipc_slowpoke_loop_error",
+                    timestamp=datetime.now(UTC),
+                    data={
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
     except OSError as e:
         runtime._console_print_safe(
             f"[red]IPC slowpoke server failed to start: {e}[/red]"

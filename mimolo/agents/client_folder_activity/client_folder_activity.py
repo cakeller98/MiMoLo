@@ -659,6 +659,61 @@ class ClientFolderActivityAgent(BaseAgent):
         self._segment_start = now
         return start, end, snapshot
 
+    def _build_live_status_snapshot(self, now: datetime) -> dict[str, Any]:
+        counts: Counter[str] = Counter()
+        top_extensions: Counter[str] = Counter()
+        rows: list[dict[str, Any]] = []
+
+        reportable_paths = sorted(
+            self._window_records.items(),
+            key=lambda item: item[1].last_seen,
+            reverse=True,
+        )
+
+        for path_text, record in reportable_paths:
+            if record.deleted:
+                counts["deleted"] += 1
+            if record.created:
+                counts["created"] += 1
+            if record.modified:
+                counts["modified"] += 1
+            if record.created or record.modified or record.deleted:
+                counts["total"] += 1
+            ext = Path(path_text).suffix.lower() or "[no_ext]"
+            top_extensions[ext] += 1
+            if len(rows) < self.widget_recent_rows_limit:
+                row = self._event_record_for_path(path_text)
+                row["event"] = self._widget_event_type_for_record(record)
+                row["seen_at"] = record.last_seen.isoformat(timespec="seconds")
+                rows.append(row)
+
+        return {
+            "schema": "client_folder_activity.status.v1",
+            "client_id": self.client_id,
+            "client_name": self.client_name,
+            "watch_paths": [str(p) for p in self.watch_paths],
+            "counts": {
+                "created": int(counts.get("created", 0)),
+                "modified": int(counts.get("modified", 0)),
+                "deleted": int(counts.get("deleted", 0)),
+                "renamed": 0,
+                "total": int(counts.get("total", 0)),
+            },
+            "recent_widget_rows": rows or list(self._recent_widget_rows[: self.widget_recent_rows_limit]),
+            "top_extensions": [{"ext": ext, "count": int(count)} for ext, count in top_extensions.most_common(10)],
+            "degraded_paths": sorted(self._degraded_paths),
+            "backend": self._watch_backend,
+            "capture_window_s": self.capture_window_s,
+            "reemit_cooldown_s": self.reemit_cooldown_s,
+            "last_event_at": self._last_event_ts.isoformat() if self._last_event_ts is not None else None,
+            "last_event_age_s": (
+                max(0.0, (now - self._last_event_ts).total_seconds())
+                if self._last_event_ts is not None
+                else None
+            ),
+            "sampling_enabled": self.sampling_enabled,
+        }
+
     def _format_summary(
         self, snapshot: dict[str, Any], start: datetime, end: datetime
     ) -> dict[str, Any]:
@@ -739,6 +794,10 @@ class ClientFolderActivityAgent(BaseAgent):
         metrics["capture_window_s"] = self.capture_window_s
         metrics["reemit_cooldown_s"] = self.reemit_cooldown_s
         return metrics
+
+    def _status_payload(self, now: datetime) -> dict[str, Any]:
+        self._accumulate(now)
+        return self._build_live_status_snapshot(now)
 
 
 def main(

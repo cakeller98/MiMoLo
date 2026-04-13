@@ -764,6 +764,15 @@ export class OperationsController {
   private async stop(): Promise<OperationsControlResult> {
     if (!this.operationsProcess) {
       if (this.deps.getLastStatusState() === "connected") {
+        const externallyReachable = await this.probeExternalOperationsReachable();
+        if (!externallyReachable) {
+          this.deps.publishLine("[ops] stop: stale connected state; backend already unreachable");
+          this.deps.setOperationsControlState("stopped", "not_managed", false, null);
+          return {
+            ok: true,
+            state: this.deps.getOperationsControlState(),
+          };
+        }
         this.deps.setOperationsControlState(
           "stopping",
           "external_stop_requested",

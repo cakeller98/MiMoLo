@@ -84,6 +84,13 @@ class BaseAgent(ABC):
             "reason": None,
         }
 
+    def _status_payload(self, now: datetime) -> dict[str, Any]:
+        """Return current non-summary status payload for UI/runtime inspection."""
+        _ = now
+        return {
+            "sampling_enabled": self.sampling_enabled,
+        }
+
     def send_message(self, msg: dict[str, Any]) -> None:
         """Write a JSON message to stdout."""
         print(json.dumps(msg), flush=True)
@@ -208,7 +215,18 @@ class BaseAgent(ABC):
             self.running = False
             self.shutdown_event.set()
         elif cmd_type == "status":
-            pass
+            self.send_message({
+                "type": "status",
+                "timestamp": now.isoformat(),
+                "agent_id": self.agent_id,
+                "agent_label": self.agent_label,
+                "protocol_version": self.protocol_version,
+                "agent_version": self.agent_version,
+                "health": "ok",
+                "message": "Status snapshot",
+                "data": self._status_payload(now),
+                "metrics": self._heartbeat_metrics(),
+            })
 
     def _ack_stop(self, now: datetime) -> None:
         self.send_message({

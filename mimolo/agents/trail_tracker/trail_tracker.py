@@ -336,7 +336,58 @@ class TrailTrackerAgent(BaseAgent):
                 0.0, (datetime.now(UTC) - self._last_activity_at).total_seconds()
             )
         metrics["active_session"] = self._session_id is not None
+        if isinstance(self._latest_file, dict):
+            metrics["latest_file_name"] = self._latest_file.get("name")
+            metrics["latest_file_modified_at"] = self._latest_file.get("modified_at")
+        else:
+            metrics["latest_file_name"] = None
+            metrics["latest_file_modified_at"] = None
         return metrics
+
+    def _status_payload(self, now: datetime) -> dict[str, Any]:
+        """Return immediate trail-tracker state for manual widget refresh."""
+        self._accumulate(now)
+        folder_available = self._trail_folder_available
+        last_activity_age_s: float | None
+        if self._last_activity_at is None:
+            last_activity_age_s = None
+        else:
+            last_activity_age_s = max(
+                0.0, (now - self._last_activity_at).total_seconds()
+            )
+
+        if folder_available is False:
+            state = "path_unavailable"
+            reason = "Trail folder is unavailable."
+        elif last_activity_age_s is not None and last_activity_age_s <= self.sample_interval:
+            state = "active"
+            reason = "Trail activity seen in the current polling window."
+        elif last_activity_age_s is not None and last_activity_age_s <= self.active_window_s:
+            state = "cooling"
+            reason = "No new trail change this poll cycle, but still inside active window."
+        else:
+            state = "inactive"
+            reason = "No trail activity inside the configured active window."
+
+        payload: dict[str, Any] = {
+            "schema": "trail_tracker.status.v1",
+            "trail_dir": str(self.trail_folder),
+            "trail_folder_available": folder_available,
+            "state": state,
+            "state_reason": reason,
+            "poll_interval_s": self.sample_interval,
+            "active_window_s": self.active_window_s,
+            "session_id": self._session_id,
+            "last_activity_at": (
+                self._last_activity_at.isoformat() if self._last_activity_at is not None else None
+            ),
+            "last_activity_age_s": last_activity_age_s,
+            "latest_file": self._latest_file,
+            "pending_change_count": len(self._pending_changes),
+            "changes_seen_total": self._changes_seen_total,
+            "sampling_enabled": self.sampling_enabled,
+        }
+        return payload
 
 
 def main(

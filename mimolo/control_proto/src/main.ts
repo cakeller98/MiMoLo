@@ -513,6 +513,5 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", (event) => {
-  operationsController.haltManagedForShutdown();
   void handleQuitRequest(event);
 });
