@@ -528,6 +528,32 @@ export const UI_STYLE_CSS = `
         color: var(--muted);
         line-height: 1.35;
       }
+      .quit-progress-track {
+        width: 100%;
+        height: 8px;
+        border-radius: 999px;
+        background: #101722;
+        border: 1px solid #31415b;
+        overflow: hidden;
+      }
+      .quit-progress-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #2f7dd9 0%, #56d8a9 100%);
+        transition: width 180ms ease;
+      }
+      .quit-progress-fill-active {
+        position: relative;
+        background:
+          linear-gradient(
+            90deg,
+            rgba(47, 125, 217, 0.9) 0%,
+            rgba(86, 216, 169, 1) 45%,
+            rgba(47, 125, 217, 0.9) 100%
+          );
+        background-size: 220px 100%;
+        animation: quit-progress-slide 1.2s linear infinite;
+      }
       .quit-progress-list {
         display: grid;
         gap: 6px;
@@ -566,6 +592,7 @@ export const UI_STYLE_CSS = `
       .quit-progress-dot-active {
         background: var(--shutting);
         box-shadow: 0 0 8px rgba(214, 184, 69, 0.6);
+        animation: quit-progress-pulse 1s ease-in-out infinite;
       }
       .quit-progress-dot-done {
         background: var(--running);
@@ -578,6 +605,15 @@ export const UI_STYLE_CSS = `
       .quit-progress-label {
         font-size: 11px;
         color: var(--text);
+      }
+      @keyframes quit-progress-slide {
+        from { background-position: 0 0; }
+        to { background-position: 220px 0; }
+      }
+      @keyframes quit-progress-pulse {
+        0% { transform: scale(1); opacity: 0.8; }
+        50% { transform: scale(1.15); opacity: 1; }
+        100% { transform: scale(1); opacity: 0.8; }
       }
       .modal-body {
         display: grid;

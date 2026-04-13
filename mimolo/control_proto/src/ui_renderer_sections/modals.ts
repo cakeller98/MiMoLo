@@ -1,5 +1,7 @@
 export function buildModalsSection(toastDurationMs: number): string {
   return `
+      let quitProgressTracker = null;
+
       function showToast(message, kind) {
         if (!toastHost) {
           return;
@@ -41,9 +43,69 @@ export function buildModalsSection(toastDurationMs: number): string {
           return;
         }
         if (!payload || payload.visible !== true) {
+          quitProgressTracker = null;
           modalHost.innerHTML = "";
           return;
         }
+
+        const isShutdownFlow = payload.title === "Shutting Down Operations";
+        if (isShutdownFlow) {
+          const closeStep = Array.isArray(payload.steps)
+            ? payload.steps.find((step) => step && step.key === "close")
+            : null;
+          const opsStep = Array.isArray(payload.steps)
+            ? payload.steps.find((step) => step && step.key === "ops")
+            : null;
+          const labels = Array.from(instancesByLabel.entries())
+            .filter((entry) => entry[1] && (entry[1].state === "running" || entry[1].state === "shutting-down"))
+            .map((entry) => entry[0])
+            .sort();
+          if (!quitProgressTracker || quitProgressTracker.mode !== "shutdown") {
+            const trackedSteps = [];
+            trackedSteps.push({
+              key: "ops",
+              label: "Operations shutdown requested",
+              state: opsStep && opsStep.state ? opsStep.state : "active",
+            });
+            for (const label of labels) {
+              trackedSteps.push({
+                key: "agent:" + label,
+                label: label,
+                state: "pending",
+              });
+            }
+            trackedSteps.push({
+              key: "close",
+              label: "Close Control",
+              state: closeStep && closeStep.state ? closeStep.state : "pending",
+            });
+            quitProgressTracker = {
+              mode: "shutdown",
+              title: payload.title,
+              detail: payload.detail || "",
+              steps: trackedSteps,
+            };
+          } else {
+            quitProgressTracker.title = payload.title;
+            quitProgressTracker.detail = payload.detail || "";
+            for (const step of quitProgressTracker.steps) {
+              if (step.key === "ops" && opsStep && opsStep.state) {
+                step.state = opsStep.state;
+              }
+              if (step.key === "close" && closeStep && closeStep.state) {
+                step.state = closeStep.state;
+              }
+            }
+          }
+          payload = {
+            ...payload,
+            steps: quitProgressTracker.steps,
+            detail: quitProgressTracker.detail,
+          };
+        } else {
+          quitProgressTracker = null;
+        }
+
         modalHost.innerHTML = "";
         const overlay = document.createElement("div");
         overlay.className = "modal-overlay";
@@ -63,9 +125,21 @@ export function buildModalsSection(toastDurationMs: number): string {
           card.appendChild(detail);
         }
 
+        const steps = Array.isArray(payload.steps) ? payload.steps : [];
+        const completedCount = steps.filter((step) => step && step.state === "done").length;
+        const hasActiveStep = steps.some((step) => step && step.state === "active");
+        const totalCount = Math.max(steps.length, 1);
+        const progressTrack = document.createElement("div");
+        progressTrack.className = "quit-progress-track";
+        const progressFill = document.createElement("div");
+        progressFill.className =
+          "quit-progress-fill" + (hasActiveStep ? " quit-progress-fill-active" : "");
+        progressFill.style.width = String(Math.max(8, Math.min(100, (completedCount / totalCount) * 100))) + "%";
+        progressTrack.appendChild(progressFill);
+        card.appendChild(progressTrack);
+
         const list = document.createElement("div");
         list.className = "quit-progress-list";
-        const steps = Array.isArray(payload.steps) ? payload.steps : [];
         for (const step of steps) {
           const row = document.createElement("div");
           row.className = "quit-progress-row quit-progress-row-" + String(step && step.state ? step.state : "pending");
@@ -86,6 +160,105 @@ export function buildModalsSection(toastDurationMs: number): string {
         card.appendChild(list);
         overlay.appendChild(card);
         modalHost.appendChild(overlay);
+      }
+
+      function updateQuitProgressFromLine(line) {
+        if (!quitProgressTracker || quitProgressTracker.mode !== "shutdown") {
+          return;
+        }
+        const raw = typeof line === "string" ? line.trim() : "";
+        if (!raw) {
+          return;
+        }
+
+        function findStep(agentLabel) {
+          return quitProgressTracker.steps.find((step) => step.key === "agent:" + agentLabel) || null;
+        }
+
+        let match = raw.match(/^Sent shutdown SEQUENCE to (.+)$/);
+        if (match) {
+          const step = findStep(match[1]);
+          if (step && step.state !== "done" && step.state !== "error") {
+            step.state = "active";
+          }
+          renderQuitProgressModal({
+            visible: true,
+            title: quitProgressTracker.title,
+            detail: quitProgressTracker.detail,
+            steps: quitProgressTracker.steps,
+          });
+          return;
+        }
+
+        match = raw.match(/^Agent (.+) ACK\\(stop\\)$/);
+        if (match) {
+          const step = findStep(match[1]);
+          if (step && step.state !== "done" && step.state !== "error") {
+            step.state = "active";
+            step.label = match[1] + " - stop acknowledged";
+          }
+          renderQuitProgressModal({
+            visible: true,
+            title: quitProgressTracker.title,
+            detail: quitProgressTracker.detail,
+            steps: quitProgressTracker.steps,
+          });
+          return;
+        }
+
+        match = raw.match(/^\\[.*\\] Shutting down \\(label=(.+?), /);
+        if (match) {
+          const agentLabel = match[1];
+          const step = findStep(agentLabel);
+          if (step && step.state !== "error") {
+            step.state = "done";
+            step.label = agentLabel;
+          }
+          renderQuitProgressModal({
+            visible: true,
+            title: quitProgressTracker.title,
+            detail: quitProgressTracker.detail,
+            steps: quitProgressTracker.steps,
+          });
+          return;
+        }
+
+        match = raw.match(/^Agent (.+) did not ACK STOP \\(timeout\\)$/);
+        if (!match) match = raw.match(/^Agent (.+) did not send summary after FLUSH \\(timeout\\)$/);
+        if (!match) match = raw.match(/^Agent (.+) did not ACK FLUSH \\(timeout\\)$/);
+        if (!match) match = raw.match(/^Agent (.+) did not ACK SHUTDOWN \\(timeout\\)$/);
+        if (match) {
+          const agentLabel = match[1];
+          const step = findStep(agentLabel);
+          if (step) {
+            step.state = "error";
+            step.label = agentLabel + " - timeout";
+          }
+          renderQuitProgressModal({
+            visible: true,
+            title: quitProgressTracker.title,
+            detail: quitProgressTracker.detail,
+            steps: quitProgressTracker.steps,
+          });
+          return;
+        }
+
+        if (raw === "MiMoLo stopped.") {
+          for (const step of quitProgressTracker.steps) {
+            if (step.key === "ops") {
+              step.state = "done";
+            } else if (step.key.startsWith("agent:") && step.state !== "error") {
+              step.state = "done";
+              step.label = step.key.slice("agent:".length);
+            }
+          }
+          renderQuitProgressModal({
+            visible: true,
+            title: quitProgressTracker.title,
+            detail: quitProgressTracker.detail,
+            steps: quitProgressTracker.steps,
+          });
+        }
       }
 
       function renderQuitPromptModal(payload) {

@@ -470,6 +470,8 @@ function Show-Usage {
     Write-Host "  cleanup     Remove temp_debug, all dist folders, and all __pycache__ folders"
     Write-Host "  bundle-app  Build macOS .app bundle via scripts/bundle_app.sh"
     Write-Host "  ps          List running MiMoLo-related processes (dev diagnostics)"
+    Write-Host "  list-active List suspected active MiMoLo processes"
+    Write-Host "  list-killswitches Print copy/paste kill commands for suspected MiMoLo processes"
     Write-Host "  env         Show current MIMOLO_IPC_PATH and launch commands"
     Write-Host "  operations  Launch Operations (orchestrator): poetry run python -m mimolo.cli ops"
     Write-Host "  control     Launch Electron Control app (mimolo-control)"
@@ -507,22 +509,84 @@ function Launch-Operations {
 }
 
 function Show-MimoloProcesses {
-    $pattern = [regex]::new("mimolo\.cli (ops|monitor)|mimolo-control|control_proto|mml\.(sh|ps1)|MiMoLo", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $rows = Get-MimoloProcessRows
     Write-Host "[dev-stack] MiMoLo-related processes:"
+    if ($null -eq $rows -or $rows.Count -eq 0) {
+        Write-Host "[dev-stack] no matching processes found."
+        return
+    }
+    $rows | Select-Object ProcessId, ParentProcessId, Name, MatchReason, KillSafe, CommandLine | Format-Table -AutoSize
+}
+
+function Get-MimoloProcessRows {
+    $pattern = [regex]::new("mimolo\.cli (ops|monitor)|mimolo-control|control_proto|mml\.(sh|ps1)|MiMoLo", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $repoVenvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 
     if ($IsWindowsPlatform) {
-        $rows = Get-CimInstance Win32_Process | Where-Object {
-            $cmd = if ($null -eq $_.CommandLine) { "" } else { $_.CommandLine }
-            $name = if ($null -eq $_.Name) { "" } else { $_.Name }
-            $cmd.Contains($PSScriptRoot) -or $pattern.IsMatch($cmd) -or $pattern.IsMatch($name)
-        } | Select-Object ProcessId, ParentProcessId, Name, CommandLine
-
-        if ($null -eq $rows -or $rows.Count -eq 0) {
-            Write-Host "[dev-stack] no matching processes found."
-            return
+        try {
+            return Get-CimInstance Win32_Process | Where-Object {
+                $cmd = if ($null -eq $_.CommandLine) { "" } else { $_.CommandLine }
+                $name = if ($null -eq $_.Name) { "" } else { $_.Name }
+                $cmd.Contains($PSScriptRoot) -or $pattern.IsMatch($cmd) -or $pattern.IsMatch($name)
+            } | Sort-Object ProcessId | ForEach-Object {
+                $cmd = if ($null -eq $_.CommandLine) { "" } else { $_.CommandLine }
+                $matchReason = if ($cmd.Contains($PSScriptRoot)) {
+                    "repo_commandline"
+                }
+                elseif ($pattern.IsMatch($cmd)) {
+                    "mimolo_commandline"
+                }
+                else {
+                    "mimolo_name"
+                }
+                [pscustomobject]@{
+                    ProcessId = $_.ProcessId
+                    ParentProcessId = $_.ParentProcessId
+                    Name = $_.Name
+                    MatchReason = $matchReason
+                    KillSafe = $true
+                    CommandLine = $cmd
+                }
+            }
         }
-        $rows | Format-Table -AutoSize
-        return
+        catch {
+            Write-Host "[dev-stack] Win32_Process query denied; falling back to Get-Process."
+            return Get-Process | Where-Object {
+                $pathValue = ""
+                try {
+                    $pathValue = if ($null -eq $_.Path) { "" } else { $_.Path }
+                }
+                catch {
+                    $pathValue = ""
+                }
+                if ([string]::IsNullOrWhiteSpace($pathValue)) {
+                    return $false
+                }
+                return (Test-SamePath -Left $pathValue -Right $repoVenvPython) -or $pathValue.StartsWith($PSScriptRoot, [System.StringComparison]::OrdinalIgnoreCase)
+            } | Sort-Object Id | ForEach-Object {
+                $pathValue = ""
+                try {
+                    $pathValue = if ($null -eq $_.Path) { "" } else { $_.Path }
+                }
+                catch {
+                    $pathValue = ""
+                }
+                $matchReason = if (Test-SamePath -Left $pathValue -Right $repoVenvPython) {
+                    "repo_venv_path_only"
+                }
+                else {
+                    "repo_path_only"
+                }
+                [pscustomobject]@{
+                    ProcessId = $_.Id
+                    ParentProcessId = ""
+                    Name = $_.ProcessName
+                    MatchReason = $matchReason
+                    KillSafe = $false
+                    CommandLine = $pathValue
+                }
+            }
+        }
     }
 
     try {
@@ -530,20 +594,57 @@ function Show-MimoloProcesses {
     }
     catch {
         Write-Host "[dev-stack] unable to query process table (permission denied or unsupported environment)."
-        return
+        return @()
     }
     if ($LASTEXITCODE -ne 0) {
         Write-Host "[dev-stack] unable to query process table."
-        return
+        return @()
     }
     $matches = $raw | Where-Object {
         $_ -match [regex]::Escape($PSScriptRoot) -or $pattern.IsMatch($_)
     }
     if ($null -eq $matches -or $matches.Count -eq 0) {
+        return @()
+    }
+    return $matches | ForEach-Object {
+        $line = $_.Trim()
+        $parts = $line -split '\s+', 5
+        [pscustomobject]@{
+            ProcessId = $parts[0]
+            ParentProcessId = $parts[1]
+            Name = $parts[4]
+            MatchReason = "commandline_match"
+            KillSafe = $true
+            CommandLine = $parts[4]
+        }
+    }
+}
+
+function Show-MimoloKillSwitches {
+    $rows = Get-MimoloProcessRows
+    Write-Host "[dev-stack] MiMoLo process kill switches:"
+    if ($null -eq $rows -or $rows.Count -eq 0) {
         Write-Host "[dev-stack] no matching processes found."
         return
     }
-    $matches
+
+    $killable = @($rows | Where-Object { $_.KillSafe -eq $true })
+    if ($killable.Count -eq 0) {
+        Write-Host "[dev-stack] no high-confidence kill targets found."
+        Write-Host "[dev-stack] use .\\mml.ps1 list-active to inspect suspected processes manually."
+        return
+    }
+
+    if ($IsWindowsPlatform) {
+        foreach ($row in $killable) {
+            Write-Host ('Stop-Process -Id ' + $row.ProcessId + ' -Force')
+        }
+        return
+    }
+
+    foreach ($row in $killable) {
+        Write-Host ('kill -TERM ' + $row.ProcessId)
+    }
 }
 
 function Launch-Control {
@@ -897,6 +998,8 @@ switch ($Command) {
         Write-Host "  .\mml.ps1 --dev [command]"
         Write-Host "  .\mml.ps1 operations"
         Write-Host "  .\mml.ps1 ps"
+        Write-Host "  .\mml.ps1 list-active"
+        Write-Host "  .\mml.ps1 list-killswitches"
         Write-Host "  .\mml.ps1 control"
         Write-Host "  .\mml.ps1 proto"
         Write-Host "  .\mml.ps1 all-proto"
@@ -912,6 +1015,12 @@ switch ($Command) {
     }
     "processes" {
         Show-MimoloProcesses
+    }
+    "list-active" {
+        Show-MimoloProcesses
+    }
+    "list-killswitches" {
+        Show-MimoloKillSwitches
     }
     "prepare" {
         if ($NoCache.IsPresent) {

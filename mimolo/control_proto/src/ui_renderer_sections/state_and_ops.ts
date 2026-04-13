@@ -57,6 +57,7 @@ export function buildStateAndOpsSection(controlDevMode: boolean): string {
       let bootstrapAutoStartAttempted = false;
 
       function append(line) {
+        updateQuitProgressFromLine(line);
         lines.push(line);
         if (lines.length > maxLines) lines.shift();
         logEl.textContent = lines.join("\\n");

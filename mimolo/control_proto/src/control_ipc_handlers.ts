@@ -35,6 +35,7 @@ interface RegisterIpcHandlersDependencies {
   ipcMain: IpcMain;
   ipcPath: string;
   opsLogPath: string;
+  refreshStatusNow: () => Promise<void>;
   refreshMonitorSettings: () => Promise<void>;
   refreshTemplatesCached: (
     forceRefresh?: boolean,
@@ -50,7 +51,12 @@ interface RegisterIpcHandlersDependencies {
 export function registerIpcHandlers(
   deps: RegisterIpcHandlersDependencies,
 ): void {
-  deps.ipcMain.handle("mml:initial-state", () => {
+  deps.ipcMain.handle("mml:initial-state", async () => {
+    try {
+      await deps.refreshStatusNow();
+    } catch {
+      // Best-effort status refresh; fall back to current cached state.
+    }
     return {
       ipcPath: deps.ipcPath,
       opsLogPath: deps.opsLogPath,

@@ -507,6 +507,7 @@ registerIpcHandlers({
   resetReconnectBackoff: resetIpcConnectBackoff,
   controlOperations: (request) => operationsController.control(request),
   prepareRuntime: () => operationsController.prepareRuntime(),
+  refreshStatusNow: refreshIpcStatus,
   refreshTemplatesCached,
   refreshMonitorSettings,
   updateMonitorSettings,

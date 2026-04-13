@@ -159,8 +159,7 @@ export function buildCardsAndBootstrapSection(): string {
           return;
         }
         try {
-          await prepareRuntimeIfNeeded();
-          const state = await ipcRenderer.invoke("mml:initial-state");
+          let state = await ipcRenderer.invoke("mml:initial-state");
           ipcPathEl.textContent = state.ipcPath || "(unset)";
           opsLogPathEl.textContent = state.opsLogPath || "(unset)";
           setStatus(state.status.state + " - " + state.status.detail);
@@ -168,10 +167,31 @@ export function buildCardsAndBootstrapSection(): string {
           renderOpsProcessState(state.opsControl || {});
           renderMonitorSettings(state.monitorSettings || null);
           renderInstances(state.instances || {});
-          const opsState = state && state.opsControl && typeof state.opsControl.state === "string"
+          let opsState = state && state.opsControl && typeof state.opsControl.state === "string"
             ? state.opsControl.state
             : "";
-          const linkState = state && state.status && typeof state.status.state === "string"
+          let linkState = state && state.status && typeof state.status.state === "string"
+            ? state.status.state
+            : "";
+          if (linkState === "connected" || opsState === "running") {
+            setBootstrapProgress(100, "Runtime ready");
+            setBootstrapDone();
+            return;
+          }
+
+          await prepareRuntimeIfNeeded();
+          state = await ipcRenderer.invoke("mml:initial-state");
+          ipcPathEl.textContent = state.ipcPath || "(unset)";
+          opsLogPathEl.textContent = state.opsLogPath || "(unset)";
+          setStatus(state.status.state + " - " + state.status.detail);
+          applyGlobalBgState(state.status.state, state.status.detail);
+          renderOpsProcessState(state.opsControl || {});
+          renderMonitorSettings(state.monitorSettings || null);
+          renderInstances(state.instances || {});
+          opsState = state && state.opsControl && typeof state.opsControl.state === "string"
+            ? state.opsControl.state
+            : "";
+          linkState = state && state.status && typeof state.status.state === "string"
             ? state.status.state
             : "";
           if (
