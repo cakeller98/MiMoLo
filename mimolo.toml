@@ -116,6 +116,6 @@ plugin_type = "agent"
 executable = "V:\\CODE\\MiMoLo\\.venv\\Scripts\\python.exe"
 args = ["trail_tracker/trail_tracker.py"]
 heartbeat_interval_s = 15.0
-agent_flush_interval_s = 10.0
+agent_flush_interval_s = 60.0
 launch_in_separate_terminal = false
 
