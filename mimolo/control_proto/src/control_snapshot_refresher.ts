@@ -84,8 +84,17 @@ export class ControlSnapshotRefresher {
       );
       if (response.ok) {
         this.setStatus("connected", "ipc_ready");
-        if (!this.deps.hasManagedOperationsProcess()) {
-          const opsState = this.deps.getOperationsControlState();
+        const opsState = this.deps.getOperationsControlState();
+        if (this.deps.hasManagedOperationsProcess()) {
+          if (opsState.state === "starting") {
+            this.deps.setOperationsControlState(
+              "running",
+              "spawned_by_control",
+              true,
+              opsState.pid,
+            );
+          }
+        } else {
           if (
             opsState.state !== "stopping" ||
             opsState.detail !== "external_stop_requested"
@@ -286,11 +295,7 @@ export class ControlSnapshotRefresher {
       return;
     }
     const opsState = this.deps.getOperationsControlState();
-    if (
-      opsState.state === "stopping" &&
-      opsState.detail === "external_stop_requested"
-    ) {
-      this.deps.setOperationsControlState("stopped", "stopped_via_ipc", false, null);
+    if (opsState.state === "starting" || opsState.state === "stopping") {
       return;
     }
     this.deps.setOperationsControlState("stopped", "not_managed", false, null);

@@ -32,6 +32,43 @@ Commit-message rule:
 3. Extend the generic base agent contract.
 4. Only then bring `trail_tracker` into alignment.
 
+## Current Checkpoint Status
+
+### Completed / Mostly Completed
+
+- Step 1 has been substantially advanced:
+  - structured per-agent shutdown diagnostics were added
+  - Windows-safe runtime console printing was hardened
+  - launcher/runtime paths were moved out of `%TEMP%` into AppData roots
+  - slowpoke IPC start/stop timing was improved in Control
+  - monitor settings now apply live without backend restart
+  - detached per-agent tail windows are now tracked and closed with agent lifecycle
+  - Control now preserves explicit Operations phase transitions (`starting`,
+    `stopping`, waiting-for-IPC / waiting-for-exit)
+- Additional blocking runtime work was completed because it was required to make
+  Step 1 testable on Windows:
+  - Control stale-status start gating was hardened
+  - launcher reuse of an already-running Operations instance was hardened
+  - folder watcher startup/shutdown backlog behavior was reduced
+
+### Not Yet Complete
+
+- Step 1 is not fully closed until repeated restart/stop behavior is consistently
+  clean under the current Windows slowpoke setup.
+- Step 2 has not started yet.
+- Step 3 has not started yet.
+- `trail_tracker` widget/render support is still not implemented.
+
+### Immediate Next Task After Current Commit
+
+- Implement `trail_tracker` widget manifest/render support so the Control UI can
+  show:
+  - waiting / idle / active session state
+  - latest trail file seen
+  - last activity timestamp
+  - clear indication that the agent is alive even when no trail activity has
+    occurred yet
+
 ## Step 1: Fix Shutdown / Flush Contract
 
 ### Goal
@@ -75,6 +112,15 @@ Primary files likely involved:
 - normal agent ticking still works
 - clean shutdown still works
 - diagnostics now show whether shutdown was clean or defective
+
+### Current Status
+
+- Partially complete and currently usable.
+- Diagnostics are in place.
+- Control now surfaces more explicit startup / shutdown phases.
+- Remaining concern:
+  - restart/stop behavior on Windows slowpoke mode still needs continued manual
+    confirmation to fully close this step.
 
 ### Manual Test Expectation
 

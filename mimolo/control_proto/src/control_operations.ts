@@ -210,6 +210,7 @@ export class OperationsController {
       return this.stop();
     }
     if (request.action === "restart") {
+      this.deps.publishLine("[ops] restart requested");
       const stopResult = await this.stop();
       if (!stopResult.ok && stopResult.error !== "operations_not_managed") {
         return stopResult;
@@ -570,6 +571,7 @@ export class OperationsController {
   }
 
   private async requestOperationsStopOverIpc(): Promise<{ error?: string; ok: boolean }> {
+    this.deps.publishLine("[ops] stop: sending ipc stop request");
     try {
       const stopResponse = await this.deps.sendIpcCommand(
         "control_orchestrator",
@@ -591,20 +593,24 @@ export class OperationsController {
       };
     }
 
+    this.deps.publishLine("[ops] stop: waiting for ipc disconnect");
     const disconnected = await this.waitForIpcDisconnect(
       this.getExternalStopDisconnectTimeoutMs(),
     );
     if (!disconnected) {
       if (this.deps.getLastStatusState() !== "connected") {
+        this.deps.publishLine("[ops] stop: ipc disconnected after timeout window");
         return {
           ok: true,
         };
       }
+      this.deps.publishLine("[ops] stop: timed out waiting for ipc disconnect");
       return {
         ok: false,
         error: "external_stop_timeout",
       };
     }
+    this.deps.publishLine("[ops] stop: ipc disconnected");
     return {
       ok: true,
     };
@@ -654,6 +660,8 @@ export class OperationsController {
 
     const spawnCwd = this.getSpawnCwd();
 
+    this.deps.setOperationsControlState("starting", "preparing_runtime", false, null);
+    this.deps.publishLine("[ops] start: preparing runtime");
     const runtimeReady = await this.ensurePortableRuntimeReady(spawnCwd);
     if (!runtimeReady.ok) {
       const detail = runtimeReady.error || "runtime_prepare_failed";
@@ -665,6 +673,7 @@ export class OperationsController {
       };
     }
 
+    this.deps.publishLine("[ops] start: launching operations process");
     this.deps.setOperationsControlState("starting", "launching", true, null);
     if (this.deps.opsLogPath) {
       try {
@@ -687,11 +696,12 @@ export class OperationsController {
       this.operationsStopRequested = false;
       this.operationsProcess = child;
       this.deps.setOperationsControlState(
-        "running",
-        "spawned_by_control",
+        "starting",
+        "spawned_waiting_for_ipc",
         true,
         typeof child.pid === "number" ? child.pid : null,
       );
+      this.deps.publishLine("[ops] start: waiting for ipc ready");
 
       if (child.stdout) {
         child.stdout.on("data", (chunk: unknown) => {
@@ -760,6 +770,7 @@ export class OperationsController {
           false,
           null,
         );
+        this.deps.publishLine("[ops] stop: requesting external operations shutdown");
         const stopResult = await this.requestOperationsStopOverIpc();
         if (!stopResult.ok) {
           this.deps.setOperationsControlState("running", "external_unmanaged", false, null);
@@ -790,8 +801,16 @@ export class OperationsController {
         true,
         typeof child.pid === "number" ? child.pid : null,
       );
+      this.deps.publishLine("[ops] stop: requesting managed operations shutdown via ipc");
       const stopResult = await this.requestOperationsStopOverIpc();
       if (stopResult.ok) {
+        this.deps.setOperationsControlState(
+          "stopping",
+          "waiting_for_managed_exit",
+          true,
+          typeof child.pid === "number" ? child.pid : null,
+        );
+        this.deps.publishLine("[ops] stop: waiting for managed process exit");
         await waitForProcessExit(
           child,
           Math.max(1, this.deps.getStopWaitManagedExitMs()),
@@ -811,10 +830,11 @@ export class OperationsController {
     this.operationsStopRequested = true;
     this.deps.setOperationsControlState(
       "stopping",
-      "stop_requested",
+      "sigterm_requested",
       true,
       typeof child.pid === "number" ? child.pid : null,
     );
+    this.deps.publishLine("[ops] stop: sending SIGTERM to managed process");
 
     try {
       child.kill("SIGTERM");
@@ -833,6 +853,13 @@ export class OperationsController {
       Math.max(1, this.deps.getStopWaitGracefulExitMs()),
     );
     if (!exitedGracefully && this.operationsProcess === child) {
+      this.deps.setOperationsControlState(
+        "stopping",
+        "sigkill_requested",
+        true,
+        typeof child.pid === "number" ? child.pid : null,
+      );
+      this.deps.publishLine("[ops] stop: escalating to SIGKILL");
       try {
         child.kill("SIGKILL");
       } catch (err) {

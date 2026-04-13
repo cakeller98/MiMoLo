@@ -3,6 +3,53 @@
 All notable changes to this project will be documented in this file.
 Documentation-only history is tracked separately in `developer_docs/CHANGELOG.md`.
 
+## 2026-04-12
+
+### Added
+- Added stronger Windows fallback support for running Operations and Control on
+  systems where Python does not expose AF_UNIX sockets:
+  - file-backed slowpoke IPC mode is now part of the supported fallback path
+  - Control and launcher behavior were hardened around that mode
+- Added structured shutdown diagnostics so Operations can record which agents
+  acknowledged stop/flush/shutdown during clean shutdown.
+
+### Changed
+- Improved Windows launcher defaults and usability:
+  - Operations log now defaults to AppData Roaming instead of `%TEMP%`
+  - runtime IPC path now defaults to LocalAppData instead of `%TEMP%`
+  - rerunning `mml.ps1` is less likely to fail on a locked log file
+  - launcher can reuse a live Operations instance more safely
+- Improved Operations start/stop/restart behavior in Control:
+  - better handling of slowpoke IPC timing
+  - better recovery from stale disconnected IPC state
+  - clearer start/stop/restart phase tracking in Control
+- Improved live monitor controls:
+  - changing monitor settings such as `console_verbosity` now takes effect
+    immediately without requiring an Operations restart
+- Improved agent debug-window behavior:
+  - detached tail windows are now tied to agent lifecycle and cleaned up more
+    reliably
+- Improved file-monitor startup and shutdown behavior:
+  - folder watcher no longer treats an existing watched tree as a giant initial
+    synthetic event flood
+  - folder watcher and Creo trail tracker avoid an extra filesystem rescan after
+    `STOP` during shutdown flush, reducing restart/shutdown stalls
+
+### Fixed
+- Fixed several Windows-specific runtime/control stability problems that could
+  make restart and shutdown behavior look dead or inconsistent under slowpoke
+  IPC.
+- Fixed a launcher path drift issue that had been writing runtime logs into
+  temporary directories instead of persistent app-data locations.
+- Fixed live monitor verbosity changes not propagating fully into the running
+  Operations console sink.
+
+### Known Limitations
+- `Creo Tracker` still does not have a widget canvas render path in Control, so
+  it can appear idle/invisible even when the agent itself is running.
+- Floodgate/screen capture may still report `capture_backend_unavailable`
+  depending on the current machine environment.
+
 ## 2026-02-10
 
 ### Changed

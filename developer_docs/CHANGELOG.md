@@ -2,6 +2,31 @@
 
 All notable documentation changes under `developer_docs/` are tracked in this file.
 
+## 2026-04-12
+
+### Added
+- Added focused runtime/trail-tracker planning and design docs for the current
+  Windows stabilization and trail-signal work:
+  - `developer_docs/2026-04-12_TRAIL_SIGNAL_AND_FAULT_TOLERANCE.md`
+  - `developer_docs/2026-04-12_STAGED_RUNTIME_AND_TRAIL_TRACKER_TODO.md`
+
+### Changed
+- Updated the staged runtime/trail-tracker plan to reflect current execution
+  status:
+  - shutdown/flush correctness is partially completed and substantially
+    hardened
+  - Windows-specific runtime/control fixes are now recorded as blocking work
+    completed to make the staged plan testable
+  - the next immediate implementation target is now the `trail_tracker` widget
+    manifest/render path
+- Updated protocol/status documentation to reflect the current implementation
+  state for:
+  - live monitor-settings mutation
+  - structured shutdown diagnostics
+  - slowpoke IPC fallback on Windows
+  - tracked tail-window lifecycle
+  - remaining `trail_tracker` widget gap
+
 ## 2026-02-12
 
 ### Changed

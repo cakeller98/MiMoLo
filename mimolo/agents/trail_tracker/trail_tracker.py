@@ -209,7 +209,10 @@ class TrailTrackerAgent(BaseAgent):
 
     def _take_snapshot(self, now: datetime) -> tuple[datetime, datetime, dict[str, Any]]:
         """Return one compact evidence snapshot for the current flush."""
-        self._accumulate(now)
+        # During shutdown we flush buffered state only; avoid rescanning the
+        # trail directory after STOP so ACK(flush) is prompt and deterministic.
+        if self.sampling_enabled:
+            self._accumulate(now)
         start = self._session_started_at or now
         last_activity = self._last_activity_at
         pending_changes = list(self._pending_changes)

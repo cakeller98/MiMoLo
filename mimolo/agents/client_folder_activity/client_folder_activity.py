@@ -99,6 +99,7 @@ class ClientFolderActivityAgent(BaseAgent):
 
         self._segment_start: datetime | None = None
         self._last_snapshot: dict[str, tuple[int, int]] = {}
+        self._baseline_initialized = False
         self._window_records: dict[str, _WindowPathRecord] = {}
         self._events_seen_total = 0
         self._last_event_ts: datetime | None = None
@@ -475,6 +476,11 @@ class ClientFolderActivityAgent(BaseAgent):
         events: list[tuple[datetime, str, str]] = []
         current_snapshot, degraded_paths = self._scan_filesystem()
 
+        if not self._baseline_initialized:
+            self._last_snapshot = current_snapshot
+            self._baseline_initialized = True
+            return events, degraded_paths
+
         current_keys = set(current_snapshot.keys())
         previous_keys = set(self._last_snapshot.keys())
 
@@ -567,8 +573,10 @@ class ClientFolderActivityAgent(BaseAgent):
         self._prune_window_records(now)
 
     def _take_snapshot(self, now: datetime) -> tuple[datetime, datetime, dict[str, Any]]:
-        # Flush/manual renders should evaluate the same event pipeline as scheduled sampling.
-        self._accumulate(now)
+        # During shutdown we flush buffered state only; avoid one last filesystem
+        # rescan that can stall ACK(flush) on large or degraded trees.
+        if self.sampling_enabled:
+            self._accumulate(now)
         start = self._segment_start or now
         end = now
 
