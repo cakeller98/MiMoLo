@@ -15,7 +15,7 @@
   log_format = "jsonl"
 
   # Console verbosity: debug, info, warning, error
-  console_verbosity = "warning"
+  console_verbosity = "info"
 
 # Control (Control Proto / dashboard IPC cadence + retry behavior)
 journal_dir = "./journals"
@@ -65,7 +65,7 @@ diagnostics_retention_days = 14
   widget_auto_refresh_default_s = 15.0
 
   # Agent Configuration
-[plugins.agent_template]
+[plugins."Agent Template"]
   enabled = true
   plugin_type = "agent"
   executable = "poetry"
@@ -74,7 +74,7 @@ diagnostics_retention_days = 14
   agent_flush_interval_s = 300.0
   launch_in_separate_terminal = false
 
-[plugins.agent_example]
+[plugins."Agent Example"]
   enabled = true
   plugin_type = "agent"
   executable = "poetry"
@@ -83,7 +83,7 @@ diagnostics_retention_days = 14
   agent_flush_interval_s = 30.0
   launch_in_separate_terminal = false
 
-[plugins.scheming_agent]
+[plugins."Agent Template Dup"]
   enabled = true
   plugin_type = "agent"
   executable = "poetry"
@@ -92,7 +92,7 @@ diagnostics_retention_days = 14
   agent_flush_interval_s = 300.0
   launch_in_separate_terminal = false
 
-[plugins.Floodgate]
+[plugins."Screen Shotter"]
   enabled = true
   plugin_type = "agent"
   executable = "poetry"
@@ -101,7 +101,7 @@ diagnostics_retention_days = 14
   agent_flush_interval_s = 60.0
   launch_in_separate_terminal = false
 
-[plugins.FolderWatcher]
+[plugins."Folder Watcher"]
   enabled = true
   plugin_type = "agent"
   executable = "poetry"
