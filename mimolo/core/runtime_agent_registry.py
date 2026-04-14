@@ -209,6 +209,7 @@ def snapshot_agent_instances(runtime: Runtime) -> dict[str, dict[str, Any]]:
     """Return configured agent instances with state and editable config."""
     instances: dict[str, dict[str, Any]] = {}
     for label, plugin_cfg in runtime.config.plugins.items():
+        handle = runtime.agent_manager.agents.get(label)
         config_data = plugin_cfg.model_dump()
         if plugin_cfg.plugin_type == "agent":
             config_data["effective_heartbeat_interval_s"] = (
@@ -219,6 +220,7 @@ def snapshot_agent_instances(runtime: Runtime) -> dict[str, dict[str, Any]]:
             )
         instances[label] = {
             "label": label,
+            "agent_id": handle.agent_id if handle is not None else None,
             "state": runtime._agent_states.get(label, "inactive"),
             "detail": runtime._agent_state_details.get(label, "configured"),
             "template_id": infer_template_id(runtime, label, plugin_cfg),

@@ -284,12 +284,18 @@ class AgentProcessManager:
 
         env = os.environ.copy()
         env["MIMOLO_AGENT_LABEL"] = label
-        env["MIMOLO_AGENT_ID"] = f"{label}-{uuid.uuid4().hex[:8]}"
+        agent_id = f"{label}-{uuid.uuid4().hex[:8]}"
+        env["MIMOLO_AGENT_ID"] = agent_id
         env["MIMOLO_DATA_DIR"] = str(get_mimolo_data_dir())
         proc = subprocess.Popen(cmd, env=env, **popen_kwargs)
 
         # Create handle and start reader
-        handle = AgentHandle(label=label, process=proc, config=plugin_config)
+        handle = AgentHandle(
+            label=label,
+            process=proc,
+            config=plugin_config,
+            agent_id=agent_id,
+        )
         handle.start_reader()
 
         # Start a thread to forward agent stderr to the orchestrator console

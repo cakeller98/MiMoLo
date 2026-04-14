@@ -898,7 +898,13 @@ function Run-AllTarget {
     )
 
     Write-Host "[dev-stack] Starting Operations in background..."
-    if (Wait-ForIpcSocket -TimeoutSeconds 1) {
+    $existingProbeTimeoutSeconds = if ($env:MIMOLO_IPC_MODE -eq "slowpoke") {
+        [Math]::Max(3, [Math]::Min($SocketWaitSeconds, 5))
+    }
+    else {
+        1
+    }
+    if (Wait-ForIpcSocket -TimeoutSeconds $existingProbeTimeoutSeconds) {
         Write-Host "[dev-stack] Existing Operations instance detected; reusing current IPC endpoint."
         if ($Target -eq "proto") {
             Write-Host "[dev-stack] Launching proto..."

@@ -77,6 +77,7 @@ export type AgentCommandAction =
   | "update_agent_instance";
 
 export interface AgentInstanceSnapshot {
+  agent_id?: string | null;
   config: Record<string, unknown>;
   detail: string;
   label: string;

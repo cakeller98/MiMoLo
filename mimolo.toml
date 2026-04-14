@@ -6,7 +6,7 @@
   cooldown_seconds = 600.0
 
   # Polling tick interval in seconds
-  poll_tick_s = 1.5
+  poll_tick_s = 5.0
 
   # Directory for log files (will be created if doesn't exist)
   log_dir = "./logs"
@@ -15,7 +15,7 @@
   log_format = "jsonl"
 
   # Console verbosity: debug, info, warning, error
-  console_verbosity = "info"
+  console_verbosity = "warning"
 
 # Control (Control Proto / dashboard IPC cadence + retry behavior)
 journal_dir = "./journals"
@@ -65,57 +65,90 @@ diagnostics_retention_days = 14
   widget_auto_refresh_default_s = 15.0
 
   # Agent Configuration
-[plugins."Agent Template"]
+
+[plugins."Watch Belker"]
   enabled = true
   plugin_type = "agent"
   executable = "poetry"
-  args = ["run", "python", "agent_template/agent_template.py"]
-  heartbeat_interval_s = 15.0
-  agent_flush_interval_s = 300.0
+  args = [
+    "run",
+    "python",
+    "client_folder_activity/client_folder_activity.py",
+    "--watch-path", "M:/Clients/Belker/Bedrock",
+    "--exclude-globs", "**/.obsidian/**,.obsidian/**"
+  ]
+  heartbeat_interval_s = 12.0
+  agent_flush_interval_s = 120.0
   launch_in_separate_terminal = false
 
-[plugins."Agent Example"]
+[plugins."Watch Belker Dropbox"]
   enabled = true
   plugin_type = "agent"
   executable = "poetry"
-  args = ["run", "python", "agent_example/agent_example.py"]
-  heartbeat_interval_s = 5.0
-  agent_flush_interval_s = 30.0
+  args = ["run", "python", "client_folder_activity/client_folder_activity.py", "--watch-path", "C:/Users/cakel/Dropbox/Keller-Belker"]
+  heartbeat_interval_s = 12.0
+  agent_flush_interval_s = 120.0
   launch_in_separate_terminal = false
 
-[plugins."Agent Template Dup"]
+[plugins."Watch Belker Dropbox Bedrock"]
   enabled = true
   plugin_type = "agent"
   executable = "poetry"
-  args = ["run", "python", "agent_template/agent_template.py"]
-  heartbeat_interval_s = 15.0
-  agent_flush_interval_s = 300.0
+  args = ["run", "python", "client_folder_activity/client_folder_activity.py", "--watch-path", "C:/Users/Christopher_Bedrock/Dropbox"]
+  heartbeat_interval_s = 12.0
+  agent_flush_interval_s = 120.0
   launch_in_separate_terminal = false
 
-[plugins."Screen Shotter"]
+[plugins."Watch Bedrock Desktop"]
   enabled = true
   plugin_type = "agent"
   executable = "poetry"
-  args = ["run", "python", "screen_tracker/screen_tracker.py"]
-  heartbeat_interval_s = 15.0
-  agent_flush_interval_s = 60.0
-  launch_in_separate_terminal = false
-
-[plugins."Folder Watcher"]
-  enabled = true
-  plugin_type = "agent"
-  executable = "poetry"
-  args = ["run", "python", "client_folder_activity/client_folder_activity.py", "--watch-path", "M:/Clients/Belker"]
-  heartbeat_interval_s = 3.0
-  agent_flush_interval_s = 60.0
+  args = ["run", "python", "client_folder_activity/client_folder_activity.py", "--watch-path", "C:/Users/Christopher_Bedrock/Desktop"]
+  heartbeat_interval_s = 12.0
+  agent_flush_interval_s = 120.0
   launch_in_separate_terminal = false
 
 [plugins."Creo Tracker"]
-enabled = true
-plugin_type = "agent"
-executable = "V:\\CODE\\MiMoLo\\.venv\\Scripts\\python.exe"
-args = ["trail_tracker/trail_tracker.py"]
-heartbeat_interval_s = 15.0
-agent_flush_interval_s = 60.0
-launch_in_separate_terminal = false
+  enabled = true
+  plugin_type = "agent"
+  executable = "V:\\CODE\\MiMoLo\\.venv\\Scripts\\python.exe"
+  args = ["trail_tracker/trail_tracker.py"]
+  heartbeat_interval_s = 12.0
+  agent_flush_interval_s = 120.0
+  launch_in_separate_terminal = false
 
+#[plugins."Agent Template"]
+#  enabled = true
+#  plugin_type = "agent"
+#  executable = "poetry"
+#  args = ["run", "python", "agent_template/agent_template.py"]
+#  heartbeat_interval_s = 15.0
+#  agent_flush_interval_s = 300.0
+#  launch_in_separate_terminal = false
+#
+#[plugins."Agent Example"]
+#  enabled = true
+#  plugin_type = "agent"
+#  executable = "poetry"
+#  args = ["run", "python", "agent_example/agent_example.py"]
+#  heartbeat_interval_s = 5.0
+#  agent_flush_interval_s = 30.0
+#  launch_in_separate_terminal = false
+#
+#[plugins."Agent Template Dup"]
+#  enabled = true
+#  plugin_type = "agent"
+#  executable = "poetry"
+#  args = ["run", "python", "agent_template/agent_template.py"]
+#  heartbeat_interval_s = 15.0
+#  agent_flush_interval_s = 300.0
+#  launch_in_separate_terminal = false
+#
+#[plugins."Screen Shotter"]
+#  enabled = true
+#  plugin_type = "agent"
+#  executable = "poetry"
+#  args = ["run", "python", "screen_tracker/screen_tracker.py"]
+#  heartbeat_interval_s = 15.0
+#  agent_flush_interval_s = 60.0
+#  launch_in_separate_terminal = false

@@ -71,6 +71,27 @@ def _summary_event_name(msg: object) -> str:
         return str(event_name)
     return "summary"
 
+
+def _emit_shutdown_progress(
+    runtime: Runtime,
+    *,
+    agent: str,
+    agent_id: str | None = None,
+    stage: str,
+    elapsed_s: float | None = None,
+    detail: str | None = None,
+) -> None:
+    """Emit a console-visible shutdown milestone for UI progress tracking."""
+    identity = f"label={agent}"
+    if agent_id:
+        identity += f" id={agent_id}"
+    message = f"[blue][shutdown][/blue] {identity} {stage}"
+    if elapsed_s is not None:
+        message += f" ({elapsed_s:.2f}s)"
+    if detail:
+        message += f" - {detail}"
+    runtime._console_print_safe(message)
+
 def flush_all_agents(runtime: Runtime) -> None:
     """Send flush command to all active Agents."""
     from mimolo.core.protocol import CommandType, OrchestratorCommand
@@ -162,10 +183,12 @@ def shutdown_runtime(runtime: Runtime) -> None:
         got_flush_ack = False
         got_summary = False
         got_shutdown_ack = False
+        agent_started_at = time.monotonic()
         agent_deadline = time.time() + shutdown_timeout_s
         runtime._shutdown_deadlines[label] = agent_deadline
         runtime._shutdown_phase[label] = "sequence_sent"
         agent_results[label] = {
+            "agent_id": handle.agent_id,
             "stop_ack_received": False,
             "flush_ack_received": False,
             "summary_received": False,
@@ -174,6 +197,11 @@ def shutdown_runtime(runtime: Runtime) -> None:
             "exit_code": None,
             "final_phase": "sequence_sent",
             "clean_shutdown": False,
+            "elapsed_s": None,
+            "stop_ack_elapsed_s": None,
+            "summary_elapsed_s": None,
+            "flush_ack_elapsed_s": None,
+            "shutdown_ack_elapsed_s": None,
         }
 
         try:
@@ -201,6 +229,13 @@ def shutdown_runtime(runtime: Runtime) -> None:
                 step="sequence",
                 status="sent",
             )
+            _emit_shutdown_progress(
+                runtime,
+                agent=label,
+                agent_id=handle.agent_id,
+                stage="sequence sent",
+                elapsed_s=0.0,
+            )
         except (OSError, RuntimeError, ValueError, TypeError) as e:
                 runtime._console_print_safe(
                     f"[red]Exception sending SEQUENCE to {label}: {e}[/red]"
@@ -213,6 +248,7 @@ def shutdown_runtime(runtime: Runtime) -> None:
                     detail=str(e),
                 )
                 agent_results[label]["final_phase"] = "sequence_send_exception"
+                agent_results[label]["elapsed_s"] = round(time.monotonic() - agent_started_at, 3)
                 continue
 
         while time.time() < agent_deadline:
@@ -241,6 +277,8 @@ def shutdown_runtime(runtime: Runtime) -> None:
                     if ack_cmd == "stop":
                         got_stop_ack = True
                         agent_results[label]["stop_ack_received"] = True
+                        stop_elapsed_s = time.monotonic() - agent_started_at
+                        agent_results[label]["stop_ack_elapsed_s"] = round(stop_elapsed_s, 3)
                         agent_deadline = time.time() + shutdown_timeout_s
                         runtime._shutdown_deadlines[label] = agent_deadline
                         runtime._shutdown_phase[label] = "stop_ack"
@@ -252,13 +290,18 @@ def shutdown_runtime(runtime: Runtime) -> None:
                             status="ack",
                             timestamp=coerce_timestamp(runtime, getattr(msg, "timestamp", None)),
                         )
-                        if runtime.config.monitor.console_verbosity == "debug":
-                            runtime._console_print_safe(
-                                f"[cyan]Agent {label} ACK(stop)[/cyan]"
-                            )
+                        _emit_shutdown_progress(
+                            runtime,
+                            agent=label,
+                            agent_id=handle.agent_id,
+                            stage="stop ack",
+                            elapsed_s=stop_elapsed_s,
+                        )
                     elif ack_cmd == "flush":
                         got_flush_ack = True
                         agent_results[label]["flush_ack_received"] = True
+                        flush_elapsed_s = time.monotonic() - agent_started_at
+                        agent_results[label]["flush_ack_elapsed_s"] = round(flush_elapsed_s, 3)
                         agent_deadline = time.time() + shutdown_timeout_s
                         runtime._shutdown_deadlines[label] = agent_deadline
                         runtime._shutdown_phase[label] = "flush_ack"
@@ -270,9 +313,18 @@ def shutdown_runtime(runtime: Runtime) -> None:
                             status="ack",
                             timestamp=coerce_timestamp(runtime, getattr(msg, "timestamp", None)),
                         )
+                        _emit_shutdown_progress(
+                            runtime,
+                            agent=label,
+                            agent_id=handle.agent_id,
+                            stage="flush ack",
+                            elapsed_s=flush_elapsed_s,
+                        )
                     elif ack_cmd == "shutdown":
                         got_shutdown_ack = True
                         agent_results[label]["shutdown_ack_received"] = True
+                        shutdown_elapsed_s = time.monotonic() - agent_started_at
+                        agent_results[label]["shutdown_ack_elapsed_s"] = round(shutdown_elapsed_s, 3)
                         agent_deadline = time.time() + shutdown_timeout_s
                         runtime._shutdown_deadlines[label] = agent_deadline
                         runtime._shutdown_phase[label] = "shutdown_ack"
@@ -284,12 +336,21 @@ def shutdown_runtime(runtime: Runtime) -> None:
                             status="ack",
                             timestamp=coerce_timestamp(runtime, getattr(msg, "timestamp", None)),
                         )
+                        _emit_shutdown_progress(
+                            runtime,
+                            agent=label,
+                            agent_id=handle.agent_id,
+                            stage="shutdown ack",
+                            elapsed_s=shutdown_elapsed_s,
+                        )
                 elif t == "summary" or t.endswith("summary"):
                     try:
                         runtime._handle_agent_summary(label, msg)
                         summaries_count += 1
                         got_summary = True
                         agent_results[label]["summary_received"] = True
+                        summary_elapsed_s = time.monotonic() - agent_started_at
+                        agent_results[label]["summary_elapsed_s"] = round(summary_elapsed_s, 3)
                         agent_deadline = time.time() + shutdown_timeout_s
                         runtime._shutdown_deadlines[label] = agent_deadline
                         runtime._shutdown_phase[label] = "summary_received"
@@ -301,6 +362,13 @@ def shutdown_runtime(runtime: Runtime) -> None:
                             status="received",
                             timestamp=coerce_timestamp(runtime, getattr(msg, "timestamp", None)),
                             extra={"summary_event": _summary_event_name(msg)},
+                        )
+                        _emit_shutdown_progress(
+                            runtime,
+                            agent=label,
+                            agent_id=handle.agent_id,
+                            stage="summary received",
+                            elapsed_s=summary_elapsed_s,
                         )
                     except (
                         AttributeError,
@@ -362,8 +430,16 @@ def shutdown_runtime(runtime: Runtime) -> None:
                 break
 
         if not got_stop_ack:
+            timeout_elapsed_s = time.monotonic() - agent_started_at
             runtime._console_print_safe(
                 f"[red]Agent {label} did not ACK STOP (timeout)[/red]"
+            )
+            _emit_shutdown_progress(
+                runtime,
+                agent=label,
+                agent_id=handle.agent_id,
+                stage="stop timeout",
+                elapsed_s=timeout_elapsed_s,
             )
             _write_shutdown_agent_step(
                 runtime,
@@ -384,8 +460,16 @@ def shutdown_runtime(runtime: Runtime) -> None:
             )
 
         if not got_summary:
+            timeout_elapsed_s = time.monotonic() - agent_started_at
             runtime._console_print_safe(
                 f"[red]Agent {label} did not send summary after FLUSH (timeout)[/red]"
+            )
+            _emit_shutdown_progress(
+                runtime,
+                agent=label,
+                agent_id=handle.agent_id,
+                stage="summary timeout",
+                elapsed_s=timeout_elapsed_s,
             )
             _write_shutdown_agent_step(
                 runtime,
@@ -405,8 +489,16 @@ def shutdown_runtime(runtime: Runtime) -> None:
                 },
             )
         if not got_flush_ack:
+            timeout_elapsed_s = time.monotonic() - agent_started_at
             runtime._console_print_safe(
                 f"[red]Agent {label} did not ACK FLUSH (timeout)[/red]"
+            )
+            _emit_shutdown_progress(
+                runtime,
+                agent=label,
+                agent_id=handle.agent_id,
+                stage="flush timeout",
+                elapsed_s=timeout_elapsed_s,
             )
             _write_shutdown_agent_step(
                 runtime,
@@ -426,8 +518,16 @@ def shutdown_runtime(runtime: Runtime) -> None:
                 },
             )
         if not got_shutdown_ack:
+            timeout_elapsed_s = time.monotonic() - agent_started_at
             runtime._console_print_safe(
                 f"[red]Agent {label} did not ACK SHUTDOWN (timeout)[/red]"
+            )
+            _emit_shutdown_progress(
+                runtime,
+                agent=label,
+                agent_id=handle.agent_id,
+                stage="shutdown timeout",
+                elapsed_s=timeout_elapsed_s,
             )
             _write_shutdown_agent_step(
                 runtime,
@@ -449,6 +549,7 @@ def shutdown_runtime(runtime: Runtime) -> None:
         agent_results[label]["clean_shutdown"] = bool(
             got_stop_ack and got_flush_ack and got_summary and got_shutdown_ack
         )
+        agent_results[label]["elapsed_s"] = round(time.monotonic() - agent_started_at, 3)
 
     # Agents should have shut down by now; wait for processes to exit
     handles = runtime.agent_manager.shutdown_all()
@@ -536,6 +637,21 @@ def shutdown_runtime(runtime: Runtime) -> None:
                 agent_results[h.label]["exit_code"] = exit_code
                 if process_exited and agent_results[h.label]["clean_shutdown"]:
                     agent_results[h.label]["final_phase"] = "process_exit_observed"
+                    _emit_shutdown_progress(
+                        runtime,
+                        agent=h.label,
+                        agent_id=h.agent_id,
+                        stage="complete",
+                        elapsed_s=agent_results[h.label].get("elapsed_s"),
+                    )
+                elif process_exited:
+                    _emit_shutdown_progress(
+                        runtime,
+                        agent=h.label,
+                        agent_id=h.agent_id,
+                        stage="process exited",
+                        elapsed_s=agent_results[h.label].get("elapsed_s"),
+                    )
             _write_shutdown_agent_step(
                 runtime,
                 agent=h.label,

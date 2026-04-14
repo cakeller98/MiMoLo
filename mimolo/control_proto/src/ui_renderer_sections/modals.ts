@@ -56,28 +56,52 @@ export function buildModalsSection(toastDurationMs: number): string {
           const opsStep = Array.isArray(payload.steps)
             ? payload.steps.find((step) => step && step.key === "ops")
             : null;
-          const labels = Array.from(instancesByLabel.entries())
-            .filter((entry) => entry[1] && (entry[1].state === "running" || entry[1].state === "shutting-down"))
-            .map((entry) => entry[0])
-            .sort();
+          const instances = Array.from(instancesByLabel.entries())
+            .map((entry) => {
+              const label = entry[0];
+              const instance = entry[1];
+              return {
+                label,
+                agentId: instance && typeof instance.agent_id === "string" && instance.agent_id.trim().length > 0
+                  ? instance.agent_id.trim()
+                  : "",
+                state: instance && instance.state ? instance.state : "inactive",
+              };
+            })
+            .filter((entry) => entry.state === "running" || entry.state === "shutting-down")
+            .sort((a, b) => {
+              const labelCompare = a.label.localeCompare(b.label);
+              if (labelCompare !== 0) {
+                return labelCompare;
+              }
+              return a.agentId.localeCompare(b.agentId);
+            });
           if (!quitProgressTracker || quitProgressTracker.mode !== "shutdown") {
             const trackedSteps = [];
             trackedSteps.push({
               key: "ops",
               label: "Operations shutdown requested",
               state: opsStep && opsStep.state ? opsStep.state : "active",
+              progress: opsStep && opsStep.state === "done" ? 1 : 0.15,
             });
-            for (const label of labels) {
+            for (const instance of instances) {
+              const displayLabel = instance.agentId
+                ? instance.label + " [" + instance.agentId + "]"
+                : instance.label;
               trackedSteps.push({
-                key: "agent:" + label,
-                label: label,
+                key: "agent:" + (instance.agentId || instance.label),
+                label: displayLabel,
+                agentLabel: instance.label,
+                agentId: instance.agentId,
                 state: "pending",
+                progress: 0,
               });
             }
             trackedSteps.push({
               key: "close",
               label: "Close Control",
               state: closeStep && closeStep.state ? closeStep.state : "pending",
+              progress: closeStep && closeStep.state === "done" ? 1 : 0,
             });
             quitProgressTracker = {
               mode: "shutdown",
@@ -91,9 +115,11 @@ export function buildModalsSection(toastDurationMs: number): string {
             for (const step of quitProgressTracker.steps) {
               if (step.key === "ops" && opsStep && opsStep.state) {
                 step.state = opsStep.state;
+                step.progress = step.state === "done" ? 1 : Math.max(Number(step.progress) || 0, 0.15);
               }
               if (step.key === "close" && closeStep && closeStep.state) {
                 step.state = closeStep.state;
+                step.progress = step.state === "done" ? 1 : Number(step.progress) || 0;
               }
             }
           }
@@ -126,7 +152,10 @@ export function buildModalsSection(toastDurationMs: number): string {
         }
 
         const steps = Array.isArray(payload.steps) ? payload.steps : [];
-        const completedCount = steps.filter((step) => step && step.state === "done").length;
+        const progressUnits = steps.reduce((sum, step) => {
+          const raw = step && typeof step.progress === "number" ? step.progress : (step && step.state === "done" ? 1 : 0);
+          return sum + Math.max(0, Math.min(1, raw));
+        }, 0);
         const hasActiveStep = steps.some((step) => step && step.state === "active");
         const totalCount = Math.max(steps.length, 1);
         const progressTrack = document.createElement("div");
@@ -134,7 +163,7 @@ export function buildModalsSection(toastDurationMs: number): string {
         const progressFill = document.createElement("div");
         progressFill.className =
           "quit-progress-fill" + (hasActiveStep ? " quit-progress-fill-active" : "");
-        progressFill.style.width = String(Math.max(8, Math.min(100, (completedCount / totalCount) * 100))) + "%";
+        progressFill.style.width = String(Math.max(8, Math.min(100, (progressUnits / totalCount) * 100))) + "%";
         progressTrack.appendChild(progressFill);
         card.appendChild(progressTrack);
 
@@ -150,7 +179,17 @@ export function buildModalsSection(toastDurationMs: number): string {
           const label = document.createElement("div");
           label.className = "quit-progress-label";
           const state = step && step.state ? String(step.state) : "pending";
-          const suffix = state === "done" ? " [done]" : (state === "error" ? " [failed]" : "");
+          let suffix = "";
+          if (state === "done") {
+            const durationValue = step && typeof step.duration_s === "number" && Number.isFinite(step.duration_s)
+              ? step.duration_s
+              : null;
+            suffix = durationValue !== null
+              ? " [done: " + durationValue.toFixed(2) + "s]"
+              : " [done]";
+          } else if (state === "error") {
+            suffix = " [failed]";
+          }
           label.textContent = String(step && step.label ? step.label : "step") + suffix;
 
           row.appendChild(dot);
@@ -171,55 +210,256 @@ export function buildModalsSection(toastDurationMs: number): string {
           return;
         }
 
-        function findStep(agentLabel) {
-          return quitProgressTracker.steps.find((step) => step.key === "agent:" + agentLabel) || null;
+        function formatAgentDisplayLabel(agentLabel, agentId, stageText) {
+          const identity = agentId ? agentLabel + " [" + agentId + "]" : agentLabel;
+          return stageText ? identity + " - " + stageText : identity;
         }
 
-        let match = raw.match(/^Sent shutdown SEQUENCE to (.+)$/);
-        if (match) {
-          const step = findStep(match[1]);
-          if (step && step.state !== "done" && step.state !== "error") {
-            step.state = "active";
+        function maybeApplyDuration(step, elapsedValue) {
+          if (!step || !elapsedValue) {
+            return;
           }
+          const parsed = Number(elapsedValue);
+          if (Number.isFinite(parsed) && parsed >= 0) {
+            step.duration_s = parsed;
+          }
+        }
+
+        function findStep(agentLabel, agentId) {
+          if (agentId) {
+            const byId = quitProgressTracker.steps.find((step) => step && step.key === "agent:" + agentId);
+            if (byId) {
+              return byId;
+            }
+          }
+          const byLabel = quitProgressTracker.steps.filter((step) => step && step.agentLabel === agentLabel);
+          if (byLabel.length === 1) {
+            return byLabel[0];
+          }
+          return byLabel.find((step) => step.state !== "done" && step.state !== "error") || byLabel[0] || null;
+        }
+
+        function getOpsStep() {
+          return quitProgressTracker.steps.find((step) => step.key === "ops") || null;
+        }
+
+        function markOpsStepDone() {
+          const opsStep = getOpsStep();
+          if (!opsStep) {
+            return;
+          }
+          opsStep.state = "done";
+          opsStep.progress = 1;
+        }
+
+        function renderTrackedProgress() {
           renderQuitProgressModal({
             visible: true,
             title: quitProgressTracker.title,
             detail: quitProgressTracker.detail,
             steps: quitProgressTracker.steps,
           });
+        }
+
+        let match = raw.match(/^Sent shutdown SEQUENCE to (.+)$/);
+        if (match) {
+          markOpsStepDone();
+          const step = findStep(match[1], "");
+          if (step && step.state !== "done" && step.state !== "error") {
+            step.state = "active";
+            step.progress = Math.max(Number(step.progress) || 0, 0.2);
+          }
+          renderTrackedProgress();
           return;
         }
 
         match = raw.match(/^Agent (.+) ACK\\(stop\\)$/);
         if (match) {
-          const step = findStep(match[1]);
+          markOpsStepDone();
+          const step = findStep(match[1], "");
           if (step && step.state !== "done" && step.state !== "error") {
             step.state = "active";
-            step.label = match[1] + " - stop acknowledged";
+            step.label = formatAgentDisplayLabel(step.agentLabel || match[1], step.agentId || "", "stop acknowledged");
+            step.progress = Math.max(Number(step.progress) || 0, 0.4);
           }
-          renderQuitProgressModal({
-            visible: true,
-            title: quitProgressTracker.title,
-            detail: quitProgressTracker.detail,
-            steps: quitProgressTracker.steps,
-          });
+          renderTrackedProgress();
           return;
         }
 
-        match = raw.match(/^\\[.*\\] Shutting down \\(label=(.+?), /);
+        match = raw.match(/^(?:\\[shutdown\\]\\s+)?label=(.+?)(?: id=(.+?))? sequence sent(?: \\(([0-9.]+)s\\))?$/i);
+        if (!match) {
+          match = raw.match(/^(?:\\[shutdown\\]\\s+)?(.+?) sequence sent(?: \\(([0-9.]+)s\\))?$/i);
+        }
+        if (match) {
+          markOpsStepDone();
+          const agentLabel = match.length >= 4 ? match[1] : match[1];
+          const agentId = match.length >= 4 ? (match[2] || "") : "";
+          const elapsedValue = match.length >= 4 ? match[3] : match[2];
+          const step = findStep(agentLabel, agentId);
+          if (step && step.state !== "done" && step.state !== "error") {
+            step.state = "active";
+            step.label = formatAgentDisplayLabel(step.agentLabel || agentLabel, step.agentId || agentId, "sequence sent");
+            step.progress = Math.max(Number(step.progress) || 0, 0.2);
+          }
+          renderTrackedProgress();
+          return;
+        }
+
+        match = raw.match(/^(?:\\[shutdown\\]\\s+)?label=(.+?)(?: id=(.+?))? stop ack(?: \\(([0-9.]+)s\\))?$/i);
+        if (!match) {
+          match = raw.match(/^(?:\\[shutdown\\]\\s+)?(.+?) stop ack(?: \\(([0-9.]+)s\\))?$/i);
+        }
+        if (match) {
+          markOpsStepDone();
+          const agentLabel = match.length >= 4 ? match[1] : match[1];
+          const agentId = match.length >= 4 ? (match[2] || "") : "";
+          const elapsedValue = match.length >= 4 ? match[3] : match[2];
+          const step = findStep(agentLabel, agentId);
+          if (step && step.state !== "done" && step.state !== "error") {
+            const elapsed = elapsedValue ? " (" + elapsedValue + "s)" : "";
+            step.state = "active";
+            step.label = formatAgentDisplayLabel(step.agentLabel || agentLabel, step.agentId || agentId, "stop ack" + elapsed);
+            step.progress = Math.max(Number(step.progress) || 0, 0.4);
+          }
+          renderTrackedProgress();
+          return;
+        }
+
+        match = raw.match(/^(?:\\[shutdown\\]\\s+)?label=(.+?)(?: id=(.+?))? summary received(?: \\(([0-9.]+)s\\))?$/i);
+        if (!match) {
+          match = raw.match(/^(?:\\[shutdown\\]\\s+)?(.+?) summary received(?: \\(([0-9.]+)s\\))?$/i);
+        }
+        if (match) {
+          markOpsStepDone();
+          const agentLabel = match.length >= 4 ? match[1] : match[1];
+          const agentId = match.length >= 4 ? (match[2] || "") : "";
+          const elapsedValue = match.length >= 4 ? match[3] : match[2];
+          const step = findStep(agentLabel, agentId);
+          if (step && step.state !== "done" && step.state !== "error") {
+            const elapsed = elapsedValue ? " (" + elapsedValue + "s)" : "";
+            step.state = "active";
+            step.label = formatAgentDisplayLabel(step.agentLabel || agentLabel, step.agentId || agentId, "summary" + elapsed);
+            step.progress = Math.max(Number(step.progress) || 0, 0.6);
+          }
+          renderTrackedProgress();
+          return;
+        }
+
+        match = raw.match(/^(?:\\[shutdown\\]\\s+)?label=(.+?)(?: id=(.+?))? flush ack(?: \\(([0-9.]+)s\\))?$/i);
+        if (!match) {
+          match = raw.match(/^(?:\\[shutdown\\]\\s+)?(.+?) flush ack(?: \\(([0-9.]+)s\\))?$/i);
+        }
+        if (match) {
+          markOpsStepDone();
+          const agentLabel = match.length >= 4 ? match[1] : match[1];
+          const agentId = match.length >= 4 ? (match[2] || "") : "";
+          const elapsedValue = match.length >= 4 ? match[3] : match[2];
+          const step = findStep(agentLabel, agentId);
+          if (step && step.state !== "done" && step.state !== "error") {
+            const elapsed = elapsedValue ? " (" + elapsedValue + "s)" : "";
+            step.state = "active";
+            step.label = formatAgentDisplayLabel(step.agentLabel || agentLabel, step.agentId || agentId, "flush ack" + elapsed);
+            step.progress = Math.max(Number(step.progress) || 0, 0.8);
+          }
+          renderTrackedProgress();
+          return;
+        }
+
+        match = raw.match(/^(?:\\[shutdown\\]\\s+)?label=(.+?)(?: id=(.+?))? shutdown ack(?: \\(([0-9.]+)s\\))?$/i);
+        if (!match) {
+          match = raw.match(/^(?:\\[shutdown\\]\\s+)?(.+?) shutdown ack(?: \\(([0-9.]+)s\\))?$/i);
+        }
+        if (match) {
+          markOpsStepDone();
+          const agentLabel = match.length >= 4 ? match[1] : match[1];
+          const agentId = match.length >= 4 ? (match[2] || "") : "";
+          const elapsedValue = match.length >= 4 ? match[3] : match[2];
+          const step = findStep(agentLabel, agentId);
+          if (step && step.state !== "done" && step.state !== "error") {
+            const elapsed = elapsedValue ? " (" + elapsedValue + "s)" : "";
+            step.state = "active";
+            step.label = formatAgentDisplayLabel(step.agentLabel || agentLabel, step.agentId || agentId, "shutdown ack" + elapsed);
+            step.progress = Math.max(Number(step.progress) || 0, 0.92);
+          }
+          renderTrackedProgress();
+          return;
+        }
+
+        match = raw.match(/^(?:\\[shutdown\\]\\s+)?label=(.+?)(?: id=(.+?))? complete(?: \\(([0-9.]+)s\\))?$/i);
+        if (!match) {
+          match = raw.match(/^(?:\\[shutdown\\]\\s+)?(.+?) complete(?: \\(([0-9.]+)s\\))?$/i);
+        }
+        if (match) {
+          markOpsStepDone();
+          const agentLabel = match.length >= 4 ? match[1] : match[1];
+          const agentId = match.length >= 4 ? (match[2] || "") : "";
+          const elapsedValue = match.length >= 4 ? match[3] : match[2];
+          const step = findStep(agentLabel, agentId);
+          if (step && step.state !== "error") {
+            const elapsed = elapsedValue ? " (" + elapsedValue + "s)" : "";
+            step.state = "done";
+            maybeApplyDuration(step, elapsedValue);
+            step.label = formatAgentDisplayLabel(step.agentLabel || agentLabel, step.agentId || agentId, elapsed.trim());
+            step.progress = 1;
+          }
+          renderTrackedProgress();
+          return;
+        }
+
+        match = raw.match(/^(?:\\[shutdown\\]\\s+)?label=(.+?)(?: id=(.+?))? process exited(?: \\(([0-9.]+)s\\))?$/i);
+        if (!match) {
+          match = raw.match(/^(?:\\[shutdown\\]\\s+)?(.+?) process exited(?: \\(([0-9.]+)s\\))?$/i);
+        }
+        if (match) {
+          markOpsStepDone();
+          const agentLabel = match.length >= 4 ? match[1] : match[1];
+          const agentId = match.length >= 4 ? (match[2] || "") : "";
+          const elapsedValue = match.length >= 4 ? match[3] : match[2];
+          const step = findStep(agentLabel, agentId);
+          if (step && step.state !== "error") {
+            const elapsed = elapsedValue ? " (" + elapsedValue + "s)" : "";
+            step.state = "done";
+            maybeApplyDuration(step, elapsedValue);
+            step.label = formatAgentDisplayLabel(step.agentLabel || agentLabel, step.agentId || agentId, "exited" + elapsed);
+            step.progress = 1;
+          }
+          renderTrackedProgress();
+          return;
+        }
+
+        match = raw.match(/^(?:\\[shutdown\\]\\s+)?label=(.+?)(?: id=(.+?))? (stop|summary|flush|shutdown) timeout(?: \\(([0-9.]+)s\\))?$/i);
+        if (!match) {
+          match = raw.match(/^(?:\\[shutdown\\]\\s+)?(.+?) (stop|summary|flush|shutdown) timeout(?: \\(([0-9.]+)s\\))?$/i);
+        }
+        if (match) {
+          markOpsStepDone();
+          const hasIdentityFields = match.length >= 5;
+          const agentLabel = hasIdentityFields ? match[1] : match[1];
+          const agentId = hasIdentityFields ? (match[2] || "") : "";
+          const timeoutStage = hasIdentityFields ? match[3] : match[2];
+          const elapsedValue = hasIdentityFields ? match[4] : match[3];
+          const step = findStep(agentLabel, agentId);
+          if (step) {
+            const elapsed = elapsedValue ? " (" + elapsedValue + "s)" : "";
+            step.state = "error";
+            step.label = formatAgentDisplayLabel(step.agentLabel || agentLabel, step.agentId || agentId, timeoutStage + " timeout" + elapsed);
+            step.progress = 1;
+          }
+          renderTrackedProgress();
+          return;
+        }
+
+        match = raw.match(/^\\[.*\\] Shutting down \\(label=(.+?), id=(.+?), /);
         if (match) {
           const agentLabel = match[1];
-          const step = findStep(agentLabel);
+          const agentId = match[2];
+          const step = findStep(agentLabel, agentId);
           if (step && step.state !== "error") {
             step.state = "done";
-            step.label = agentLabel;
+            step.label = formatAgentDisplayLabel(step.agentLabel || agentLabel, step.agentId || agentId, "");
+            step.progress = 1;
           }
-          renderQuitProgressModal({
-            visible: true,
-            title: quitProgressTracker.title,
-            detail: quitProgressTracker.detail,
-            steps: quitProgressTracker.steps,
-          });
+          renderTrackedProgress();
           return;
         }
 
@@ -233,13 +473,9 @@ export function buildModalsSection(toastDurationMs: number): string {
           if (step) {
             step.state = "error";
             step.label = agentLabel + " - timeout";
+            step.progress = 1;
           }
-          renderQuitProgressModal({
-            visible: true,
-            title: quitProgressTracker.title,
-            detail: quitProgressTracker.detail,
-            steps: quitProgressTracker.steps,
-          });
+          renderTrackedProgress();
           return;
         }
 
@@ -247,17 +483,20 @@ export function buildModalsSection(toastDurationMs: number): string {
           for (const step of quitProgressTracker.steps) {
             if (step.key === "ops") {
               step.state = "done";
+              step.progress = 1;
             } else if (step.key.startsWith("agent:") && step.state !== "error") {
               step.state = "done";
               step.label = step.key.slice("agent:".length);
+              step.progress = 1;
             }
           }
-          renderQuitProgressModal({
-            visible: true,
-            title: quitProgressTracker.title,
-            detail: quitProgressTracker.detail,
-            steps: quitProgressTracker.steps,
-          });
+          renderTrackedProgress();
+          return;
+        }
+
+        if (raw === "Shutting down..." || raw === "Waiting for Agent processes to exit...") {
+          markOpsStepDone();
+          renderTrackedProgress();
         }
       }
 
