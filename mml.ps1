@@ -18,6 +18,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# npm/node often write notices to stderr on success; mml.ps1 already checks
+# native exit codes explicitly, so don't promote stderr text into PowerShell
+# errors under PowerShell 7+.
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 Set-Location $PSScriptRoot
 
 if (-not $env:TEMP) {

@@ -2,11 +2,11 @@
 setlocal EnableExtensions DisableDelayedExpansion
 
 for %%I in ("%~dp0..") do set "REPO_ROOT=%%~fI"
-set "SOURCE_SCRIPT=%REPO_ROOT%\scripts\print_last_jsonl.ps1"
+set "DISPATCHER_SCRIPT=%REPO_ROOT%\scripts\mimolo_short_commands.ps1"
 
-if not exist "%SOURCE_SCRIPT%" (
-    echo Source script not found:
-    echo   "%SOURCE_SCRIPT%"
+if not exist "%DISPATCHER_SCRIPT%" (
+    echo Dispatcher script not found:
+    echo   "%DISPATCHER_SCRIPT%"
     exit /b 1
 )
 
@@ -20,14 +20,6 @@ if defined MIMOLO_SHORT_COMMANDS_BIN_DIR (
     set "INSTALL_DIR=%LOCALAPPDATA%\bin"
 )
 
-if defined MIMOLO_SHORT_COMMAND_WRAPPER (
-    set "WRAPPER_NAME=%MIMOLO_SHORT_COMMAND_WRAPPER%"
-) else (
-    set "WRAPPER_NAME=mimolo-short-commands.bat"
-)
-
-set "TARGET_WRAPPER=%INSTALL_DIR%\%WRAPPER_NAME%"
-
 if not exist "%INSTALL_DIR%" (
     mkdir "%INSTALL_DIR%" >nul 2>nul
     if errorlevel 1 (
@@ -37,7 +29,14 @@ if not exist "%INSTALL_DIR%" (
     )
 )
 
-call :write_wrapper "%TARGET_WRAPPER%" "%SOURCE_SCRIPT%"
+set "COMMAND_LIST=mimolo mimolo-help mimolo-dash mimolo-ops mimolo-report mimolo-activity mimolo-blips mimolo-bliplive"
+
+for %%N in (%COMMAND_LIST%) do (
+    call :write_wrapper "%INSTALL_DIR%\%%N.bat" "%DISPATCHER_SCRIPT%" "%%N"
+    if errorlevel 1 exit /b %ERRORLEVEL%
+)
+
+call :remove_legacy_wrapper "%INSTALL_DIR%\mimolo-short-commands.bat"
 if errorlevel 1 exit /b %ERRORLEVEL%
 
 if /I "%MIMOLO_SKIP_PATH_UPDATE%"=="1" (
@@ -47,29 +46,41 @@ if /I "%MIMOLO_SKIP_PATH_UPDATE%"=="1" (
     if errorlevel 1 exit /b %ERRORLEVEL%
 )
 
-echo Installed:
-echo   "%TARGET_WRAPPER%"
+echo Installed commands in:
+echo   "%INSTALL_DIR%"
 echo.
-echo Run it like:
-echo   %WRAPPER_NAME% --glh
-echo   %WRAPPER_NAME% --lines 5
+for %%N in (%COMMAND_LIST%) do echo   %%N.bat
+echo.
+echo Examples:
+echo   mimolo --help
+echo   mimolo-dash
+echo   mimolo-report
+echo   mimolo-activity
+echo   mimolo-blips
+echo   mimolo-bliplive
+echo   mimolo-ops --status
+echo   mimolo-ops --stop
+echo.
+echo Before first use on a new profile, verify your security-tool exclusions are
+echo present for Python, Poetry, pip, pipx, uv, and repo working paths.
 echo.
 echo If your terminal was already open, start a new terminal to pick up PATH changes.
 exit /b 0
 
 :write_wrapper
 set "TARGET=%~1"
-set "SOURCE=%~2"
+set "DISPATCHER=%~2"
+set "SHIM_NAME=%~3"
 > "%TARGET%" (
     echo @echo off
     echo setlocal EnableExtensions DisableDelayedExpansion
-    echo set "MIMOLO_SCRIPT=%SOURCE%"
-    echo if not exist "%%MIMOLO_SCRIPT%%" ^(
-    echo     echo MiMoLo script not found:
-    echo     echo   "%%MIMOLO_SCRIPT%%"
+    echo set "MIMOLO_DISPATCHER=%DISPATCHER%"
+    echo if not exist "%%MIMOLO_DISPATCHER%%" ^(
+    echo     echo MiMoLo dispatcher not found:
+    echo     echo   "%%MIMOLO_DISPATCHER%%"
     echo     exit /b 1
     echo ^)
-    echo powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%%MIMOLO_SCRIPT%%" %%*
+    echo powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%%MIMOLO_DISPATCHER%%" -Shim "%SHIM_NAME%" %%*
     echo exit /b %%ERRORLEVEL%%
 )
 if errorlevel 1 (
@@ -77,6 +88,21 @@ if errorlevel 1 (
     echo   "%TARGET%"
     exit /b 1
 )
+exit /b 0
+
+:remove_legacy_wrapper
+set "LEGACY_WRAPPER=%~1"
+if not exist "%LEGACY_WRAPPER%" exit /b 0
+
+del /q "%LEGACY_WRAPPER%" >nul 2>nul
+if exist "%LEGACY_WRAPPER%" (
+    echo Failed to remove legacy wrapper:
+    echo   "%LEGACY_WRAPPER%"
+    exit /b 1
+)
+
+echo Removed legacy wrapper:
+echo   "%LEGACY_WRAPPER%"
 exit /b 0
 
 :ensure_user_path

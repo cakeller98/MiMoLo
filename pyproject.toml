@@ -24,7 +24,7 @@ mypy = "^1.14.0"
 types-pyyaml = "^6.0.12"
 
 [tool.poetry.scripts]
-mimolo = "mimolo.cli:main"
+mimolo-dev = "mimolo.cli:main"
 
 [build-system]
 requires = ["poetry-core"]

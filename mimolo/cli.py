@@ -14,6 +14,7 @@ import os
 import signal
 import sys
 import time
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -21,11 +22,18 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
-from mimolo.common.paths import get_mimolo_data_dir
+from mimolo.common.paths import get_mimolo_data_dir, get_mimolo_runtime_dir
 from mimolo.core.config import Config, load_config_or_default
 from mimolo.core.errors import ConfigError
 from mimolo.core.event import Event
-from mimolo.core.ipc import check_platform_support, effective_ipc_mode, normalize_ipc_mode
+from mimolo.core.ipc import (
+    check_platform_support,
+    create_ipc_channel,
+    derive_slowpoke_dirs,
+    derive_slowpoke_root,
+    effective_ipc_mode,
+    normalize_ipc_mode,
+)
 from mimolo.core.logging_setup import init_orchestrator_logging
 from mimolo.core.ops_singleton import OperationsSingletonLock
 from mimolo.core.runtime import Runtime
@@ -88,6 +96,112 @@ def _install_graceful_sigterm_handler(runtime: Runtime) -> None:
             runtime._running = False
 
     signal.signal(signal.SIGTERM, _on_sigterm)
+
+
+def _load_launcher_table(config_path: Path | None) -> dict[str, object]:
+    """Read the optional [launcher] table from mml.toml-style config."""
+    if config_path is None or not config_path.is_file():
+        return {}
+
+    with config_path.open("rb") as handle:
+        payload = tomllib.load(handle)
+
+    launcher = payload.get("launcher")
+    return launcher if isinstance(launcher, dict) else {}
+
+
+def _resolve_launcher_path(
+    raw_value: object,
+    *,
+    config_path: Path | None,
+) -> Path | None:
+    """Resolve one launcher path override relative to the config file when needed."""
+    if not isinstance(raw_value, str):
+        return None
+
+    text = raw_value.strip()
+    if not text:
+        return None
+
+    candidate = Path(text).expanduser()
+    if not candidate.is_absolute() and config_path is not None:
+        candidate = config_path.parent / candidate
+    return candidate.resolve(strict=False)
+
+
+def _resolve_ops_ipc_settings(config_path: Path | None) -> tuple[str, str, str]:
+    """Resolve IPC socket path, slowpoke root, and transport mode for ops control."""
+    launcher = _load_launcher_table(config_path)
+
+    ipc_path = os.getenv("MIMOLO_IPC_PATH", "").strip()
+    if not ipc_path:
+        launcher_ipc_path = _resolve_launcher_path(
+            launcher.get("ipc_path"),
+            config_path=config_path,
+        )
+        if launcher_ipc_path is not None:
+            ipc_path = str(launcher_ipc_path)
+        else:
+            ipc_path = str((get_mimolo_runtime_dir() / "operations.sock").resolve(strict=False))
+
+    slowpoke_root = os.getenv("MIMOLO_IPC_SLOWPOKE_ROOT", "").strip()
+    if not slowpoke_root:
+        slowpoke_root = derive_slowpoke_root(ipc_path)
+
+    ipc_mode = effective_ipc_mode(os.getenv("MIMOLO_IPC_MODE"))
+    return ipc_path, slowpoke_root, ipc_mode
+
+
+def _send_ops_control_request(
+    *,
+    action: str,
+    config_path: Path | None,
+    timeout_s: float,
+) -> dict[str, object]:
+    """Send one control_orchestrator request over the active IPC transport."""
+    ipc_path, slowpoke_root, ipc_mode = _resolve_ops_ipc_settings(config_path)
+    request: dict[str, object] = {
+        "cmd": "control_orchestrator",
+        "action": action,
+    }
+
+    if ipc_mode == "slowpoke":
+        from mimolo.core.ipc_slowpoke import create_slowpoke_channel
+
+        _root_dir, control_to_ops_dir, ops_to_control_dir = derive_slowpoke_dirs(
+            ipc_path,
+            slowpoke_root,
+        )
+        channel = create_slowpoke_channel(
+            read_dir=ops_to_control_dir,
+            write_dir=control_to_ops_dir,
+            create=False,
+        )
+    else:
+        channel = create_ipc_channel(ipc_path, server=False)
+
+    try:
+        channel.write_line(request)
+        deadline = time.monotonic() + max(timeout_s, 0.1)
+        while time.monotonic() < deadline:
+            raw_line = channel.read_line()
+            if raw_line is None:
+                continue
+            try:
+                payload = json.loads(raw_line)
+            except json.JSONDecodeError as exc:
+                raise RuntimeError(
+                    f"Invalid IPC response from orchestrator: {raw_line!r}"
+                ) from exc
+            if not isinstance(payload, dict):
+                raise RuntimeError(f"Unexpected IPC response type: {type(payload).__name__}")
+            return payload
+    finally:
+        channel.close()
+
+    raise RuntimeError(
+        f"Timed out waiting {timeout_s:.1f}s for orchestrator response."
+    )
 
 app = typer.Typer(
     name="mimolo",
@@ -216,6 +330,66 @@ def monitor_alias(
 ) -> None:
     """Backward-compatible alias for `mimolo ops`."""
     _run_ops_command(config_path, once, dry_run, log_format, cooldown)
+
+
+@app.command(name="ops-control")
+def ops_control(
+    action: Annotated[
+        str,
+        typer.Argument(help="One of: status, stop"),
+    ] = "status",
+    config_path: Annotated[Path | None, CONFIG_OPTION] = Path("mimolo.toml"),
+    timeout: Annotated[
+        float,
+        typer.Option("--timeout", min=0.1, help="IPC response timeout in seconds."),
+    ] = 5.0,
+) -> None:
+    """Query or stop a running orchestrator over IPC without launching Control."""
+    normalized_action = action.strip().lower()
+    if normalized_action not in {"status", "stop"}:
+        console.print("[red]Invalid ops-control action. Use 'status' or 'stop'.[/red]")
+        raise typer.Exit(2)
+
+    try:
+        response = _send_ops_control_request(
+            action=normalized_action,
+            config_path=config_path,
+            timeout_s=timeout,
+        )
+    except (OSError, RuntimeError) as exc:
+        console.print(f"[red]Ops control failed:[/red] {exc}")
+        raise typer.Exit(1) from exc
+
+    ok = bool(response.get("ok"))
+    data_raw = response.get("data")
+    data = data_raw if isinstance(data_raw, dict) else {}
+    orchestrator_raw = data.get("orchestrator")
+    orchestrator = orchestrator_raw if isinstance(orchestrator_raw, dict) else {}
+
+    console.print(f"[cyan]action:[/cyan] {normalized_action}")
+    console.print(f"[cyan]ok:[/cyan] {str(ok).lower()}")
+    status = data.get("status")
+    if isinstance(status, str) and status:
+        console.print(f"[cyan]status:[/cyan] {status}")
+    accepted = data.get("accepted")
+    if isinstance(accepted, bool):
+        console.print(f"[cyan]accepted:[/cyan] {str(accepted).lower()}")
+    if orchestrator:
+        running = orchestrator.get("running")
+        shutting_down = orchestrator.get("shutting_down")
+        ipc_enabled = orchestrator.get("ipc_enabled")
+        if isinstance(running, bool):
+            console.print(f"[cyan]running:[/cyan] {str(running).lower()}")
+        if isinstance(shutting_down, bool):
+            console.print(f"[cyan]shutting_down:[/cyan] {str(shutting_down).lower()}")
+        if isinstance(ipc_enabled, bool):
+            console.print(f"[cyan]ipc_enabled:[/cyan] {str(ipc_enabled).lower()}")
+
+    if not ok:
+        error = response.get("error")
+        if isinstance(error, str) and error:
+            console.print(f"[red]error:[/red] {error}")
+        raise typer.Exit(1)
 
 
 @app.command()

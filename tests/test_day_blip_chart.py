@@ -13,6 +13,7 @@ from mimolo.analyst.day_blip_chart import (
     build_day_blip_chart,
     build_label_aliases,
     clean_record_labels,
+    default_logs_dir,
     format_chart_panel,
     is_lifecycle_event,
     is_meaningful_record,
@@ -170,6 +171,11 @@ def test_next_quarter_hour_bucket_rounds_up_within_current_day() -> None:
     local_now = datetime(2026, 4, 14, 18, 26, 30, tzinfo=tz)
 
     assert next_quarter_hour_bucket(local_now) == 74
+
+
+def test_default_logs_dir_is_repo_logs_dir() -> None:
+    assert default_logs_dir().name == "logs"
+    assert default_logs_dir().is_absolute()
 
 
 def test_current_day_chart_marks_future_range_on_all_non_time_rows() -> None:

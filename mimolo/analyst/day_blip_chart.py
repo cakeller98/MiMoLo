@@ -37,6 +37,14 @@ DEFAULT_LABEL_ALIASES: dict[str, str] = {
 }
 
 
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def default_logs_dir() -> Path:
+    return repo_root() / "logs"
+
+
 @dataclass(frozen=True)
 class DayActivityRecord:
     timestamp: datetime
@@ -359,7 +367,7 @@ def main(
         help="Local day to render (YYYY-MM-DD). Defaults to today in local time.",
     ),
     log_dir: Path = typer.Option(
-        Path("logs"),
+        default_logs_dir(),
         "--log-dir",
         help="Directory to scan for .mimolo.jsonl logs when --file is omitted.",
     ),

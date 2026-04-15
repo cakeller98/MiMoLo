@@ -38,6 +38,19 @@ def get_mimolo_data_dir() -> Path:
     return base / "mimolo"
 
 
+def get_mimolo_runtime_dir() -> Path:
+    """Return the OS-appropriate runtime directory for transient MiMoLo state."""
+    override = _env_path("MIMOLO_RUNTIME_DIR")
+    if override is not None:
+        return override
+
+    if os.name == "nt":
+        base = Path(os.getenv("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "mimolo" / "run"
+
+    return get_mimolo_data_dir() / "run"
+
+
 def get_mimolo_bin_dir() -> Path:
     """Return executable root for portable/runtime tooling."""
     override = _env_path("MIMOLO_BIN_DIR")
