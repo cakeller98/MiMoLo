@@ -41,6 +41,7 @@ def _make_folder_agent(watch_root: Path) -> ClientFolderActivityAgent:
         heartbeat_interval=10.0,
         emit_path_samples_limit=50,
         use_watchfiles=False,
+        widget_recent_rows_limit=24,
     )
 
 

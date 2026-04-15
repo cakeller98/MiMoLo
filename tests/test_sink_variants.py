@@ -1,14 +1,17 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+import mimolo.core.sink as sink_module
 from mimolo.core.event import Event, EventRef, Segment
 from mimolo.core.sink import (
     ConsoleSink,
     JSONLSink,
     MarkdownSink,
     YAMLSink,
+    _date_token_for_timestamp,
+    _time_label_for_timestamp,
     create_sink,
 )
 
@@ -41,6 +44,29 @@ def test_jsonl_sink_segment_and_event(tmp_path: Path) -> None:
     content = files[0].read_text(encoding="utf-8").strip().splitlines()
     assert any('"type":"segment"' in line for line in content)
     assert any('"type":"event"' in line for line in content)
+
+
+def test_rotation_uses_local_calendar_day() -> None:
+    pacific_daylight = timezone(timedelta(hours=-7))
+    timestamp = datetime(2026, 4, 15, 0, 30, tzinfo=UTC)
+
+    assert _date_token_for_timestamp(timestamp, pacific_daylight) == "2026-04-14"
+    assert _time_label_for_timestamp(timestamp, pacific_daylight) == "17:30:00"
+
+
+def test_jsonl_sink_current_file_uses_local_day_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sink = JSONLSink(tmp_path)
+    timestamp = datetime(2026, 4, 15, 0, 30, tzinfo=UTC)
+
+    monkeypatch.setattr(
+        sink_module,
+        "_date_token_for_timestamp",
+        lambda raw_timestamp, target_tz=None: "2026-04-14",
+    )
+
+    assert sink._get_current_file(timestamp).name == "2026-04-14.mimolo.jsonl"
 
 
 def test_yaml_sink(tmp_path: Path) -> None:

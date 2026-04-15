@@ -38,6 +38,30 @@ WATCH_PATH_OPTION = typer.Option(
     help="Absolute folder path(s) to monitor. Repeat flag for multiple paths.",
 )
 
+DEFAULT_EXCLUDE_GLOBS: tuple[str, ...] = (
+    "**/__pycache__/**",
+    "**/.mypy_cache/**",
+    "**/.git/**",
+    "**/*.tmp",
+    "**/*.swp",
+    ".dropbox.cache/**",
+    "**/.dropbox.cache/**",
+    "desktop.ini",
+    "**/desktop.ini",
+)
+
+
+def _split_glob_csv(raw_value: str) -> list[str]:
+    return [part.strip() for part in raw_value.split(",") if part.strip()]
+
+
+def _resolve_exclude_globs(raw_value: str) -> list[str]:
+    merged: list[str] = list(DEFAULT_EXCLUDE_GLOBS)
+    for pattern in _split_glob_csv(raw_value):
+        if pattern not in merged:
+            merged.append(pattern)
+    return merged
+
 
 @dataclass
 class _WindowPathRecord:
@@ -810,9 +834,9 @@ def main(
         help="Comma-separated include glob patterns.",
     ),
     exclude_globs: str = typer.Option(
-        "**/__pycache__/**,**/.mypy_cache/**,**/.git/**,**/*.tmp,**/*.swp",
+        ",".join(DEFAULT_EXCLUDE_GLOBS),
         "--exclude-globs",
-        help="Comma-separated exclude glob patterns.",
+        help="Comma-separated exclude glob patterns. Defaults are always kept and custom patterns are added.",
     ),
     follow_symlinks: bool = typer.Option(
         False,
@@ -873,12 +897,10 @@ def main(
     if not resolved_watch_paths:
         raise typer.BadParameter("at least one non-empty --watch-path is required")
 
-    resolved_include_globs = [part.strip() for part in include_globs.split(",") if part.strip()]
+    resolved_include_globs = _split_glob_csv(include_globs)
     if not resolved_include_globs:
         resolved_include_globs = ["**/*"]
-    resolved_exclude_globs = [part.strip() for part in exclude_globs.split(",") if part.strip()]
-    if not resolved_exclude_globs:
-        resolved_exclude_globs = ["**/__pycache__/**", "**/.mypy_cache/**", "**/.git/**"]
+    resolved_exclude_globs = _resolve_exclude_globs(exclude_globs)
 
     agent = ClientFolderActivityAgent(
         agent_id=AGENT_ID,

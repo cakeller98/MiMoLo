@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import Any, Literal, TextIO
 
@@ -22,6 +22,27 @@ from mimolo.core.errors import SinkError
 from mimolo.core.event import Event, Segment
 
 logger = logging.getLogger(__name__)
+
+
+def _to_display_timezone(timestamp: datetime, target_tz: tzinfo | None = None) -> datetime:
+    """Convert an aware timestamp to the chosen display/rotation timezone.
+
+    When `target_tz` is omitted, the local machine timezone is used. Naive
+    timestamps are left unchanged.
+    """
+    if timestamp.tzinfo is None:
+        return timestamp
+    return timestamp.astimezone(target_tz)
+
+
+def _date_token_for_timestamp(timestamp: datetime, target_tz: tzinfo | None = None) -> str:
+    """Return the local-calendar date token used for daily file rotation."""
+    return _to_display_timezone(timestamp, target_tz).strftime("%Y-%m-%d")
+
+
+def _time_label_for_timestamp(timestamp: datetime, target_tz: tzinfo | None = None) -> str:
+    """Return a local-clock time label for human-readable sinks."""
+    return _to_display_timezone(timestamp, target_tz).strftime("%H:%M:%S")
 
 
 class BaseSink:
@@ -98,7 +119,7 @@ class JSONLSink(BaseSink):
         Returns:
             Path to log file.
         """
-        date_str = timestamp.strftime("%Y-%m-%d")
+        date_str = _date_token_for_timestamp(timestamp)
         return self.log_dir / f"{date_str}.{self.name_prefix}.jsonl"
 
     def _ensure_file_open(self, timestamp: datetime) -> None:
@@ -198,7 +219,7 @@ class YAMLSink(BaseSink):
 
     def _get_current_file(self, timestamp: datetime) -> Path:
         """Get the log file path for the given timestamp."""
-        date_str = timestamp.strftime("%Y-%m-%d")
+        date_str = _date_token_for_timestamp(timestamp)
         return self.log_dir / f"{date_str}.{self.name_prefix}.yaml"
 
     def _ensure_file_open(self, timestamp: datetime) -> None:
@@ -294,7 +315,7 @@ class MarkdownSink(BaseSink):
 
     def _flush_if_new_day(self, timestamp: datetime) -> None:
         """Flush to file if we've crossed into a new day."""
-        date_str = timestamp.strftime("%Y-%m-%d")
+        date_str = _date_token_for_timestamp(timestamp)
         if self._current_date and self._current_date != date_str:
             self._write_markdown_file()
             self._segments.clear()
@@ -319,8 +340,8 @@ class MarkdownSink(BaseSink):
                     for seg in self._segments:
                         labels = ", ".join(sorted({ref.label for ref in seg.events}))
                         f.write(
-                            f"| {seg.start.strftime('%H:%M:%S')} | "
-                            f"{seg.end.strftime('%H:%M:%S')} | "
+                            f"| {_time_label_for_timestamp(seg.start)} | "
+                            f"{_time_label_for_timestamp(seg.end)} | "
                             f"{seg.duration_s:.1f} | "
                             f"{labels} | "
                             f"{seg.resets_count} | "
@@ -335,7 +356,7 @@ class MarkdownSink(BaseSink):
                     for evt in self._events:
                         data_str = json.dumps(evt.data) if evt.data else ""
                         f.write(
-                            f"| {evt.timestamp.strftime('%H:%M:%S')} | "
+                            f"| {_time_label_for_timestamp(evt.timestamp)} | "
                             f"{evt.label} | "
                             f"{evt.event} | "
                             f"{data_str} |\n"
@@ -383,8 +404,8 @@ class ConsoleSink(BaseSink):
 
         labels = sorted({ref.label for ref in segment.events})
         message = (
-            f"[SEGMENT] {segment.start.strftime('%H:%M:%S')} -> "
-            f"{segment.end.strftime('%H:%M:%S')} "
+            f"[SEGMENT] {_time_label_for_timestamp(segment.start)} -> "
+            f"{_time_label_for_timestamp(segment.end)} "
             f"({segment.duration_s:.1f}s) | "
             f"Labels: {', '.join(labels)} | "
             f"Events: {len(segment.events)} | "
@@ -399,7 +420,7 @@ class ConsoleSink(BaseSink):
             return
 
         message = (
-            f"[EVENT] {event.timestamp.strftime('%H:%M:%S')} | "
+            f"[EVENT] {_time_label_for_timestamp(event.timestamp)} | "
             f"{event.label}.{event.event} | "
             f"Data: {event.data if event.data else 'None'}"
         )
