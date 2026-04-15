@@ -9,6 +9,8 @@ import typer
 
 from mimolo.agents.client_folder_activity.client_folder_activity import (
     ClientFolderActivityAgent,
+    DEFAULT_EXCLUDE_GLOBS,
+    _resolve_exclude_globs,
     main,
 )
 
@@ -45,6 +47,43 @@ def test_main_requires_absolute_watch_paths() -> None:
 def test_main_requires_non_empty_watch_paths() -> None:
     with pytest.raises(typer.BadParameter, match="at least one --watch-path is required"):
         main(watch_paths=[])
+
+
+def test_resolve_exclude_globs_keeps_defaults_and_custom_patterns() -> None:
+    resolved = _resolve_exclude_globs("**/.obsidian/**,.obsidian/**")
+
+    for pattern in DEFAULT_EXCLUDE_GLOBS:
+        assert pattern in resolved
+    assert "**/.obsidian/**" in resolved
+    assert ".obsidian/**" in resolved
+
+
+def test_path_included_excludes_dropbox_cache_and_desktop_ini(tmp_path: Path) -> None:
+    watch_root = tmp_path / "watch"
+    watch_root.mkdir(parents=True, exist_ok=True)
+    agent = ClientFolderActivityAgent(
+        agent_id="client_folder_activity-test-001",
+        agent_label="client_folder_activity_test",
+        client_id="test-client",
+        client_name="Test Client",
+        watch_paths=[str(watch_root)],
+        include_globs=["**/*"],
+        exclude_globs=list(DEFAULT_EXCLUDE_GLOBS),
+        follow_symlinks=False,
+        coalesce_window_s=2.0,
+        capture_window_s=300.0,
+        reemit_cooldown_s=0.0,
+        watchfiles_debounce_ms=1000,
+        sample_interval=0.5,
+        heartbeat_interval=10.0,
+        emit_path_samples_limit=50,
+        use_watchfiles=False,
+        widget_recent_rows_limit=24,
+    )
+
+    assert agent._path_included(watch_root, watch_root / "real.txt")
+    assert not agent._path_included(watch_root, watch_root / ".dropbox.cache" / "marker_file")
+    assert not agent._path_included(watch_root, watch_root / "nested" / "desktop.ini")
 
 
 def test_summary_reports_created_and_modified_paths(tmp_path: Path) -> None:

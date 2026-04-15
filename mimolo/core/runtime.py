@@ -361,7 +361,7 @@ class Runtime:
         if self.diagnostics_sink is None:
             return
         retention_days = int(self.config.monitor.diagnostics_retention_days)
-        now_date = datetime.now(UTC).date()
+        now_date = datetime.now().astimezone().date()
         for path in self.diagnostics_sink.log_dir.glob("*.mimolo-diagnostics.jsonl"):
             date_token = path.name.split(".", 1)[0]
             try:
