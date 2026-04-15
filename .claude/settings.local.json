@@ -7,7 +7,8 @@
       "Bash(timeout 10 poetry run:*)",
       "Bash(timeout 15 poetry run mimolo:*)",
       "Bash(poetry run python:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(poetry run *)"
     ],
     "deny": [],
     "ask": []

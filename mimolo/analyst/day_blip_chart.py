@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, tzinfo
 from pathlib import Path
 from typing import Any, Iterable
 
 import typer
-from rich.console import Console
+from rich.console import Console, Group
+from rich.live import Live
 from rich.panel import Panel
 
 CHUNKS_PER_DAY = 96
@@ -340,10 +342,11 @@ def format_chart_panel(chart: DayBlipChart) -> Panel:
         return (label[: label_width - 3] + "...").ljust(label_width)
 
     body = "\n".join(f"{_format_label(label)}  {line}" for label, line in rows)
+    subtitle = "48 cols = 96 x 15m | summary = OR of visible agent rows | ▒ = future"
     return Panel.fit(
         body,
         title=f"MiMoLo Day Blips | {chart.target_date.isoformat()} | {chart.timezone_label}",
-        subtitle="48 cols = 96 x 15m | summary = OR of visible agent rows | ▒ = future",
+        subtitle=subtitle,
         border_style="cyan",
     )
 
@@ -375,26 +378,58 @@ def main(
         "--alias-label",
         help="Repeat as Old Label=New Label to merge or rename labels.",
     ),
+    live: bool = typer.Option(
+        False,
+        "--live",
+        help="Repaint the chart in place until interrupted with Ctrl+C.",
+    ),
+    refresh: int = typer.Option(
+        300,
+        "--refresh",
+        min=1,
+        help="Refresh interval in seconds (default 300). Only used with --live.",
+    ),
 ) -> None:
     ensure_utf8_output_streams()
     tz = local_timezone()
     target_date = parse_target_date(date_text, tz)
     paths = resolve_log_paths(log_dir, file)
-    records = list(iter_day_records(paths, target_date, tz))
     aliases = build_label_aliases(alias_label)
     excluded_labels = set(DEFAULT_EXCLUDED_LABELS)
     excluded_labels.update(normalize_label_filter(exclude_label))
     included_labels = normalize_label_filter(include_label)
-    records = list(
-        clean_record_labels(
-            records,
-            aliases=aliases,
-            excluded_labels=excluded_labels,
-            included_labels=included_labels,
+
+    def _render_panel() -> Panel:
+        records = list(iter_day_records(paths, target_date, tz))
+        records = list(
+            clean_record_labels(
+                records,
+                aliases=aliases,
+                excluded_labels=excluded_labels,
+                included_labels=included_labels,
+            )
         )
-    )
-    chart = build_day_blip_chart(records, target_date, tz)
-    Console().print(format_chart_panel(chart))
+        chart = build_day_blip_chart(records, target_date, tz)
+        return format_chart_panel(chart)
+
+    console = Console()
+
+    if not live:
+        console.print(_render_panel())
+        return
+
+    with Live(console=console) as live_display:
+        try:
+            while True:
+                now = datetime.now().astimezone(tz)
+                timestamp = now.strftime("%H:%M:%S %Z")
+                live_display.update(Group(
+                    _render_panel(),
+                    f"  [dim]refreshed {timestamp} · next in {refresh}s · Ctrl+C to quit[/dim]",
+                ))
+                time.sleep(refresh)
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":
