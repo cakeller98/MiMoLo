@@ -10,5 +10,8 @@ Quick last-entry check:
 Help:
 `powershell -ExecutionPolicy Bypass -File .\scripts\print_last_jsonl.ps1 --help`
 
+Quick day blip chart:
+`poetry run python .\scripts\print_day_blip_chart.py`
+
 Install per-user wrapper in `%LOCALAPPDATA%\bin`:
 `cmd /c .\scripts\install_mimolo_short_commands.bat`
