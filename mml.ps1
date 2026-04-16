@@ -507,11 +507,12 @@ function Show-Usage {
 
 function Launch-Operations {
     param([string[]]$OpsArgs)
+    $normalizedOpsArgs = @($OpsArgs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     Write-Host "[dev-stack] MIMOLO_IPC_PATH=$env:MIMOLO_IPC_PATH"
     Write-Host "[dev-stack] MIMOLO_IPC_MODE=$env:MIMOLO_IPC_MODE"
     Write-Host "[dev-stack] MIMOLO_IPC_SLOWPOKE_ROOT=$env:MIMOLO_IPC_SLOWPOKE_ROOT"
     Write-Host "[dev-stack] MIMOLO_OPS_LOG_PATH=$env:MIMOLO_OPS_LOG_PATH"
-    poetry run python -m mimolo.cli ops @OpsArgs
+    poetry run python -m mimolo.cli ops @normalizedOpsArgs
 }
 
 function Show-MimoloProcesses {
@@ -902,6 +903,7 @@ function Run-AllTarget {
         [string]$Target,
         [string[]]$OpsArgs
     )
+    $normalizedOpsArgs = @($OpsArgs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
 
     Write-Host "[dev-stack] Starting Operations in background..."
     $existingProbeTimeoutSeconds = if ($env:MIMOLO_IPC_MODE -eq "slowpoke") {
@@ -923,7 +925,7 @@ function Run-AllTarget {
         return
     }
 
-    $opsArguments = @("run", "python", "-m", "mimolo.cli", "ops") + $OpsArgs
+    $opsArguments = @("run", "python", "-m", "mimolo.cli", "ops") + $normalizedOpsArgs
     if ($Target -eq "proto") {
         try {
             Set-Content -Path $env:MIMOLO_OPS_LOG_PATH -Value ""
