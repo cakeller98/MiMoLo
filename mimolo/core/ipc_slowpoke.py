@@ -123,6 +123,14 @@ class SlowpokeChannel:
                 # Corrupted or already deleted, skip
                 msg_file.unlink(missing_ok=True)
                 continue
+            except OSError as e:
+                # Windows AV/indexing can briefly lock files during read/unlink.
+                logger.warning(
+                    "SLOWPOKE read skipped locked/unavailable file %s: %s",
+                    msg_file,
+                    e,
+                )
+                continue
 
         # No messages, sleep to avoid busy-wait
         time.sleep(self.POLL_INTERVAL)
@@ -169,7 +177,10 @@ class SlowpokeChannel:
         """Cleanup message files."""
         for directory in [self.read_dir, self.write_dir]:
             for file in directory.glob("*.json"):
-                file.unlink(missing_ok=True)
+                try:
+                    file.unlink(missing_ok=True)
+                except OSError as e:
+                    logger.warning("SLOWPOKE close cleanup failed for %s: %s", file, e)
 
 
 def check_agent_count_sanity(agent_count: int) -> None:

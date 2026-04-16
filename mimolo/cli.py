@@ -15,6 +15,7 @@ import signal
 import sys
 import time
 import tomllib
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -160,9 +161,11 @@ def _send_ops_control_request(
 ) -> dict[str, object]:
     """Send one control_orchestrator request over the active IPC transport."""
     ipc_path, slowpoke_root, ipc_mode = _resolve_ops_ipc_settings(config_path)
+    request_id = f"ops-control-{uuid.uuid4().hex}"
     request: dict[str, object] = {
         "cmd": "control_orchestrator",
         "action": action,
+        "request_id": request_id,
     }
 
     if ipc_mode == "slowpoke":
@@ -195,6 +198,9 @@ def _send_ops_control_request(
                 ) from exc
             if not isinstance(payload, dict):
                 raise RuntimeError(f"Unexpected IPC response type: {type(payload).__name__}")
+            payload_request_id = payload.get("request_id")
+            if payload_request_id != request_id:
+                continue
             return payload
     finally:
         channel.close()
@@ -338,7 +344,7 @@ def ops_control(
         str,
         typer.Argument(help="One of: status, stop"),
     ] = "status",
-    config_path: Annotated[Path | None, CONFIG_OPTION] = Path("mimolo.toml"),
+    config_path: Annotated[Path | None, CONFIG_OPTION] = Path("mml.toml"),
     timeout: Annotated[
         float,
         typer.Option("--timeout", min=0.1, help="IPC response timeout in seconds."),

@@ -10,6 +10,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from mimolo.core.errors import SinkError
+from mimolo.core.event import Event
 from mimolo.core.ipc import (
     AF_UNIX,
     MAX_SOCKET_PATH_LENGTH,
@@ -197,9 +199,53 @@ def _cleanup_slowpoke_json(directory: Path) -> None:
     if not directory.exists():
         return
     for file in directory.glob("*.json"):
-        file.unlink(missing_ok=True)
+        try:
+            file.unlink(missing_ok=True)
+        except OSError:
+            continue
     for file in directory.glob("*.tmp"):
-        file.unlink(missing_ok=True)
+        try:
+            file.unlink(missing_ok=True)
+        except OSError:
+            continue
+
+
+def _emit_ipc_failure_alert(
+    runtime: Runtime,
+    *,
+    event: str,
+    error: Exception,
+    mode: str,
+    root_dir: str | None = None,
+) -> None:
+    """Emit a visible orchestrator event for IPC failure conditions."""
+    timestamp = datetime.now(UTC)
+    data: dict[str, Any] = {
+        "error_type": type(error).__name__,
+        "error": str(error),
+        "ipc_mode": mode,
+        "ipc_socket_path": runtime._ipc_socket_path,
+        "ipc_slowpoke_root": root_dir,
+        "user_action": "restart_ops_required",
+        "severity": "critical",
+    }
+    runtime._write_diagnostic_event(
+        label="orchestrator",
+        event=event,
+        timestamp=timestamp,
+        data=data,
+    )
+    try:
+        runtime.file_sink.write_event(
+            Event(
+                timestamp=timestamp,
+                label="orchestrator",
+                event=event,
+                data=data,
+            )
+        )
+    except SinkError:
+        runtime._debug("[yellow]Failed writing IPC failure alert to file sink.[/yellow]")
 
 
 def _ipc_server_loop_slowpoke(runtime: Runtime) -> None:
@@ -228,7 +274,20 @@ def _ipc_server_loop_slowpoke(runtime: Runtime) -> None:
         runtime._ipc_slowpoke_channel = channel
         runtime._debug(f"[dim]IPC server listening in slowpoke mode at {root_dir}[/dim]")
         while not runtime._ipc_stop_event.is_set():
-            line = channel.read_line()
+            try:
+                line = channel.read_line()
+            except OSError as exc:
+                runtime._console_print_safe(
+                    f"[red]IPC slowpoke read failed: {type(exc).__name__}: {exc}[/red]"
+                )
+                _emit_ipc_failure_alert(
+                    runtime,
+                    event="ipc_slowpoke_read_error",
+                    error=exc,
+                    mode="slowpoke",
+                    root_dir=root_dir,
+                )
+                continue
             if not line:
                 continue
             try:
@@ -250,6 +309,13 @@ def _ipc_server_loop_slowpoke(runtime: Runtime) -> None:
     except OSError as e:
         runtime._console_print_safe(
             f"[red]IPC slowpoke server failed to start: {e}[/red]"
+        )
+        _emit_ipc_failure_alert(
+            runtime,
+            event="ipc_slowpoke_server_failure",
+            error=e,
+            mode="slowpoke",
+            root_dir=root_dir,
         )
     finally:
         if channel is not None:
