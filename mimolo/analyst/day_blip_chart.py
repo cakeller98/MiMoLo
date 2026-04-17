@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import time
+import warnings
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timedelta, tzinfo
+from datetime import date, datetime, tzinfo
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -62,6 +64,13 @@ class DayBlipChart:
     all_activity_line: str
     agent_lines: list[tuple[str, str]]
     future_fill_start: int | None
+
+
+@dataclass(frozen=True)
+class OpsProbeResult:
+    line: str
+    healthy: bool
+    detail: str
 
 
 def local_timezone() -> tzinfo:
@@ -359,6 +368,211 @@ def format_chart_panel(chart: DayBlipChart) -> Panel:
     )
 
 
+def _format_ops_status_line(
+    *,
+    ok: bool,
+    running: bool | None,
+    status: str | None,
+    shutting_down: bool | None,
+    error: str | None,
+) -> str:
+    if not ok:
+        detail = (error or "unknown_error").strip() or "unknown_error"
+        return f"  [red]ops status: unavailable ({detail})[/red]"
+
+    if running is True:
+        if shutting_down is True:
+            return "  [yellow]ops status: running (shutting down)[/yellow]"
+        return "  [green]ops status: running[/green]"
+
+    if running is False:
+        return "  [yellow]ops status: stopped[/yellow]"
+
+    if isinstance(status, str) and status.strip():
+        return f"  [yellow]ops status: {status.strip()}[/yellow]"
+
+    return "  [yellow]ops status: unknown[/yellow]"
+
+
+def _flash_console_taskbar() -> None:
+    if sys.platform != "win32":
+        return
+
+    try:
+        import ctypes
+
+        class FLASHWINFO(ctypes.Structure):
+            _fields_ = [
+                ("cbSize", ctypes.c_uint),
+                ("hwnd", ctypes.c_void_p),
+                ("dwFlags", ctypes.c_uint),
+                ("uCount", ctypes.c_uint),
+                ("dwTimeout", ctypes.c_uint),
+            ]
+
+        FLASHW_TRAY = 0x00000002
+        FLASHW_TIMERNOFG = 0x0000000C
+
+        kernel32 = ctypes.windll.kernel32
+        user32 = ctypes.windll.user32
+        hwnd = kernel32.GetConsoleWindow()
+        if not hwnd:
+            return
+
+        flash_info = FLASHWINFO(
+            cbSize=ctypes.sizeof(FLASHWINFO),
+            hwnd=hwnd,
+            dwFlags=FLASHW_TRAY | FLASHW_TIMERNOFG,
+            uCount=7,
+            dwTimeout=0,
+        )
+        user32.FlashWindowEx(ctypes.byref(flash_info))
+    except Exception:
+        return
+
+
+def _beep_alert() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import winsound
+
+        winsound.MessageBeep(winsound.MB_ICONHAND)
+    except Exception:
+        return
+
+
+def _spawn_windows_popup(title: str, message: str, timeout_s: int = 12) -> None:
+    if sys.platform != "win32":
+        return
+
+    escaped_title = title.replace("'", "''")
+    escaped_message = message.replace("'", "''")
+    safe_timeout = max(3, min(timeout_s, 60))
+
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$n = New-Object System.Windows.Forms.NotifyIcon; "
+        "$n.Icon = [System.Drawing.SystemIcons]::Warning; "
+        "$n.Visible = $true; "
+        f"$n.BalloonTipTitle = '{escaped_title}'; "
+        f"$n.BalloonTipText = '{escaped_message}'; "
+        "$n.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Warning; "
+        f"$n.ShowBalloonTip({safe_timeout * 1000}); "
+        f"Start-Sleep -Seconds {safe_timeout}; "
+        "$n.Dispose()"
+    )
+
+    try:
+        subprocess.Popen(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        return
+
+
+def _notify_ops_down(
+    detail: str,
+    *,
+    with_sound: bool,
+    with_popup: bool,
+) -> None:
+    if with_sound:
+        _beep_alert()
+
+    _flash_console_taskbar()
+
+    if with_popup:
+        _spawn_windows_popup(
+            title="MiMoLo ops alert",
+            message=f"Ops appears down. {detail}",
+        )
+
+
+def _probe_ops_status_line(config_path: Path, timeout_s: float = 1.0) -> OpsProbeResult:
+    try:
+        # Keep this in Python rather than shelling out so mimolo-bliplive can report
+        # ops health directly from the chart refresh loop.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r".*SLOWPOKE IPC MODULE LOADED.*",
+                category=UserWarning,
+            )
+            from mimolo.cli import _send_ops_control_request
+
+            response = _send_ops_control_request(
+                action="status",
+                config_path=config_path,
+                timeout_s=timeout_s,
+            )
+    except Exception as exc:  # noqa: BLE001
+        detail = str(exc).strip() or exc.__class__.__name__
+        if len(detail) > 120:
+            detail = detail[:117] + "..."
+        return OpsProbeResult(
+            line=f"  [red]ops status: unavailable ({detail})[/red]",
+            healthy=False,
+            detail=detail,
+        )
+
+    data_raw = response.get("data")
+    data = data_raw if isinstance(data_raw, dict) else {}
+    orchestrator_raw = data.get("orchestrator")
+    orchestrator = orchestrator_raw if isinstance(orchestrator_raw, dict) else {}
+
+    running_raw = orchestrator.get("running")
+    running = running_raw if isinstance(running_raw, bool) else None
+
+    shutting_down_raw = orchestrator.get("shutting_down")
+    shutting_down = shutting_down_raw if isinstance(shutting_down_raw, bool) else None
+
+    status_raw = data.get("status")
+    status = status_raw if isinstance(status_raw, str) else None
+
+    error_raw = response.get("error")
+    error = error_raw if isinstance(error_raw, str) else None
+
+    ok = bool(response.get("ok"))
+    healthy = ok and running is True and shutting_down is not True
+    line = _format_ops_status_line(
+        ok=ok,
+        running=running,
+        status=status,
+        shutting_down=shutting_down,
+        error=error,
+    )
+
+    if healthy:
+        detail = "running"
+    elif isinstance(error, str) and error.strip():
+        detail = error.strip()
+    elif isinstance(status, str) and status.strip():
+        detail = status.strip()
+    elif running is False:
+        detail = "stopped"
+    elif shutting_down is True:
+        detail = "shutting_down"
+    else:
+        detail = "unknown"
+
+    return OpsProbeResult(
+        line=line,
+        healthy=healthy,
+        detail=detail,
+    )
+
+
 def main(
     file: Path | None = typer.Option(None, "--file", help="Read a specific .mimolo.jsonl file."),
     date_text: str | None = typer.Option(
@@ -397,6 +611,33 @@ def main(
         min=1,
         help="Refresh interval in seconds (default 300). Only used with --live.",
     ),
+    ops_config: Path = typer.Option(
+        Path("mml.toml"),
+        "--ops-config",
+        help="Config path used for ops status checks in --live mode.",
+    ),
+    ops_timeout: float = typer.Option(
+        1.0,
+        "--ops-timeout",
+        min=0.1,
+        help="Timeout in seconds for each ops status check in --live mode.",
+    ),
+    ops_alert_repeat: int = typer.Option(
+        300,
+        "--ops-alert-repeat",
+        min=30,
+        help="Repeat down alerts every N seconds while ops is unhealthy.",
+    ),
+    ops_popup: bool = typer.Option(
+        True,
+        "--ops-popup/--no-ops-popup",
+        help="Show a non-blocking popup when ops goes unhealthy in --live mode.",
+    ),
+    ops_sound: bool = typer.Option(
+        True,
+        "--ops-sound/--no-ops-sound",
+        help="Play an audible alert when ops goes unhealthy in --live mode.",
+    ),
 ) -> None:
     ensure_utf8_output_streams()
     tz = local_timezone()
@@ -426,13 +667,36 @@ def main(
         console.print(_render_panel())
         return
 
+    last_ops_healthy: bool | None = None
+    last_alert_at: float | None = None
+
     with Live(console=console) as live_display:
         try:
             while True:
                 now = datetime.now().astimezone(tz)
                 timestamp = now.strftime("%H:%M:%S %Z")
+                ops_probe = _probe_ops_status_line(ops_config, timeout_s=ops_timeout)
+
+                alert_due = False
+                if not ops_probe.healthy:
+                    if last_ops_healthy is not False:
+                        alert_due = True
+                    elif last_alert_at is not None:
+                        alert_due = (time.monotonic() - last_alert_at) >= ops_alert_repeat
+
+                if alert_due:
+                    _notify_ops_down(
+                        ops_probe.detail,
+                        with_sound=ops_sound,
+                        with_popup=ops_popup,
+                    )
+                    last_alert_at = time.monotonic()
+
+                last_ops_healthy = ops_probe.healthy
+
                 live_display.update(Group(
                     _render_panel(),
+                    ops_probe.line,
                     f"  [dim]refreshed {timestamp} · next in {refresh}s · Ctrl+C to quit[/dim]",
                 ))
                 time.sleep(refresh)

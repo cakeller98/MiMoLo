@@ -15,6 +15,7 @@ from mimolo.analyst.day_blip_chart import (
     clean_record_labels,
     default_logs_dir,
     format_chart_panel,
+    _format_ops_status_line,
     is_lifecycle_event,
     is_meaningful_record,
     next_quarter_hour_bucket,
@@ -206,3 +207,29 @@ def test_current_day_chart_marks_future_range_on_all_non_time_rows() -> None:
     assert chart.future_fill_start == now_char_index + 1
     assert "now" not in panel.renderable
     assert any(BLOCK_FUTURE in line for line in lines[1:])
+
+
+def test_format_ops_status_line_running() -> None:
+    line = _format_ops_status_line(
+        ok=True,
+        running=True,
+        status=None,
+        shutting_down=False,
+        error=None,
+    )
+
+    assert "ops status: running" in line
+    assert "[green]" in line
+
+
+def test_format_ops_status_line_unavailable_includes_error() -> None:
+    line = _format_ops_status_line(
+        ok=False,
+        running=None,
+        status=None,
+        shutting_down=None,
+        error="timed out",
+    )
+
+    assert "ops status: unavailable (timed out)" in line
+    assert "[red]" in line
