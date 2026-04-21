@@ -29,15 +29,22 @@ if not exist "%INSTALL_DIR%" (
     )
 )
 
-set "COMMAND_LIST=mimolo mimolo-help mimolo-dash mimolo-ops mimolo-report mimolo-activity mimolo-blips mimolo-bliplive"
+set "COMMAND_LIST=pymolo pymolo-help pymolo-dash pymolo-ops pymolo-report pymolo-activity pymolo-blips pymolo-bliplive"
+set "LEGACY_COMMAND_LIST=mimolo mimolo-help mimolo-dash mimolo-ops mimolo-report mimolo-activity mimolo-blips mimolo-bliplive mimolo-short-commands"
 
 for %%N in (%COMMAND_LIST%) do (
     call :write_wrapper "%INSTALL_DIR%\%%N.bat" "%DISPATCHER_SCRIPT%" "%%N"
     if errorlevel 1 exit /b %ERRORLEVEL%
 )
 
-call :remove_legacy_wrapper "%INSTALL_DIR%\mimolo-short-commands.bat"
-if errorlevel 1 exit /b %ERRORLEVEL%
+if /I "%MIMOLO_REMOVE_LEGACY_MIMOLO_WRAPPERS%"=="1" (
+    for %%N in (%LEGACY_COMMAND_LIST%) do (
+        call :remove_legacy_wrapper "%INSTALL_DIR%\%%N.bat"
+        if errorlevel 1 exit /b %ERRORLEVEL%
+    )
+) else (
+    call :report_legacy_wrapper_policy
+)
 
 if /I "%MIMOLO_SKIP_PATH_UPDATE%"=="1" (
     echo Skipped user PATH update because MIMOLO_SKIP_PATH_UPDATE=1.
@@ -52,14 +59,14 @@ echo.
 for %%N in (%COMMAND_LIST%) do echo   %%N.bat
 echo.
 echo Examples:
-echo   mimolo --help
-echo   mimolo-dash
-echo   mimolo-report
-echo   mimolo-activity
-echo   mimolo-blips
-echo   mimolo-bliplive
-echo   mimolo-ops --status
-echo   mimolo-ops --stop
+echo   pymolo --help
+echo   pymolo-dash
+echo   pymolo-report
+echo   pymolo-activity
+echo   pymolo-blips
+echo   pymolo-bliplive
+echo   pymolo-ops --status
+echo   pymolo-ops --stop
 echo.
 echo Before first use on a new profile, verify your security-tool exclusions are
 echo present for Python, Poetry, pip, pipx, uv, and repo working paths.
@@ -103,6 +110,13 @@ if exist "%LEGACY_WRAPPER%" (
 
 echo Removed legacy wrapper:
 echo   "%LEGACY_WRAPPER%"
+exit /b 0
+
+:report_legacy_wrapper_policy
+echo Skipped removal of mimolo*.bat wrappers.
+echo This avoids deleting canonical command names that may belong to the Rust version.
+echo To remove old Python-era mimolo wrappers explicitly, rerun with:
+echo   set MIMOLO_REMOVE_LEGACY_MIMOLO_WRAPPERS=1
 exit /b 0
 
 :ensure_user_path

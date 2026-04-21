@@ -18,25 +18,25 @@ function Get-ShortHelpText {
         "MiMoLo short commands",
         "",
         "Commands:",
-        "  mimolo --help",
-        "  mimolo dash",
-        "  mimolo ops --status",
-        "  mimolo ops --stop",
-        "  mimolo ops --start",
-        "  mimolo ops --list-active",
-        "  mimolo report [report options]",
-        "  mimolo activity [report options]",
-        "  mimolo blips [blip options]",
-        "  mimolo blips --live --refresh 60",
+        "  pymolo --help",
+        "  pymolo dash",
+        "  pymolo ops --status",
+        "  pymolo ops --stop",
+        "  pymolo ops --start",
+        "  pymolo ops --list-active",
+        "  pymolo report [report options]",
+        "  pymolo activity [report options]",
+        "  pymolo blips [blip options]",
+        "  pymolo blips --live --refresh 60",
         "",
         "Shortcuts:",
-        "  mimolo-help",
-        "  mimolo-dash",
-        "  mimolo-ops",
-        "  mimolo-report",
-        "  mimolo-activity",
-        "  mimolo-blips",
-        "  mimolo-bliplive",
+        "  pymolo-help",
+        "  pymolo-dash",
+        "  pymolo-ops",
+        "  pymolo-report",
+        "  pymolo-activity",
+        "  pymolo-blips",
+        "  pymolo-bliplive",
         "",
         "Notes:",
         "  Python-backed commands prefer the repo .venv and fall back to poetry if needed.",
@@ -59,7 +59,7 @@ function Get-CommandLabel {
     param([string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
-        return "mimolo"
+        return "pymolo"
     }
 
     return $Value.Trim().ToLowerInvariant()
@@ -163,12 +163,12 @@ function Invoke-MimoloOps {
 
     $normalized = @($RawArgs | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
     if ($normalized.Count -eq 0) {
-        Write-Output "Usage: mimolo ops --status|--stop|--start|--list-active"
+        Write-Output "Usage: pymolo ops --status|--stop|--start|--list-active"
         exit 2
     }
 
     if ($normalized.Count -eq 1 -and ($normalized[0] -eq "--help" -or $normalized[0] -eq "-h")) {
-        Write-Output "Usage: mimolo ops --status|--stop|--start|--list-active"
+        Write-Output "Usage: pymolo ops --status|--stop|--start|--list-active"
         Write-Output ""
         Write-Output "Options:"
         Write-Output "  --status       Query running Operations over IPC."
@@ -179,8 +179,8 @@ function Invoke-MimoloOps {
     }
 
     if ($normalized.Count -ne 1) {
-        Write-Output ("Unexpected mimolo ops arguments: {0}" -f ($normalized -join " "))
-        Write-Output "Use: mimolo ops --status|--stop|--start|--list-active"
+        Write-Output ("Unexpected pymolo ops arguments: {0}" -f ($normalized -join " "))
+        Write-Output "Use: pymolo ops --status|--stop|--start|--list-active"
         exit 2
     }
 
@@ -201,8 +201,8 @@ function Invoke-MimoloOps {
             Invoke-PowerShellScript -ScriptPath $launcher -ScriptArgs @("list-active")
         }
         default {
-            Write-Output ("Bad mimolo ops flag: {0}" -f $normalized[0])
-            Write-Output "Use: mimolo ops --status|--stop|--start|--list-active"
+            Write-Output ("Bad pymolo ops flag: {0}" -f $normalized[0])
+            Write-Output "Use: pymolo ops --status|--stop|--start|--list-active"
             exit 2
         }
     }
@@ -217,7 +217,7 @@ $shimName = Get-CommandLabel -Value $Shim
 $normalizedArgs = @($Args | Where-Object { $null -ne $_ })
 
 switch -Exact ($shimName) {
-    "mimolo" {
+    "pymolo" {
         if ($normalizedArgs.Count -eq 0) {
             Show-ShortHelp
             exit 0
@@ -237,33 +237,33 @@ switch -Exact ($shimName) {
             "blips" { Invoke-PythonScript -Feature "blips" -ScriptPath $blipScript -ScriptArgs $subArgs }
             "bliplive" { Invoke-PythonScript -Feature "bliplive" -ScriptPath $blipScript -ScriptArgs (@("--live", "--refresh", "60") + $subArgs) }
             default {
-                Write-Output ("Unknown mimolo command: {0}" -f $normalizedArgs[0])
+                Write-Output ("Unknown pymolo command: {0}" -f $normalizedArgs[0])
                 Write-Output ""
                 Show-ShortHelp
                 exit 2
             }
         }
     }
-    "mimolo-help" {
+    "pymolo-help" {
         Show-ShortHelp
         exit 0
     }
-    "mimolo-dash" {
+    "pymolo-dash" {
         Invoke-PowerShellScript -ScriptPath $launcherScript -ScriptArgs $normalizedArgs
     }
-    "mimolo-ops" {
+    "pymolo-ops" {
         Invoke-MimoloOps -RawArgs $normalizedArgs
     }
-    "mimolo-report" {
+    "pymolo-report" {
         Invoke-PowerShellScript -ScriptPath $reportScript -ScriptArgs $normalizedArgs
     }
-    "mimolo-activity" {
+    "pymolo-activity" {
         Invoke-PowerShellScript -ScriptPath $reportScript -ScriptArgs (@("--get-last-active") + $normalizedArgs)
     }
-    "mimolo-blips" {
+    "pymolo-blips" {
         Invoke-PythonScript -Feature "blips" -ScriptPath $blipScript -ScriptArgs $normalizedArgs
     }
-    "mimolo-bliplive" {
+    "pymolo-bliplive" {
         Invoke-PythonScript -Feature "bliplive" -ScriptPath $blipScript -ScriptArgs (@("--live", "--refresh", "60") + $normalizedArgs)
     }
     default {

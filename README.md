@@ -17,4 +17,4 @@ Install per-user wrapper in `%LOCALAPPDATA%\bin`:
 `cmd /c .\scripts\install_mimolo_short_commands.bat`
 
 Short commands after install:
-`mimolo --help`
+`pymolo --help`
